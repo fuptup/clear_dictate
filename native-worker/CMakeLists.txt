@@ -333,6 +333,22 @@ if(CLEAR_DICTATE_ENABLE_MOONSHINE)
     set_target_properties(clear_dictate_moonshine_speech_engine PROPERTIES CXX_EXTENSIONS OFF)
     target_compile_options(clear_dictate_moonshine_speech_engine PRIVATE /EHsc /W4)
 
+    add_executable(clear_dictate_live_microphone_moonshine_pipeline_smoke tests/LiveMicrophoneMoonshinePipelineSmoke.cpp)
+    target_link_libraries(
+        clear_dictate_live_microphone_moonshine_pipeline_smoke
+        PRIVATE
+        clear_dictate_moonshine_speech_engine
+        clear_dictate_windows_audio_session_capture
+    )
+    target_compile_features(clear_dictate_live_microphone_moonshine_pipeline_smoke PRIVATE cxx_std_20)
+    set_target_properties(clear_dictate_live_microphone_moonshine_pipeline_smoke PROPERTIES CXX_EXTENSIONS OFF)
+    target_compile_options(clear_dictate_live_microphone_moonshine_pipeline_smoke PRIVATE /EHsc /W4 /wd4324)
+    add_custom_command(
+        TARGET clear_dictate_live_microphone_moonshine_pipeline_smoke
+        POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CLEAR_DICTATE_ONNX_RUNTIME_DLL}" "$<TARGET_FILE_DIR:clear_dictate_live_microphone_moonshine_pipeline_smoke>"
+    )
+
     option(CLEAR_DICTATE_ENABLE_SPEECH_MODEL_INTEGRATION_TESTS "Build the pinned Moonshine spoken-fixture integration test." OFF)
     if(CLEAR_DICTATE_ENABLE_SPEECH_MODEL_INTEGRATION_TESTS)
         if(NOT DEFINED CLEAR_DICTATE_TEST_SPEECH_MODEL_DIRECTORY OR NOT DEFINED CLEAR_DICTATE_TEST_SPEECH_WAVE)
