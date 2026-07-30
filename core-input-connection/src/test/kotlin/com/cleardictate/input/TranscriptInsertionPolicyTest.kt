@@ -102,6 +102,24 @@ class TranscriptInsertionPolicyTest
     }
 
     @Test
+    fun `private editor selection is refused without reading its contents`()
+    {
+        val decision = insertionPolicy.decide(
+            EditorContext(
+                editorSessionIdentifier,
+                hasSelection = true,
+                replaceSelectionEnabled = false,
+                isPrivate = true
+            ),
+            "private replacement",
+            editorSessionIdentifier
+        )
+
+        assertFalse(decision.insertionAllowed)
+        assertFalse(decision.historyAllowed)
+    }
+
+    @Test
     fun `editor context diagnostic rendering redacts surrounding text`()
     {
         val context = EditorContext(

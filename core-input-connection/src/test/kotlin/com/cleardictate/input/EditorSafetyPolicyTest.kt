@@ -39,6 +39,7 @@ class EditorSafetyPolicyTest
         val noLearningDecision = policy.evaluate(EditorSecuritySignals(noPersonalizedLearning = true))
 
         assertTrue(privateDecision.dictationAllowed)
+        assertFalse(privateDecision.surroundingTextInspectionAllowed)
         assertFalse(privateDecision.historyAllowed)
         assertFalse(privateDecision.retainTranscriptAfterInsertion)
         assertTrue(noLearningDecision.dictationAllowed)

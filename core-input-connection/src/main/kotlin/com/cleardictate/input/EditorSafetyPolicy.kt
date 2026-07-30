@@ -58,7 +58,7 @@ class EditorSafetyPolicy
 
         return EditorSafetyDecision(
             dictationAllowed = true,
-            surroundingTextInspectionAllowed = true,
+            surroundingTextInspectionAllowed = !isPrivate,
             historyAllowed = !isPrivate,
             retainTranscriptAfterInsertion = !isPrivate
         )

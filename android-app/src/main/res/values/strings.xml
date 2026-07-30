@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="application_name">ClearDictate</string>
+    <string name="input_method_name">ClearDictate Dictation</string>
+    <string name="input_method_subtype_english">English dictation</string>
 </resources>

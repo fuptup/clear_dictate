@@ -62,16 +62,19 @@ dependencies {
     implementation(project(":core-domain"))
     implementation(project(":core-input-connection"))
     implementation(project(":core-models"))
+    implementation(project(":inference-contract"))
+    implementation(project(":inference-service"))
 
     implementation(platform(libs.compose.android.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.ui)
+    implementation(libs.compose.ui.tooling.preview)
 
-    debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(kotlin("test"))
     testImplementation(libs.junit4)

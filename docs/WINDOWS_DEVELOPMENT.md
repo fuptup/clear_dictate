@@ -101,7 +101,7 @@ The adjacent `clear_dictate_worker_launcher.exe` validates the Java host's proce
 $env:JAVA_HOME='C:\Program Files\Unity\Hub\Editor\6000.2.7f2\Editor\Data\PlaybackEngines\AndroidPlayer\OpenJDK'
 $env:Path="$env:JAVA_HOME\bin;$env:Path"
 $env:ANDROID_HOME='E:\VoiceToText\.tooling\android-sdk'
-.\gradlew.bat test :android-app:assembleDebug :android-app:lintDebug :desktop-app:compileKotlin
+.\gradlew.bat :core-domain:test :core-input-connection:test :core-models:test :inference-contract:test :desktop-inference:test :desktop-app:test :inference-service:testDebugUnitTest :android-app:testDebugUnitTest :android-app:assembleDebug :android-app:lintDebug
 ```
 
 ## Run the real Kotlin-to-worker integration test

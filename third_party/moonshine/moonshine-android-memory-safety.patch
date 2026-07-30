@@ -1,0 +1,122 @@
+diff --git a/android/java/main/java/ai/moonshine/voice/Transcriber.java b/android/java/main/java/ai/moonshine/voice/Transcriber.java
+index 1fcbeab..40950ba 100644
+--- a/android/java/main/java/ai/moonshine/voice/Transcriber.java
++++ b/android/java/main/java/ai/moonshine/voice/Transcriber.java
+@@ -227 +227,5 @@ public class Transcriber {
+-    return JNI.moonshineCreateStream(this.transcriberHandle, 0);
++    int streamHandle = JNI.moonshineCreateStream(this.transcriberHandle, 0);
++    if (streamHandle < 0) {
++      throw new RuntimeException(JNI.moonshineErrorToString(streamHandle));
++    }
++    return streamHandle;
+@@ -231 +235,7 @@ public class Transcriber {
+-    JNI.moonshineFreeStream(this.transcriberHandle, streamHandle);
++    checkStatus(JNI.moonshineFreeStream(this.transcriberHandle, streamHandle));
++    completedLinesLock.lock();
++    try {
++      completedLines.clear();
++    } finally {
++      completedLinesLock.unlock();
++    }
+@@ -235 +245 @@ public class Transcriber {
+-    JNI.moonshineStartStream(this.transcriberHandle, streamHandle);
++    checkStatus(JNI.moonshineStartStream(this.transcriberHandle, streamHandle));
+@@ -239 +249 @@ public class Transcriber {
+-    JNI.moonshineStopStream(this.transcriberHandle, streamHandle);
++    checkStatus(JNI.moonshineStopStream(this.transcriberHandle, streamHandle));
+@@ -271,2 +281,3 @@ public class Transcriber {
+-    JNI.moonshineAddAudioToStream(this.transcriberHandle, streamHandle,
+-                                  audioData, sampleRate, this.transcribeFlags);
++    checkStatus(JNI.moonshineAddAudioToStream(
++        this.transcriberHandle, streamHandle, audioData, sampleRate,
++        this.transcribeFlags));
+@@ -281,0 +293,6 @@ public class Transcriber {
++  private static void checkStatus(int status) {
++    if (status != 0) {
++      throw new RuntimeException(JNI.moonshineErrorToString(status));
++    }
++  }
++
+diff --git a/android/moonshine-jni/moonshine-jni.cpp b/android/moonshine-jni/moonshine-jni.cpp
+index 5a1a207..383f198 100644
+--- a/android/moonshine-jni/moonshine-jni.cpp
++++ b/android/moonshine-jni/moonshine-jni.cpp
+@@ -7,0 +8 @@
++#include <stdexcept>
+@@ -18,0 +20,29 @@
++class FloatArrayElements final {
++public:
++  FloatArrayElements(JNIEnv *env, jfloatArray array)
++      : env_(env), array_(array),
++        elements_(array == nullptr
++                      ? nullptr
++                      : env->GetFloatArrayElements(array, nullptr)) {
++    if (array_ != nullptr && elements_ == nullptr) {
++      throw std::runtime_error("Failed to acquire Java float-array elements");
++    }
++  }
++
++  ~FloatArrayElements() {
++    if (elements_ != nullptr) {
++      env_->ReleaseFloatArrayElements(array_, elements_, JNI_ABORT);
++    }
++  }
++
++  float *get() const { return elements_; }
++
++  FloatArrayElements(const FloatArrayElements &) = delete;
++  FloatArrayElements &operator=(const FloatArrayElements &) = delete;
++
++private:
++  JNIEnv *env_;
++  jfloatArray array_;
++  float *elements_;
++};
++
+@@ -135,0 +166,6 @@ static jobject c_transcript_to_jobject(JNIEnv *env, struct transcript_t *transcr
++
++    if (!line->is_new && !line->is_updated && !line->has_text_changed &&
++        !line->have_speakers_changed) {
++      continue;
++    }
++
+@@ -145,2 +181,3 @@ static jobject c_transcript_to_jobject(JNIEnv *env, struct transcript_t *transcr
+-      env->SetObjectField(jline, textField,
+-                          env->NewStringUTF(sanitized_text.c_str()));
++      jstring sanitizedText = env->NewStringUTF(sanitized_text.c_str());
++      env->SetObjectField(jline, textField, sanitizedText);
++      env->DeleteLocalRef(sanitizedText);
+@@ -151,0 +189 @@ static jobject c_transcript_to_jobject(JNIEnv *env, struct transcript_t *transcr
++    env->DeleteLocalRef(audioDataArray);
+@@ -230,2 +268,3 @@ static jobject c_transcript_to_jobject(JNIEnv *env, struct transcript_t *transcr
+-        env->SetObjectField(jword, wordTextField,
+-                            env->NewStringUTF(wsanitized.c_str()));
++        jstring sanitizedWord = env->NewStringUTF(wsanitized.c_str());
++        env->SetObjectField(jword, wordTextField, sanitizedWord);
++        env->DeleteLocalRef(sanitizedWord);
+@@ -536 +575 @@ Java_ai_moonshine_voice_JNI_moonshineTranscribeWithoutStreaming(
+-    float *audio_data_ptr = env->GetFloatArrayElements(audio_data, nullptr);
++    FloatArrayElements audio_data_elements(env, audio_data);
+@@ -540 +579 @@ Java_ai_moonshine_voice_JNI_moonshineTranscribeWithoutStreaming(
+-        transcriber_handle, audio_data_ptr, audio_data_size, sample_rate, flags,
++        transcriber_handle, audio_data_elements.get(), audio_data_size, sample_rate, flags,
+@@ -564 +603 @@ Java_ai_moonshine_voice_JNI_moonshineCreateStream(JNIEnv * /* env */,
+-extern "C" JNIEXPORT void JNICALL
++extern "C" JNIEXPORT jint JNICALL
+@@ -570 +609 @@ Java_ai_moonshine_voice_JNI_moonshineFreeStream(JNIEnv * /* env */,
+-    moonshine_free_stream(transcriber_handle, stream_handle);
++    return moonshine_free_stream(transcriber_handle, stream_handle);
+@@ -572,0 +612 @@ Java_ai_moonshine_voice_JNI_moonshineFreeStream(JNIEnv * /* env */,
++    return MOONSHINE_ERROR_UNKNOWN;
+@@ -610 +650 @@ Java_ai_moonshine_voice_JNI_moonshineAddAudioToStream(
+-    float *audio_data_ptr = env->GetFloatArrayElements(audio_data, nullptr);
++    FloatArrayElements audio_data_elements(env, audio_data);
+@@ -613 +653 @@ Java_ai_moonshine_voice_JNI_moonshineAddAudioToStream(
+-        transcriber_handle, stream_handle, audio_data_ptr, audio_data_size,
++        transcriber_handle, stream_handle, audio_data_elements.get(), audio_data_size,
+diff --git a/gradle.properties b/gradle.properties
+index 11b63c0..23f96a8 100644
+--- a/gradle.properties
++++ b/gradle.properties
+@@ -9,0 +10 @@ org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
++android.useAndroidX=true

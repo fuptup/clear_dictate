@@ -1,0 +1,446 @@
+diff --git a/examples/llama.android/lib/build.gradle.kts b/examples/llama.android/lib/build.gradle.kts
+index ae95f41..3bdc8c3 100644
+--- a/examples/llama.android/lib/build.gradle.kts
++++ b/examples/llama.android/lib/build.gradle.kts
+@@ -7,10 +7,10 @@ android {
+     namespace = "com.arm.aichat"
+     compileSdk = 36
+ 
+-    ndkVersion = "29.0.13113456"
++    ndkVersion = "28.2.13676358"
+ 
+     defaultConfig {
+-        minSdk = 33
++        minSdk = 28
+ 
+         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+         consumerProguardFiles("consumer-rules.pro")
+@@ -20,7 +20,6 @@ android {
+         }
+         externalNativeBuild {
+             cmake {
+-                arguments += "-DCMAKE_BUILD_TYPE=Release"
+                 arguments += "-DCMAKE_MESSAGE_LOG_LEVEL=DEBUG"
+                 arguments += "-DCMAKE_VERBOSE_MAKEFILE=ON"
+ 
+diff --git a/examples/llama.android/lib/src/main/cpp/ai_chat.cpp b/examples/llama.android/lib/src/main/cpp/ai_chat.cpp
+index 03ab96c..a219615 100644
+--- a/examples/llama.android/lib/src/main/cpp/ai_chat.cpp
++++ b/examples/llama.android/lib/src/main/cpp/ai_chat.cpp
+@@ -24,20 +24,19 @@ static std::string join(const std::vector<T> &values, const std::string &delim)
+ /**
+  * LLama resources: context, model, batch and sampler
+  */
+-constexpr int   N_THREADS_MIN           = 2;
+-constexpr int   N_THREADS_MAX           = 4;
+-constexpr int   N_THREADS_HEADROOM      = 2;
+-
+-constexpr int   DEFAULT_CONTEXT_SIZE    = 8192;
+ constexpr int   OVERFLOW_HEADROOM       = 4;
+ constexpr int   BATCH_SIZE              = 512;
+-constexpr float DEFAULT_SAMPLER_TEMP    = 0.3f;
+ 
+ static llama_model                      * g_model;
+ static llama_context                    * g_context;
+ static llama_batch                        g_batch;
+ static common_chat_templates_ptr          g_chat_templates;
+ static common_sampler                   * g_sampler;
++static int                                g_context_size = 2048;
++static int                                g_thread_count = 4;
++static float                              g_temperature = 0.0f;
++static float                              g_top_p = 1.0f;
++static uint32_t                           g_deterministic_seed = 42;
+ 
+ extern "C"
+ JNIEXPORT void JNICALL
+@@ -73,17 +72,14 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_load(JNIEnv *env, jobject, jstr
+     return 0;
+ }
+ 
+-static llama_context *init_context(llama_model *model, const int n_ctx = DEFAULT_CONTEXT_SIZE) {
++static llama_context *init_context(llama_model *model, const int n_ctx) {
+     if (!model) {
+         LOGe("%s: model cannot be null", __func__);
+         return nullptr;
+     }
+ 
+     // Multi-threading setup
+-    const int n_threads = std::max(N_THREADS_MIN, std::min(N_THREADS_MAX,
+-                                                     (int) sysconf(_SC_NPROCESSORS_ONLN) -
+-                                                     N_THREADS_HEADROOM));
+-    LOGi("%s: Using %d threads", __func__, n_threads);
++    LOGi("%s: Using %d threads", __func__, g_thread_count);
+ 
+     // Context parameters setup
+     llama_context_params ctx_params = llama_context_default_params();
+@@ -95,8 +91,8 @@ static llama_context *init_context(llama_model *model, const int n_ctx = DEFAULT
+     ctx_params.n_ctx = n_ctx;
+     ctx_params.n_batch = BATCH_SIZE;
+     ctx_params.n_ubatch = BATCH_SIZE;
+-    ctx_params.n_threads = n_threads;
+-    ctx_params.n_threads_batch = n_threads;
++    ctx_params.n_threads = g_thread_count;
++    ctx_params.n_threads_batch = g_thread_count;
+     auto *context = llama_init_from_model(g_model, ctx_params);
+     if (context == nullptr) {
+         LOGe("%s: llama_new_context_with_model() returned null)", __func__);
+@@ -104,21 +100,37 @@ static llama_context *init_context(llama_model *model, const int n_ctx = DEFAULT
+     return context;
+ }
+ 
+-static common_sampler *new_sampler(float temp) {
++static common_sampler *new_sampler() {
+     common_params_sampling sparams;
+-    sparams.temp = temp;
++    sparams.temp = g_temperature;
++    sparams.top_p = g_top_p;
++    sparams.seed = g_deterministic_seed;
+     return common_sampler_init(g_model, sparams);
+ }
+ 
+ extern "C"
+ JNIEXPORT jint JNICALL
+-Java_com_arm_aichat_internal_InferenceEngineImpl_prepare(JNIEnv * /*env*/, jobject /*unused*/) {
+-    auto *context = init_context(g_model);
++Java_com_arm_aichat_internal_InferenceEngineImpl_prepare(
++        JNIEnv * /*env*/,
++        jobject /*unused*/,
++        jint context_size,
++        jint thread_count,
++        jfloat temperature,
++        jfloat top_p,
++        jint deterministic_seed
++) {
++    g_context_size = context_size;
++    g_thread_count = thread_count;
++    g_temperature = temperature;
++    g_top_p = top_p;
++    g_deterministic_seed = static_cast<uint32_t>(deterministic_seed);
++
++    auto *context = init_context(g_model, g_context_size);
+     if (!context) { return 1; }
+     g_context = context;
+     g_batch = llama_batch_init(BATCH_SIZE, 0, 1);
+     g_chat_templates = common_chat_templates_init(g_model, "");
+-    g_sampler = new_sampler(DEFAULT_SAMPLER_TEMP);
++    g_sampler = new_sampler();
+     return 0;
+ }
+ 
+@@ -293,7 +305,7 @@ static std::string chat_add_and_format(const std::string &role, const std::strin
+     auto formatted = common_chat_format_single(
+             g_chat_templates.get(), chat_msgs, new_msg, role == ROLE_USER, /* use_jinja */ false);
+     chat_msgs.push_back(new_msg);
+-    LOGi("%s: Formatted and added %s message: \n%s\n", __func__, role.c_str(), formatted.c_str());
++    LOGi("%s: Formatted and added a %s message.", __func__, role.c_str());
+     return formatted;
+ }
+ 
+@@ -327,7 +339,7 @@ static int decode_tokens_in_batches(
+         LOGv("%s: Preparing a batch size of %d starting at: %d", __func__, cur_batch_size, i);
+ 
+         // Shift context if current batch cannot fit into the context
+-        if (start_pos + i + cur_batch_size >= DEFAULT_CONTEXT_SIZE - OVERFLOW_HEADROOM) {
++        if (start_pos + i + cur_batch_size >= g_context_size - OVERFLOW_HEADROOM) {
+             LOGw("%s: Current batch won't fit into context! Shifting...", __func__);
+             shift_context();
+         }
+@@ -363,7 +375,6 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_processSystemPrompt(
+ 
+     // Obtain system prompt from JEnv
+     const auto *system_prompt = env->GetStringUTFChars(jsystem_prompt, nullptr);
+-    LOGd("%s: System prompt received: \n%s", __func__, system_prompt);
+     std::string formatted_system_prompt(system_prompt);
+ 
+     // Format system prompt if applicable
+@@ -376,12 +387,8 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_processSystemPrompt(
+     // Tokenize system prompt
+     const auto system_tokens = common_tokenize(g_context, formatted_system_prompt,
+                                                has_chat_template, has_chat_template);
+-    for (auto id: system_tokens) {
+-        LOGv("token: `%s`\t -> `%d`", common_token_to_piece(g_context, id).c_str(), id);
+-    }
+-
+     // Handle context overflow
+-    const int max_batch_size = DEFAULT_CONTEXT_SIZE - OVERFLOW_HEADROOM;
++    const int max_batch_size = g_context_size - OVERFLOW_HEADROOM;
+     if ((int) system_tokens.size() > max_batch_size) {
+         LOGe("%s: System prompt too long for context! %d tokens, max: %d",
+              __func__, (int) system_tokens.size(), max_batch_size);
+@@ -409,6 +416,7 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_processUserPrompt(
+ ) {
+     // Reset short-term states
+     reset_short_term_states();
++    common_sampler_reset(g_sampler);
+ 
+     // Obtain and tokenize user prompt
+     const auto *const user_prompt = env->GetStringUTFChars(juser_prompt, nullptr);
+@@ -424,17 +432,12 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_processUserPrompt(
+ 
+     // Decode formatted user prompts
+     auto user_tokens = common_tokenize(g_context, formatted_user_prompt, has_chat_template, has_chat_template);
+-    for (auto id: user_tokens) {
+-        LOGv("token: `%s`\t -> `%d`", common_token_to_piece(g_context, id).c_str(), id);
+-    }
+-
+-    // Ensure user prompt doesn't exceed the context size by truncating if necessary.
++    // Reject requests that do not fit; silently truncating a transcript could alter its meaning.
+     const int user_prompt_size = (int) user_tokens.size();
+-    const int max_batch_size = DEFAULT_CONTEXT_SIZE - OVERFLOW_HEADROOM;
+-    if (user_prompt_size > max_batch_size) {
+-        const int skipped_tokens = user_prompt_size - max_batch_size;
+-        user_tokens.resize(max_batch_size);
+-        LOGw("%s: User prompt too long! Skipped %d tokens!", __func__, skipped_tokens);
++    const int available_context = g_context_size - OVERFLOW_HEADROOM - current_position;
++    if (user_prompt_size > available_context) {
++        LOGw("%s: User prompt does not fit in the configured context.", __func__);
++        return 1;
+     }
+ 
+     // Decode user tokens in batches
+@@ -445,7 +448,7 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_processUserPrompt(
+ 
+     // Update position
+     current_position += user_prompt_size;
+-    stop_generation_position = current_position + user_prompt_size + n_predict;
++    stop_generation_position = current_position + n_predict;
+     return 0;
+ }
+ 
+@@ -490,7 +493,7 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_generateNextToken(
+         jobject /*unused*/
+ ) {
+     // Infinite text generation via context shifting
+-    if (current_position >= DEFAULT_CONTEXT_SIZE - OVERFLOW_HEADROOM) {
++    if (current_position >= g_context_size - OVERFLOW_HEADROOM) {
+         LOGw("%s: Context full! Shifting...", __func__);
+         shift_context();
+     }
+@@ -556,6 +559,9 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_unload(JNIEnv * /*unused*/, job
+     llama_batch_free(g_batch);
+     llama_free(g_context);
+     llama_model_free(g_model);
++    g_sampler = nullptr;
++    g_context = nullptr;
++    g_model = nullptr;
+ }
+ 
+ extern "C"
+diff --git a/examples/llama.android/lib/src/main/cpp/logging.h b/examples/llama.android/lib/src/main/cpp/logging.h
+index 2e768d2..09045e7 100644
+--- a/examples/llama.android/lib/src/main/cpp/logging.h
++++ b/examples/llama.android/lib/src/main/cpp/logging.h
+@@ -23,7 +23,9 @@
+ #endif
+ 
+ static inline int ai_should_log(int prio) {
+-    return __android_log_is_loggable(prio, LOG_TAG, LOG_MIN_LEVEL);
++    // __android_log_is_loggable is unavailable before Android 11. The library
++    // supports Android 9, so use the compile-time minimum consistently.
++    return prio >= LOG_MIN_LEVEL;
+ }
+ 
+ #if LOG_MIN_LEVEL <= ANDROID_LOG_VERBOSE
+diff --git a/examples/llama.android/lib/src/main/java/com/arm/aichat/InferenceEngine.kt b/examples/llama.android/lib/src/main/java/com/arm/aichat/InferenceEngine.kt
+index 26c1668..a5e3778 100644
+--- a/examples/llama.android/lib/src/main/java/com/arm/aichat/InferenceEngine.kt
++++ b/examples/llama.android/lib/src/main/java/com/arm/aichat/InferenceEngine.kt
+@@ -18,7 +18,7 @@ interface InferenceEngine {
+      *
+      * @throws UnsupportedArchitectureException if model architecture not supported
+      */
+-    suspend fun loadModel(pathToModel: String)
++    suspend fun loadModel(pathToModel: String, configuration: InferenceConfiguration = InferenceConfiguration())
+ 
+     /**
+      * Sends a system prompt to the loaded model
+@@ -30,6 +30,11 @@ interface InferenceEngine {
+      */
+     fun sendUserPrompt(message: String, predictLength: Int = DEFAULT_PREDICT_LENGTH): Flow<String>
+ 
++    /**
++     * Makes an active token-generation loop stop at its next native token boundary.
++     */
++    fun cancelGeneration()
++
+     /**
+      * Runs a benchmark with the specified parameters.
+      */
+@@ -71,6 +76,17 @@ interface InferenceEngine {
+     }
+ }
+ 
++/**
++ * Pins the native context and sampler choices for one loaded model.
++ */
++data class InferenceConfiguration(
++    val contextSizeTokens: Int = 2048,
++    val threadCount: Int = 4,
++    val temperature: Float = 0.0f,
++    val topP: Float = 1.0f,
++    val deterministicSeed: Int = 42,
++)
++
+ val State.isUninterruptible
+     get() = this is State.Initializing ||
+         this is State.LoadingModel ||
+diff --git a/examples/llama.android/lib/src/main/java/com/arm/aichat/internal/InferenceEngineImpl.kt b/examples/llama.android/lib/src/main/java/com/arm/aichat/internal/InferenceEngineImpl.kt
+index a293796..4304879 100644
+--- a/examples/llama.android/lib/src/main/java/com/arm/aichat/internal/InferenceEngineImpl.kt
++++ b/examples/llama.android/lib/src/main/java/com/arm/aichat/internal/InferenceEngineImpl.kt
+@@ -2,6 +2,7 @@ package com.arm.aichat.internal
+ 
+ import android.content.Context
+ import android.util.Log
++import com.arm.aichat.InferenceConfiguration
+ import com.arm.aichat.InferenceEngine
+ import com.arm.aichat.UnsupportedArchitectureException
+ import com.arm.aichat.internal.InferenceEngineImpl.Companion.getInstance
+@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.Flow
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.first
+ import kotlinx.coroutines.flow.flow
+ import kotlinx.coroutines.flow.flowOn
+ import kotlinx.coroutines.launch
+@@ -66,7 +68,7 @@ internal class InferenceEngineImpl private constructor(
+                 require(nativeLibDir.isNotBlank()) { "Expected a valid native library path!" }
+ 
+                 try {
+-                    Log.i(TAG, "Instantiating InferenceEngineImpl,,,")
++                    Log.i(TAG, "Instantiating local inference engine.")
+                     InferenceEngineImpl(nativeLibDir).also { instance = it }
+                 } catch (e: UnsatisfiedLinkError) {
+                     Log.e(TAG, "Failed to load native library from $nativeLibDir", e)
+@@ -86,7 +88,13 @@ internal class InferenceEngineImpl private constructor(
+     private external fun load(modelPath: String): Int
+ 
+     @FastNative
+-    private external fun prepare(): Int
++    private external fun prepare(
++        contextSizeTokens: Int,
++        threadCount: Int,
++        temperature: Float,
++        topP: Float,
++        deterministicSeed: Int,
++    ): Int
+ 
+     @FastNative
+     private external fun systemInfo(): String
+@@ -135,11 +143,11 @@ internal class InferenceEngineImpl private constructor(
+                 System.loadLibrary("ai-chat")
+                 init(nativeLibDir)
+                 _state.value = InferenceEngine.State.Initialized
+-                Log.i(TAG, "Native library loaded! System info: \n${systemInfo()}")
++                Log.i(TAG, "Native library loaded. System info: \n${systemInfo()}")
+ 
+             } catch (e: Exception) {
+                 Log.e(TAG, "Failed to load native library", e)
+-                throw e
++                _state.value = InferenceEngine.State.Error(e)
+             }
+         }
+     }
+@@ -147,28 +155,51 @@ internal class InferenceEngineImpl private constructor(
+     /**
+      * Load the LLM
+      */
+-    override suspend fun loadModel(pathToModel: String) =
++    override suspend fun loadModel(pathToModel: String, configuration: InferenceConfiguration) =
+         withContext(llamaDispatcher) {
++            if (_state.value is InferenceEngine.State.Initializing) {
++                state.first {
++                    it is InferenceEngine.State.Initialized || it is InferenceEngine.State.Error
++                }
++            }
+             check(_state.value is InferenceEngine.State.Initialized) {
+                 "Cannot load model in ${_state.value.javaClass.simpleName}!"
+             }
++            require(configuration.contextSizeTokens in 512..32768) {
++                "Context size must be between 512 and 32768 tokens."
++            }
++            require(configuration.threadCount in 1..16) {
++                "Thread count must be between 1 and 16."
++            }
++            require(configuration.temperature >= 0.0f) {
++                "Temperature cannot be negative."
++            }
++            require(configuration.topP > 0.0f && configuration.topP <= 1.0f) {
++                "Top-p must be greater than zero and no greater than one."
++            }
+ 
+             try {
+-                Log.i(TAG, "Checking access to model file... \n$pathToModel")
++                Log.i(TAG, "Checking access to the local model file.")
+                 File(pathToModel).let {
+                     require(it.exists()) { "File not found" }
+                     require(it.isFile) { "Not a valid file" }
+                     require(it.canRead()) { "Cannot read file" }
+                 }
+ 
+-                Log.i(TAG, "Loading model... \n$pathToModel")
++                Log.i(TAG, "Loading local model.")
+                 _readyForSystemPrompt = false
+                 _state.value = InferenceEngine.State.LoadingModel
+                 load(pathToModel).let {
+                     // TODO-han.yin: find a better way to pass other error codes
+                     if (it != 0) throw UnsupportedArchitectureException()
+                 }
+-                prepare().let {
++                prepare(
++                    configuration.contextSizeTokens,
++                    configuration.threadCount,
++                    configuration.temperature,
++                    configuration.topP,
++                    configuration.deterministicSeed,
++                ).let {
+                     if (it != 0) throw IOException("Failed to prepare resources")
+                 }
+                 Log.i(TAG, "Model loaded!")
+@@ -177,7 +208,7 @@ internal class InferenceEngineImpl private constructor(
+                 _cancelGeneration = false
+                 _state.value = InferenceEngine.State.ModelReady
+             } catch (e: Exception) {
+-                Log.e(TAG, (e.message ?: "Error loading model") + "\n" + pathToModel, e)
++                Log.e(TAG, e.message ?: "Error loading model", e)
+                 _state.value = InferenceEngine.State.Error(e)
+                 throw e
+             }
+@@ -191,7 +222,6 @@ internal class InferenceEngineImpl private constructor(
+     override suspend fun setSystemPrompt(prompt: String) =
+         withContext(llamaDispatcher) {
+             require(prompt.isNotBlank()) { "Cannot process empty system prompt!" }
+-            check(_readyForSystemPrompt) { "System prompt must be set ** RIGHT AFTER ** model loaded!" }
+             check(_state.value is InferenceEngine.State.ModelReady) {
+                 "Cannot process system prompt in ${_state.value.javaClass.simpleName}!"
+             }
+@@ -208,6 +238,7 @@ internal class InferenceEngineImpl private constructor(
+                 }
+             }
+             Log.i(TAG, "System prompt processed! Awaiting user prompt...")
++            _cancelGeneration = false
+             _state.value = InferenceEngine.State.ModelReady
+         }
+ 
+@@ -230,8 +261,7 @@ internal class InferenceEngineImpl private constructor(
+ 
+             processUserPrompt(message, predictLength).let { result ->
+                 if (result != 0) {
+-                    Log.e(TAG, "Failed to process user prompt: $result")
+-                    return@flow
++                    throw IOException("Failed to process user prompt: $result")
+                 }
+             }
+ 
+@@ -259,6 +289,10 @@ internal class InferenceEngineImpl private constructor(
+         }
+     }.flowOn(llamaDispatcher)
+ 
++    override fun cancelGeneration() {
++        _cancelGeneration = true
++    }
++
+     /**
+      * Benchmark the model
+      */

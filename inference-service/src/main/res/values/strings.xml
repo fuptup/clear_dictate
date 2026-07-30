@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="inference_notification_channel_name">Active dictation</string>
+    <string name="inference_notification_channel_description">Shows when ClearDictate is using the microphone.</string>
+    <string name="inference_notification_title">ClearDictate is listening</string>
+    <string name="inference_notification_text">Speech is being transcribed locally on this device.</string>
+</resources>

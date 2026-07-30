@@ -10,7 +10,7 @@ ClearDictate source is licensed under the Apache License 2.0. The following thir
 - Licence: MIT
 - Copyright: 2023-2026 The ggml authors
 
-The complete MIT licence text is retained in the pinned development checkout and must be included with any future binary distribution.
+The complete MIT licence text is retained at `third_party/llama.cpp/LICENSE`.
 
 ## Qwen 2.5 0.5B Instruct model
 
@@ -20,6 +20,7 @@ The complete MIT licence text is retained in the pinned development checkout and
 - Licence identifier: Apache-2.0
 
 The model is not committed to this repository or bundled in the current application package.
+Its license text and pinned provenance are retained under `third_party/qwen`.
 
 ## Moonshine Voice and Tiny Streaming English model
 
@@ -29,7 +30,23 @@ The model is not committed to this repository or bundled in the current applicat
 - Licence for the English-language model: MIT
 - Copyright: 2025 Useful Sensors, Inc. (doing business as Moonshine AI)
 
-Moonshine's `core/third-party` directory contains additional notices that must be carried forward when its native binaries are distributed. Moonshine is pinned and locally evaluated but is not yet linked into a ClearDictate application artifact.
+ClearDictate links Moonshine into Android development artifacts. The published Android archive is not shipped unchanged: ClearDictate builds the exact pinned source with the documented memory-safety/status patch in `third_party/moonshine`.
+
+The linked native dependency tree includes:
+
+- ONNX Runtime — MIT;
+- Eigen — Mozilla Public License 2.0;
+- kaldi-native-fbank — Apache License 2.0;
+- kissfft — revised BSD licence;
+- nlohmann JSON and doctest — MIT;
+- utf-8 — Boost Software License 1.0;
+- utf8proc — its bundled permissive licence;
+- cpp-annotate — MIT.
+
+The authoritative licence files used by this native build are retained under
+`third_party/moonshine/LICENSE` and `third_party/moonshine/licenses`. A future public binary still
+needs an in-application notice surface and a generated dependency inventory. The present Android
+output is a Debug development artifact, not a distributable release.
 
 ## Java Native Access
 
@@ -45,4 +62,4 @@ The project uses Kotlin, Jetpack Compose, and AndroidX libraries under their pub
 
 ## Distribution status
 
-This notice records source dependencies and planned model integration. The current Windows native executables are unsigned Debug development artifacts and no redistributable Windows installer is produced. Before distributing an application binary, generate a complete machine-readable dependency inventory and bundle every required upstream licence and notice.
+The current Windows and Android outputs are unsigned Debug development artifacts. No redistributable installer or store package is produced. Before distributing an application binary, generate a complete machine-readable dependency inventory and bundle every required upstream licence and notice.
