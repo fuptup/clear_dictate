@@ -91,6 +91,27 @@ endif()
 
 add_test(NAME clear_dictate_worker_transcript_payload_tests COMMAND clear_dictate_worker_transcript_payload_tests)
 
+add_library(clear_dictate_bounded_audio_block_queue src/BoundedAudioBlockQueue.cpp)
+target_include_directories(clear_dictate_bounded_audio_block_queue PUBLIC include)
+target_compile_features(clear_dictate_bounded_audio_block_queue PUBLIC cxx_std_17)
+set_target_properties(clear_dictate_bounded_audio_block_queue PROPERTIES CXX_EXTENSIONS OFF)
+
+if(MSVC)
+    # C4324 reports the intentional cache-line padding around the two indices.
+    target_compile_options(clear_dictate_bounded_audio_block_queue PRIVATE /EHsc /W4 /wd4324)
+endif()
+
+add_executable(clear_dictate_bounded_audio_block_queue_tests tests/BoundedAudioBlockQueueTests.cpp)
+target_link_libraries(clear_dictate_bounded_audio_block_queue_tests PRIVATE clear_dictate_bounded_audio_block_queue)
+target_compile_features(clear_dictate_bounded_audio_block_queue_tests PRIVATE cxx_std_17)
+set_target_properties(clear_dictate_bounded_audio_block_queue_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+if(MSVC)
+    target_compile_options(clear_dictate_bounded_audio_block_queue_tests PRIVATE /EHsc /W4 /wd4324)
+endif()
+
+add_test(NAME clear_dictate_bounded_audio_block_queue_tests COMMAND clear_dictate_bounded_audio_block_queue_tests)
+
 add_library(clear_dictate_text_inference_worker_session src/TextInferenceWorkerSession.cpp)
 target_include_directories(clear_dictate_text_inference_worker_session PUBLIC include)
 target_link_libraries(
