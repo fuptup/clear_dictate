@@ -36,6 +36,7 @@ data class TranscriptPolishingConfiguration(
  * Keeps trusted instructions separate from the untrusted transcript and native generation settings.
  */
 data class TranscriptPolishingRequest(
+    val untrustedCleanTranscript: String,
     val systemInstruction: String,
     val userMessage: String,
     val configuration: TranscriptPolishingConfiguration = TranscriptPolishingConfiguration()
@@ -43,7 +44,7 @@ data class TranscriptPolishingRequest(
 {
     override fun toString(): String
     {
-        return "TranscriptPolishingRequest(systemInstruction=<redacted>, userMessage=<redacted>, configuration=$configuration)"
+        return "TranscriptPolishingRequest(untrustedCleanTranscript=<redacted>, systemInstruction=<redacted>, userMessage=<redacted>, configuration=$configuration)"
     }
 }
 
@@ -98,6 +99,7 @@ $encodedTranscript
 </transcript>"""
 
         return TranscriptPolishingRequest(
+            untrustedCleanTranscript = cleanTranscript,
             systemInstruction = SYSTEM_INSTRUCTION,
             userMessage = userMessage
         )
@@ -220,6 +222,16 @@ class TranscriptProcessingPipeline(
         cleanTranscript: String
     ): ProcessedTranscript
     {
+        if (cleanTranscript.isEmpty())
+        {
+            return fallbackResult(
+                exactRawTranscript,
+                normalizedRawTranscript,
+                cleanTranscript,
+                TranscriptFallbackReason.INFERENCE_FAILURE
+            )
+        }
+
         val request = TranscriptPolishingPromptBuilder.build(cleanTranscript)
 
         if (!promptTokenBudgetEstimator.canProcess(request))

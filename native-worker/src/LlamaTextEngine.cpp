@@ -24,6 +24,62 @@ namespace clear_dictate
         // Static storage keeps the borrowed pointer valid for the model lifetime.
         ggml_backend_dev_t NoOffloadDevices[] = { nullptr };
 
+        void SecureClear(std::string& sensitiveText) noexcept
+        {
+            volatile char* sensitiveBytes = sensitiveText.empty() ? nullptr : sensitiveText.data();
+            for (std::size_t byteIndex = 0; byteIndex < sensitiveText.size(); ++byteIndex)
+            {
+                sensitiveBytes[byteIndex] = '\0';
+            }
+            sensitiveText.clear();
+        }
+
+        template<typename Value>
+        void SecureClear(std::vector<Value>& sensitiveValues) noexcept
+        {
+            volatile Value* writableValues = sensitiveValues.empty() ? nullptr : sensitiveValues.data();
+            for (std::size_t valueIndex = 0; valueIndex < sensitiveValues.size(); ++valueIndex)
+            {
+                writableValues[valueIndex] = Value {};
+            }
+            sensitiveValues.clear();
+        }
+
+        class SensitiveStringScrubber final
+        {
+        public:
+            explicit SensitiveStringScrubber(std::string& sensitiveText) noexcept
+                : sensitiveText_(sensitiveText)
+            {
+            }
+
+            ~SensitiveStringScrubber()
+            {
+                SecureClear(sensitiveText_);
+            }
+
+        private:
+            std::string& sensitiveText_;
+        };
+
+        template<typename Value>
+        class SensitiveVectorScrubber final
+        {
+        public:
+            explicit SensitiveVectorScrubber(std::vector<Value>& sensitiveValues) noexcept
+                : sensitiveValues_(sensitiveValues)
+            {
+            }
+
+            ~SensitiveVectorScrubber()
+            {
+                SecureClear(sensitiveValues_);
+            }
+
+        private:
+            std::vector<Value>& sensitiveValues_;
+        };
+
         void SuppressLlamaLog(ggml_log_level, const char*, void*) noexcept
         {
             // ClearDictate never forwards upstream logs because they may contain dictated text.
@@ -263,6 +319,7 @@ namespace clear_dictate
             }
 
             std::vector<char> formattedPrompt(static_cast<std::size_t>(requiredByteCount) + 1);
+            SensitiveVectorScrubber<char> formattedPromptScrubber(formattedPrompt);
             const std::int32_t actualByteCount = llama_chat_apply_template(
                 chatTemplate,
                 messages,
@@ -321,6 +378,7 @@ namespace clear_dictate
 
             const std::int32_t byteCount = requiredByteCount < 0 ? -requiredByteCount : requiredByteCount;
             std::vector<char> generatedText(static_cast<std::size_t>(byteCount));
+            SensitiveVectorScrubber<char> generatedTextScrubber(generatedText);
             const std::int32_t actualByteCount = llama_detokenize(
                 vocabulary,
                 tokens.data(),
@@ -342,9 +400,15 @@ namespace clear_dictate
     class LlamaTextEngine::Implementation final
     {
     public:
-        Implementation(const std::filesystem::path& modelPath, std::int32_t inferenceThreadCount)
+        Implementation(std::FILE* verifiedModelFile, std::int32_t inferenceThreadCount)
+            : Implementation(LoadModel(verifiedModelFile, inferenceThreadCount), inferenceThreadCount)
+        {
+        }
+
+    private:
+        Implementation(LlamaModelHandle model, std::int32_t inferenceThreadCount)
             : cancellationController_(),
-              model_(LoadModel(modelPath, inferenceThreadCount)),
+              model_(std::move(model)),
               vocabulary_(llama_model_get_vocab(model_.get())),
               context_(CreateContext(model_.get(), cancellationController_, inferenceThreadCount))
         {
@@ -354,7 +418,12 @@ namespace clear_dictate
             }
         }
 
-        TextGenerationResult Generate(std::uint64_t requestIdentifier, const std::string& systemInstruction, const std::string& userInstruction)
+    public:
+        TextGenerationResult Generate(
+            std::uint64_t requestIdentifier,
+            const std::string& systemInstruction,
+            const std::string& userInstruction,
+            const std::function<bool()>& cancellationRequestedAtStart)
         {
             if (isClosing_.load(std::memory_order_acquire))
             {
@@ -386,6 +455,11 @@ namespace clear_dictate
                 {
                     LlamaMemoryLease memoryLease(context_.get());
 
+                    if (cancellationRequestedAtStart && cancellationRequestedAtStart())
+                    {
+                        cancellationController_.CancelRequest(requestIdentifier);
+                    }
+
                     if (isClosing_.load(std::memory_order_acquire))
                     {
                         cancellationController_.CancelRequest(requestIdentifier);
@@ -401,7 +475,8 @@ namespace clear_dictate
                     }
                     else
                     {
-                        const std::string formattedPrompt = ApplyChatTemplate(model_.get(), systemInstruction, userInstruction);
+                        std::string formattedPrompt = ApplyChatTemplate(model_.get(), systemInstruction, userInstruction);
+                        SensitiveStringScrubber formattedPromptScrubber(formattedPrompt);
 
                         if (cancellationController_.ShouldAbort())
                         {
@@ -409,7 +484,8 @@ namespace clear_dictate
                         }
                         else
                         {
-                            const std::vector<llama_token> promptTokens = Tokenize(vocabulary_, formattedPrompt);
+                            std::vector<llama_token> promptTokens = Tokenize(vocabulary_, formattedPrompt);
+                            SensitiveVectorScrubber<llama_token> promptTokenScrubber(promptTokens);
 
                             if (cancellationController_.ShouldAbort())
                             {
@@ -465,33 +541,43 @@ namespace clear_dictate
         }
 
     private:
-        static LlamaModelHandle LoadModel(const std::filesystem::path& modelPath, std::int32_t inferenceThreadCount)
+        static void ValidateInferenceThreadCount(std::int32_t inferenceThreadCount)
         {
             if (inferenceThreadCount <= 0 || inferenceThreadCount > TextGenerationLimits::MaximumInferenceThreadCount)
             {
                 throw std::invalid_argument("The local text model thread count must be between 1 and 64.");
             }
+        }
 
-            EnsureLlamaBackendIsInitialized();
-            ggml_backend_dev_t cpuDevice = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
-            if (cpuDevice == nullptr)
-            {
-                throw std::runtime_error("The local text model CPU backend is unavailable.");
-            }
-
-            const std::string utf8ModelPath = modelPath.u8string();
-
+        static llama_model_params CreateModelParameters()
+        {
             llama_model_params modelParameters = llama_model_default_params();
             modelParameters.devices = NoOffloadDevices;
             modelParameters.n_gpu_layers = 0;
             modelParameters.split_mode = LLAMA_SPLIT_MODE_NONE;
             modelParameters.main_gpu = -1;
             modelParameters.check_tensors = true;
+            return modelParameters;
+        }
 
-            LlamaModelHandle model(llama_model_load_from_file(utf8ModelPath.c_str(), modelParameters));
+        static LlamaModelHandle LoadModel(std::FILE* verifiedModelFile, std::int32_t inferenceThreadCount)
+        {
+            ValidateInferenceThreadCount(inferenceThreadCount);
+            if (verifiedModelFile == nullptr)
+            {
+                throw std::invalid_argument("The verified local text model file must be open.");
+            }
+
+            EnsureLlamaBackendIsInitialized();
+            if (ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU) == nullptr)
+            {
+                throw std::runtime_error("The local text model CPU backend is unavailable.");
+            }
+
+            LlamaModelHandle model(llama_model_load_from_file_ptr(verifiedModelFile, CreateModelParameters()));
             if (!model)
             {
-                throw std::runtime_error("The local text model could not be loaded.");
+                throw std::runtime_error("The verified local text model could not be loaded.");
             }
 
             return model;
@@ -556,6 +642,7 @@ namespace clear_dictate
             }
 
             std::vector<llama_token> generatedTokens;
+            SensitiveVectorScrubber<llama_token> generatedTokenScrubber(generatedTokens);
             generatedTokens.reserve(TextGenerationLimits::MaximumGeneratedTokenCount);
             bool reachedEndOfGeneration = false;
 
@@ -661,8 +748,8 @@ namespace clear_dictate
         std::mutex generationMutex_;
     };
 
-    LlamaTextEngine::LlamaTextEngine(const std::filesystem::path& modelPath, std::int32_t inferenceThreadCount)
-        : implementation_(std::make_shared<Implementation>(modelPath, inferenceThreadCount))
+    LlamaTextEngine::LlamaTextEngine(std::FILE* verifiedModelFile, std::int32_t inferenceThreadCount)
+        : implementation_(std::make_shared<Implementation>(verifiedModelFile, inferenceThreadCount))
     {
     }
 
@@ -679,7 +766,26 @@ namespace clear_dictate
             return { TextGenerationStatus::Closing, {}, 0 };
         }
 
-        return implementation->Generate(requestIdentifier, systemInstruction, userInstruction);
+        return implementation->Generate(requestIdentifier, systemInstruction, userInstruction, {});
+    }
+
+    TextGenerationResult LlamaTextEngine::Generate(
+        std::uint64_t requestIdentifier,
+        const std::string& systemInstruction,
+        const std::string& userInstruction,
+        const std::function<bool()>& cancellationRequestedAtStart)
+    {
+        const std::shared_ptr<Implementation> implementation = std::atomic_load_explicit(&implementation_, std::memory_order_acquire);
+        if (!implementation)
+        {
+            return { TextGenerationStatus::Closing, {}, 0 };
+        }
+
+        return implementation->Generate(
+            requestIdentifier,
+            systemInstruction,
+            userInstruction,
+            cancellationRequestedAtStart);
     }
 
     bool LlamaTextEngine::Cancel(std::uint64_t requestIdentifier) noexcept

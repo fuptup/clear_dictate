@@ -11,21 +11,23 @@ kotlin {
 dependencies {
     implementation(project(":core-domain"))
     implementation(project(":core-models"))
+    implementation(project(":desktop-inference"))
+    implementation(project(":inference-contract"))
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
     implementation(libs.kotlin.coroutines.swing)
+
+    testImplementation(kotlin("test"))
+    testImplementation(libs.kotlin.coroutines.test)
+    testRuntimeOnly(libs.junit.jupiter.engine)
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 compose.desktop {
     application {
         mainClass = "com.cleardictate.desktop.ClearDictateDesktopApplicationKt"
-
-        nativeDistributions {
-            targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi)
-            packageName = "ClearDictate"
-            packageVersion = "0.1.0"
-            description = "Private, offline dictation for Windows"
-            vendor = "ClearDictate"
-        }
     }
 }

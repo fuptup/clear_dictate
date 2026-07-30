@@ -1,4 +1,6 @@
 #include "clear_dictate/LlamaTextEngine.h"
+#include "clear_dictate/LockedQwenModel.h"
+#include "clear_dictate/VerifiedModelFile.h"
 
 #include <chrono>
 #include <exception>
@@ -96,7 +98,13 @@ namespace
 
         const std::filesystem::path modelPath(argumentValues[1]);
         Require(std::filesystem::is_regular_file(modelPath), "The pinned text model file does not exist.");
-        clear_dictate::LlamaTextEngine textEngine(modelPath, 4);
+        const clear_dictate::ModelFileExpectation expectation
+        {
+            clear_dictate::LockedQwenModelByteCount,
+            clear_dictate::LockedQwenModelSha256
+        };
+        clear_dictate::VerifiedModelFile verifiedModelFile(modelPath.u8string(), expectation);
+        clear_dictate::LlamaTextEngine textEngine(verifiedModelFile.Get(), 4);
         TestOversizedPromptIsRejectedWithoutGeneration(textEngine);
         TestInFlightGenerationCanBeCancelled(textEngine);
         TestRealModelProducesBoundedOutput(textEngine);

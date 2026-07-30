@@ -1,0 +1,13 @@
+#pragma once
+
+#include <array>
+#include <cstdint>
+
+namespace clear_dictate
+{
+    inline constexpr std::uint64_t LockedQwenModelByteCount = @CLEAR_DICTATE_QWEN_SIZE_BYTES@ULL;
+    inline constexpr std::array<std::uint8_t, 32> LockedQwenModelSha256 =
+    {
+        @CLEAR_DICTATE_QWEN_SHA256_BYTES@
+    };
+}

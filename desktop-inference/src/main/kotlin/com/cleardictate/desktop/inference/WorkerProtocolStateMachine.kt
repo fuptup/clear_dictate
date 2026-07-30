@@ -36,26 +36,28 @@ class WorkerProtocolStateException(
  */
 class WorkerProtocolStateMachine
 {
-    var state: WorkerLifecycleState = WorkerLifecycleState.NEW
-        private set
+    private var lifecycleState: WorkerLifecycleState = WorkerLifecycleState.NEW
+
+    val state: WorkerLifecycleState
+        @Synchronized get() = lifecycleState
 
     private var activeOperation: ActiveWorkerOperation? = null
 
     @Synchronized
     fun acceptHostFrame(frame: WorkerProtocolFrame)
     {
-        when (state)
+        when (lifecycleState)
         {
             WorkerLifecycleState.NEW ->
             {
                 requireControlType(frame, WorkerMessageType.HELLO)
-                state = WorkerLifecycleState.AWAITING_READY
+                lifecycleState = WorkerLifecycleState.AWAITING_READY
             }
 
             WorkerLifecycleState.READY_FOR_MODEL_LOAD ->
             {
                 requireControlType(frame, WorkerMessageType.LOAD_MODELS)
-                state = WorkerLifecycleState.AWAITING_MODELS
+                lifecycleState = WorkerLifecycleState.AWAITING_MODELS
             }
 
             WorkerLifecycleState.IDLE ->
@@ -69,7 +71,7 @@ class WorkerProtocolStateMachine
                             reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
                         }
 
-                        state = WorkerLifecycleState.CLOSED
+                        lifecycleState = WorkerLifecycleState.CLOSED
                     }
 
                     is WorkerProtocolMessage ->
@@ -82,7 +84,7 @@ class WorkerProtocolStateMachine
                         }
 
                         activeOperation = ActiveWorkerOperation.from(frame, operationKind)
-                        state = WorkerLifecycleState.OPERATION_ACTIVE
+                        lifecycleState = WorkerLifecycleState.OPERATION_ACTIVE
                     }
                 }
             }
@@ -110,30 +112,30 @@ class WorkerProtocolStateMachine
     @Synchronized
     fun acceptWorkerFrame(frame: WorkerProtocolFrame)
     {
-        when (state)
+        when (lifecycleState)
         {
             WorkerLifecycleState.AWAITING_READY ->
             {
                 if (frame is WorkerControlFrame && frame.type == WorkerMessageType.CONTROL_ERROR)
                 {
-                    state = WorkerLifecycleState.FAILED
+                    lifecycleState = WorkerLifecycleState.FAILED
                     return
                 }
 
                 requireControlType(frame, WorkerMessageType.READY)
-                state = WorkerLifecycleState.READY_FOR_MODEL_LOAD
+                lifecycleState = WorkerLifecycleState.READY_FOR_MODEL_LOAD
             }
 
             WorkerLifecycleState.AWAITING_MODELS ->
             {
                 if (frame is WorkerControlFrame && frame.type == WorkerMessageType.CONTROL_ERROR)
                 {
-                    state = WorkerLifecycleState.FAILED
+                    lifecycleState = WorkerLifecycleState.FAILED
                     return
                 }
 
                 requireControlType(frame, WorkerMessageType.MODELS_LOADED)
-                state = WorkerLifecycleState.IDLE
+                lifecycleState = WorkerLifecycleState.IDLE
             }
 
             WorkerLifecycleState.OPERATION_ACTIVE ->
@@ -174,7 +176,7 @@ class WorkerProtocolStateMachine
                 }
 
                 activeOperation = null
-                state = WorkerLifecycleState.IDLE
+                lifecycleState = WorkerLifecycleState.IDLE
             }
 
             else -> reject(WorkerProtocolStateFailure.ILLEGAL_STATE)
@@ -202,7 +204,7 @@ class WorkerProtocolStateMachine
 
     private fun reject(failure: WorkerProtocolStateFailure): Nothing
     {
-        throw WorkerProtocolStateException(failure, state)
+        throw WorkerProtocolStateException(failure, lifecycleState)
     }
 }
 

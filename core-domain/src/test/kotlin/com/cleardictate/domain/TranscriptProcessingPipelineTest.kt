@@ -96,6 +96,18 @@ class TranscriptProcessingPipelineTest
     }
 
     @Test
+    fun `empty clean transcript falls back before invoking the model`() = runTest {
+        val polisher = RecordingPolisher("must not be used")
+        val pipeline = TranscriptProcessingPipeline(polisher = polisher)
+
+        val result = pipeline.process(operationContext, "um", TranscriptMode.POLISHED)
+
+        assertEquals("", result.selectedTranscript)
+        assertEquals(TranscriptFallbackReason.INFERENCE_FAILURE, result.fallbackReason)
+        assertEquals(0, polisher.requestCount)
+    }
+
+    @Test
     fun `unexpected programming failure is not disguised as deterministic fallback`() = runTest {
         val pipeline = TranscriptProcessingPipeline(
             polisher = object : TranscriptPolisher

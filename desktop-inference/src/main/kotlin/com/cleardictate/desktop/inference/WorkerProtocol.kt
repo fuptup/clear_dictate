@@ -133,6 +133,14 @@ class WorkerPayload private constructor(
         return ByteBuffer.wrap(ownedBytes).asReadOnlyBuffer()
     }
 
+    /**
+     * Best-effort overwrite used immediately after a process-pipe operation.
+     */
+    internal fun clearOwnedBytes()
+    {
+        ownedBytes.fill(0)
+    }
+
     override fun equals(other: Any?): Boolean
     {
         return other is WorkerPayload && ownedBytes.contentEquals(other.ownedBytes)
