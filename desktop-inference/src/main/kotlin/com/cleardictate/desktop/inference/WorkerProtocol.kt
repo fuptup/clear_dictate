@@ -553,12 +553,20 @@ class WorkerProtocolCodec(
                 }
             }
 
-            WorkerMessageType.PARTIAL_TRANSCRIPT,
+            WorkerMessageType.PARTIAL_TRANSCRIPT ->
+            {
+                if (payloadSize !in 1..ABSOLUTE_MAXIMUM_PAYLOAD_BYTES)
+                {
+                    throw WorkerProtocolException(WorkerProtocolFailure.INVALID_MESSAGE_PAYLOAD)
+                }
+            }
+
             WorkerMessageType.FINAL_TRANSCRIPT,
             WorkerMessageType.POLISH_TRANSCRIPT,
             WorkerMessageType.POLISHED_TRANSCRIPT ->
             {
-                if (payloadSize !in 1..ABSOLUTE_MAXIMUM_PAYLOAD_BYTES)
+                val minimumPayloadBytes = if (type == WorkerMessageType.FINAL_TRANSCRIPT) 0 else 1
+                if (payloadSize !in minimumPayloadBytes..ABSOLUTE_MAXIMUM_PAYLOAD_BYTES)
                 {
                     throw WorkerProtocolException(WorkerProtocolFailure.INVALID_MESSAGE_PAYLOAD)
                 }

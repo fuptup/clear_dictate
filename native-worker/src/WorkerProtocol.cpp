@@ -63,14 +63,6 @@ namespace clear_dictate
             }
         }
 
-        bool IsTextMessage(WorkerMessageType type) noexcept
-        {
-            return type == WorkerMessageType::PartialTranscript ||
-                type == WorkerMessageType::FinalTranscript ||
-                type == WorkerMessageType::PolishTranscript ||
-                type == WorkerMessageType::PolishedTranscript;
-        }
-
         WorkerMessageType DecodeMessageType(std::uint8_t code)
         {
             if (code < static_cast<std::uint8_t>(WorkerMessageType::Hello) ||
@@ -208,7 +200,19 @@ namespace clear_dictate
                     return;
 
                 case WorkerMessageType::PartialTranscript:
+                    if (payload.empty())
+                    {
+                        throw WorkerProtocolException(WorkerProtocolFailure::InvalidMessagePayload);
+                    }
+                    return;
+
                 case WorkerMessageType::FinalTranscript:
+                    if (!IsValidUtf8(payload))
+                    {
+                        throw WorkerProtocolException(WorkerProtocolFailure::InvalidUtf8);
+                    }
+                    return;
+
                 case WorkerMessageType::PolishTranscript:
                 case WorkerMessageType::PolishedTranscript:
                     if (payload.empty() || !IsValidUtf8(payload))

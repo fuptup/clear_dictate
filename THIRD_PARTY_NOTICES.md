@@ -30,7 +30,7 @@ Its license text and pinned provenance are retained under `third_party/qwen`.
 - Licence for the English-language model: MIT
 - Copyright: 2025 Useful Sensors, Inc. (doing business as Moonshine AI)
 
-ClearDictate links Moonshine into Android development artifacts. The published Android archive is not shipped unchanged: ClearDictate builds the exact pinned source with the documented memory-safety/status patch in `third_party/moonshine`.
+ClearDictate links Moonshine into Android development artifacts and a local Windows Debug integration-test executable. The published Android archive is not shipped unchanged: ClearDictate builds the exact pinned source with the documented memory-safety/status patch in `third_party/moonshine`. The Windows test clean-builds the exact pinned source separately.
 
 The linked native dependency tree includes:
 
@@ -46,7 +46,10 @@ The linked native dependency tree includes:
 The authoritative licence files used by this native build are retained under
 `third_party/moonshine/LICENSE` and `third_party/moonshine/licenses`. A future public binary still
 needs an in-application notice surface and a generated dependency inventory. The present Android
-output is a Debug development artifact, not a distributable release.
+output is a Debug development artifact, not a distributable release. The pinned Windows static
+library also merges text-to-speech code and embedded VCTK-derived voice clips. Their redistribution
+terms and attribution have not yet been resolved for ClearDictate, so no Windows binary containing
+that archive may be distributed.
 
 ## Java Native Access
 

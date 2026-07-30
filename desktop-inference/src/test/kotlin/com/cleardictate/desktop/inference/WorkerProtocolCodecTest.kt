@@ -180,6 +180,43 @@ class WorkerProtocolCodecTest
         }
     }
 
+    @Test
+    fun `accepts empty final transcript for a silent recording`()
+    {
+        val finalFrame = WorkerProtocolMessage(
+            WorkerMessageType.FINAL_TRANSCRIPT,
+            ClientSessionIdentifier("client-7"),
+            OperationIdentifier("operation-19"),
+            OperationPrivacy.STANDARD,
+            WorkerRequestToken(27),
+            ByteArray(0)
+        )
+
+        val decoded = assertIs<WorkerProtocolMessage>(
+            codec.read(DataInputStream(ByteArrayInputStream(encode(finalFrame))))
+        )
+
+        assertEquals(0, decoded.payload.size)
+    }
+
+    @Test
+    fun `rejects an empty partial transcript delta`()
+    {
+        assertFailsWith<WorkerProtocolException> {
+            codec.write(
+                WorkerProtocolMessage(
+                    WorkerMessageType.PARTIAL_TRANSCRIPT,
+                    ClientSessionIdentifier("client-7"),
+                    OperationIdentifier("operation-19"),
+                    OperationPrivacy.STANDARD,
+                    WorkerRequestToken(27),
+                    ByteArray(0)
+                ),
+                DataOutputStream(ByteArrayOutputStream())
+            )
+        }
+    }
+
     private fun encode(frame: WorkerProtocolFrame): ByteArray
     {
         val outputBytes = ByteArrayOutputStream()

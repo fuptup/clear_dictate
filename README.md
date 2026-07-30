@@ -16,7 +16,7 @@ Current implemented capabilities, with verification boundaries listed below:
 
 Important current limitations:
 
-- Windows microphone capture and Moonshine speech recognition are not connected yet;
+- the pinned Windows Moonshine streaming engine now passes a real spoken-fixture test, but the isolated microphone worker and desktop user interface are not connected yet;
 - Android history, full settings/profile screens, a hybrid typing keyboard, and measured phone performance remain incomplete;
 - keyboard microphone eligibility still needs physical validation on Android 14, 15, and 16 while the host application is foregrounded;
 - the locally patched Moonshine Android library needs a long-duration device soak before the Android slice can be called production-ready;

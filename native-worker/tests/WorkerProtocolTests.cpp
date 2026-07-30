@@ -128,12 +128,47 @@ namespace
         Require(rejected, "Invalid UTF-8 transcript output must fail closed.");
     }
 
+    void TestEmptyFinalTranscriptIsAcceptedForSilence()
+    {
+        const clear_dictate::WorkerProtocolFrame decodedFrame = Decode(
+            Encode(
+                clear_dictate::WorkerProtocolFrame::Operation(
+                    clear_dictate::WorkerMessageType::FinalTranscript,
+                    { "client-7", "operation-19", clear_dictate::OperationPrivacy::Private, 27 },
+                    {})));
+
+        Require(decodedFrame.payload.empty(), "A silent recording must round-trip as an empty final transcript.");
+    }
+
+    void TestEmptyPartialTranscriptIsRejected()
+    {
+        bool rejected = false;
+
+        try
+        {
+            static_cast<void>(
+                Encode(
+                    clear_dictate::WorkerProtocolFrame::Operation(
+                        clear_dictate::WorkerMessageType::PartialTranscript,
+                        { "client-7", "operation-19", clear_dictate::OperationPrivacy::Private, 27 },
+                        {})));
+        }
+        catch (const clear_dictate::WorkerProtocolException&)
+        {
+            rejected = true;
+        }
+
+        Require(rejected, "A partial transcript must carry a structured delta payload.");
+    }
+
     int RunAllTests()
     {
         TestOperationFrameMatchesBigEndianGoldenContract();
         TestControlFrameNeedsNoOperationIdentity();
         TestEveryTruncatedFrameFailsWithFixedCategory();
         TestInvalidUtf8TranscriptIsRejected();
+        TestEmptyFinalTranscriptIsAcceptedForSilence();
+        TestEmptyPartialTranscriptIsRejected();
         return 0;
     }
 }

@@ -71,6 +71,26 @@ endif()
 
 add_test(NAME clear_dictate_worker_payload_tests COMMAND clear_dictate_worker_payload_tests)
 
+add_library(clear_dictate_worker_transcript_payloads src/WorkerTranscriptPayloads.cpp)
+target_include_directories(clear_dictate_worker_transcript_payloads PUBLIC include)
+target_compile_features(clear_dictate_worker_transcript_payloads PUBLIC cxx_std_17)
+set_target_properties(clear_dictate_worker_transcript_payloads PROPERTIES CXX_EXTENSIONS OFF)
+
+if(MSVC)
+    target_compile_options(clear_dictate_worker_transcript_payloads PRIVATE /EHsc /W4)
+endif()
+
+add_executable(clear_dictate_worker_transcript_payload_tests tests/WorkerTranscriptPayloadTests.cpp)
+target_link_libraries(clear_dictate_worker_transcript_payload_tests PRIVATE clear_dictate_worker_transcript_payloads)
+target_compile_features(clear_dictate_worker_transcript_payload_tests PRIVATE cxx_std_17)
+set_target_properties(clear_dictate_worker_transcript_payload_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+if(MSVC)
+    target_compile_options(clear_dictate_worker_transcript_payload_tests PRIVATE /EHsc /W4)
+endif()
+
+add_test(NAME clear_dictate_worker_transcript_payload_tests COMMAND clear_dictate_worker_transcript_payload_tests)
+
 add_library(clear_dictate_text_inference_worker_session src/TextInferenceWorkerSession.cpp)
 target_include_directories(clear_dictate_text_inference_worker_session PUBLIC include)
 target_link_libraries(
@@ -126,6 +146,141 @@ if(WIN32)
     endif()
 
     add_test(NAME clear_dictate_verified_model_file_tests COMMAND clear_dictate_verified_model_file_tests)
+endif()
+
+option(CLEAR_DICTATE_ENABLE_MOONSHINE "Build the project-owned Moonshine speech-recognition adapter." OFF)
+
+if(CLEAR_DICTATE_ENABLE_MOONSHINE)
+    if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR NOT CMAKE_GENERATOR MATCHES "^Visual Studio 17 2022")
+        message(FATAL_ERROR "The current ClearDictate Moonshine adapter requires Visual Studio 2022 targeting 64-bit Windows.")
+    endif()
+    if(NOT DEFINED MOONSHINE_SOURCE_DIR OR NOT DEFINED MOONSHINE_BUILD_DIR)
+        message(FATAL_ERROR "MOONSHINE_SOURCE_DIR and MOONSHINE_BUILD_DIR must identify the pinned source and Debug build.")
+    endif()
+
+    include(dependencies/moonshine-lock.cmake)
+    find_package(Git REQUIRED)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C "${MOONSHINE_SOURCE_DIR}" rev-parse HEAD
+        RESULT_VARIABLE MOONSHINE_COMMIT_RESULT
+        OUTPUT_VARIABLE MOONSHINE_ACTUAL_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(NOT MOONSHINE_COMMIT_RESULT EQUAL 0 OR NOT MOONSHINE_ACTUAL_COMMIT STREQUAL CLEAR_DICTATE_MOONSHINE_COMMIT)
+        message(FATAL_ERROR "Moonshine must be the locked ClearDictate revision ${CLEAR_DICTATE_MOONSHINE_COMMIT}.")
+    endif()
+
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C "${MOONSHINE_SOURCE_DIR}" status --porcelain
+        RESULT_VARIABLE MOONSHINE_STATUS_RESULT
+        OUTPUT_VARIABLE MOONSHINE_DIRTY_OUTPUT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(NOT MOONSHINE_STATUS_RESULT EQUAL 0 OR NOT MOONSHINE_DIRTY_OUTPUT STREQUAL "")
+        message(FATAL_ERROR "The locked Moonshine checkout must have no tracked modifications.")
+    endif()
+
+    set(CLEAR_DICTATE_MOONSHINE_LIBRARY "${MOONSHINE_BUILD_DIR}/core/Debug/moonshine.lib")
+    set(CLEAR_DICTATE_BIN_TOKENIZER_LIBRARY "${MOONSHINE_SOURCE_DIR}/core/bin-tokenizer/build/Debug/bin-tokenizer.lib")
+    set(CLEAR_DICTATE_MOONSHINE_UTILS_LIBRARY "${MOONSHINE_SOURCE_DIR}/core/moonshine-utils/build/Debug/moonshine-utils.lib")
+    set(CLEAR_DICTATE_ORT_UTILS_LIBRARY "${MOONSHINE_SOURCE_DIR}/core/ort-utils/build/Debug/ort-utils.lib")
+    set(CLEAR_DICTATE_ONNX_RUNTIME_DIRECTORY "${MOONSHINE_SOURCE_DIR}/core/third-party/onnxruntime/lib/windows/x86_64")
+    set(CLEAR_DICTATE_ONNX_RUNTIME_IMPORT_LIBRARY "${CLEAR_DICTATE_ONNX_RUNTIME_DIRECTORY}/onnxruntime.lib")
+    set(CLEAR_DICTATE_ONNX_RUNTIME_DLL "${CLEAR_DICTATE_ONNX_RUNTIME_DIRECTORY}/onnxruntime.dll")
+    foreach(REQUIRED_MOONSHINE_FILE "${CLEAR_DICTATE_ONNX_RUNTIME_IMPORT_LIBRARY}" "${CLEAR_DICTATE_ONNX_RUNTIME_DLL}")
+        if(NOT EXISTS "${REQUIRED_MOONSHINE_FILE}")
+            message(FATAL_ERROR "Required Moonshine Debug build input is missing: ${REQUIRED_MOONSHINE_FILE}")
+        endif()
+    endforeach()
+    file(SIZE "${CLEAR_DICTATE_ONNX_RUNTIME_DLL}" CLEAR_DICTATE_ONNX_RUNTIME_DLL_ACTUAL_SIZE)
+    file(SHA256 "${CLEAR_DICTATE_ONNX_RUNTIME_DLL}" CLEAR_DICTATE_ONNX_RUNTIME_DLL_ACTUAL_SHA256)
+    file(SIZE "${CLEAR_DICTATE_ONNX_RUNTIME_IMPORT_LIBRARY}" CLEAR_DICTATE_ONNX_RUNTIME_IMPORT_LIBRARY_ACTUAL_SIZE)
+    file(SHA256 "${CLEAR_DICTATE_ONNX_RUNTIME_IMPORT_LIBRARY}" CLEAR_DICTATE_ONNX_RUNTIME_IMPORT_LIBRARY_ACTUAL_SHA256)
+    if(NOT CLEAR_DICTATE_ONNX_RUNTIME_DLL_ACTUAL_SIZE EQUAL CLEAR_DICTATE_ONNX_RUNTIME_DLL_SIZE_BYTES OR
+       NOT CLEAR_DICTATE_ONNX_RUNTIME_DLL_ACTUAL_SHA256 STREQUAL CLEAR_DICTATE_ONNX_RUNTIME_DLL_SHA256)
+        message(FATAL_ERROR "The pinned ONNX Runtime DLL failed size or SHA-256 verification.")
+    endif()
+    if(NOT CLEAR_DICTATE_ONNX_RUNTIME_IMPORT_LIBRARY_ACTUAL_SIZE EQUAL CLEAR_DICTATE_ONNX_RUNTIME_IMPORT_LIBRARY_SIZE_BYTES OR
+       NOT CLEAR_DICTATE_ONNX_RUNTIME_IMPORT_LIBRARY_ACTUAL_SHA256 STREQUAL CLEAR_DICTATE_ONNX_RUNTIME_IMPORT_LIBRARY_SHA256)
+        message(FATAL_ERROR "The pinned ONNX Runtime import library failed size or SHA-256 verification.")
+    endif()
+
+    set(
+        CLEAR_DICTATE_MOONSHINE_CONFIGURE_COMMAND
+        "${CMAKE_COMMAND}"
+        -S "${MOONSHINE_SOURCE_DIR}"
+        -B "${MOONSHINE_BUILD_DIR}"
+        -G "${CMAKE_GENERATOR}"
+        -DMOONSHINE_BUILD_SHARED=OFF
+        -DMOONSHINE_TTS_BUILD_ONNX=ON
+    )
+    if(CMAKE_GENERATOR_PLATFORM)
+        list(APPEND CLEAR_DICTATE_MOONSHINE_CONFIGURE_COMMAND -A "${CMAKE_GENERATOR_PLATFORM}")
+    endif()
+    if(CMAKE_GENERATOR_TOOLSET)
+        list(APPEND CLEAR_DICTATE_MOONSHINE_CONFIGURE_COMMAND -T "${CMAKE_GENERATOR_TOOLSET}")
+    endif()
+
+    add_custom_target(
+        clear_dictate_moonshine_dependency
+        COMMAND ${CLEAR_DICTATE_MOONSHINE_CONFIGURE_COMMAND}
+        COMMAND "${CMAKE_COMMAND}" --build "${MOONSHINE_BUILD_DIR}" --config Debug --target moonshine --clean-first
+        BYPRODUCTS
+            "${CLEAR_DICTATE_MOONSHINE_LIBRARY}"
+            "${CLEAR_DICTATE_BIN_TOKENIZER_LIBRARY}"
+            "${CLEAR_DICTATE_MOONSHINE_UTILS_LIBRARY}"
+            "${CLEAR_DICTATE_ORT_UTILS_LIBRARY}"
+        COMMENT "Building the exact pinned Moonshine source and transitive archives in Debug configuration"
+        VERBATIM
+    )
+
+    add_library(clear_dictate_moonshine_speech_engine src/MoonshineSpeechEngine.cpp)
+    add_dependencies(clear_dictate_moonshine_speech_engine clear_dictate_moonshine_dependency)
+    target_include_directories(clear_dictate_moonshine_speech_engine PUBLIC include PRIVATE "${MOONSHINE_SOURCE_DIR}/core")
+    target_link_libraries(
+        clear_dictate_moonshine_speech_engine
+        PUBLIC clear_dictate_worker_transcript_payloads
+        PRIVATE
+        clear_dictate_verified_model_file
+        "${CLEAR_DICTATE_MOONSHINE_LIBRARY}"
+        "${CLEAR_DICTATE_BIN_TOKENIZER_LIBRARY}"
+        "${CLEAR_DICTATE_MOONSHINE_UTILS_LIBRARY}"
+        "${CLEAR_DICTATE_ORT_UTILS_LIBRARY}"
+        "${CLEAR_DICTATE_ONNX_RUNTIME_IMPORT_LIBRARY}"
+    )
+    target_compile_features(clear_dictate_moonshine_speech_engine PUBLIC cxx_std_20)
+    set_target_properties(clear_dictate_moonshine_speech_engine PROPERTIES CXX_EXTENSIONS OFF)
+    target_compile_options(clear_dictate_moonshine_speech_engine PRIVATE /EHsc /W4)
+
+    option(CLEAR_DICTATE_ENABLE_SPEECH_MODEL_INTEGRATION_TESTS "Build the pinned Moonshine spoken-fixture integration test." OFF)
+    if(CLEAR_DICTATE_ENABLE_SPEECH_MODEL_INTEGRATION_TESTS)
+        if(NOT DEFINED CLEAR_DICTATE_TEST_SPEECH_MODEL_DIRECTORY OR NOT DEFINED CLEAR_DICTATE_TEST_SPEECH_WAVE)
+            message(FATAL_ERROR "The speech model directory and wave fixture are required for integration tests.")
+        endif()
+        file(SIZE "${CLEAR_DICTATE_TEST_SPEECH_WAVE}" CLEAR_DICTATE_SPOKEN_FIXTURE_ACTUAL_SIZE)
+        file(SHA256 "${CLEAR_DICTATE_TEST_SPEECH_WAVE}" CLEAR_DICTATE_SPOKEN_FIXTURE_ACTUAL_SHA256)
+        if(NOT CLEAR_DICTATE_SPOKEN_FIXTURE_ACTUAL_SIZE EQUAL CLEAR_DICTATE_SPOKEN_FIXTURE_SIZE_BYTES OR
+           NOT CLEAR_DICTATE_SPOKEN_FIXTURE_ACTUAL_SHA256 STREQUAL CLEAR_DICTATE_SPOKEN_FIXTURE_SHA256)
+            message(FATAL_ERROR "The pinned spoken fixture failed size or SHA-256 verification.")
+        endif()
+
+        add_executable(clear_dictate_moonshine_speech_engine_tests tests/MoonshineSpeechEngineIntegrationTests.cpp)
+        target_link_libraries(clear_dictate_moonshine_speech_engine_tests PRIVATE clear_dictate_moonshine_speech_engine)
+        target_compile_features(clear_dictate_moonshine_speech_engine_tests PRIVATE cxx_std_20)
+        set_target_properties(clear_dictate_moonshine_speech_engine_tests PROPERTIES CXX_EXTENSIONS OFF)
+        target_compile_options(clear_dictate_moonshine_speech_engine_tests PRIVATE /EHsc /W4)
+        add_custom_command(
+            TARGET clear_dictate_moonshine_speech_engine_tests
+            POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CLEAR_DICTATE_ONNX_RUNTIME_DLL}" "$<TARGET_FILE_DIR:clear_dictate_moonshine_speech_engine_tests>"
+        )
+        add_test(
+            NAME clear_dictate_moonshine_speech_engine_tests
+            COMMAND clear_dictate_moonshine_speech_engine_tests "${CLEAR_DICTATE_TEST_SPEECH_MODEL_DIRECTORY}" "${CLEAR_DICTATE_TEST_SPEECH_WAVE}"
+        )
+    endif()
 endif()
 
 option(CLEAR_DICTATE_ENABLE_LLAMA "Build the project-owned llama.cpp text-generation adapter." OFF)
