@@ -1,0 +1,28 @@
+# Gradle and Kotlin build output
+.gradle/
+**/build/
+.tooling/
+
+# Android local machine configuration
+local.properties
+.idea/
+*.iml
+
+# Native build output
+.cxx/
+**/.cxx/
+
+# Generated application packages and installers
+*.apk
+*.aab
+*.msi
+*.exe
+
+# Large local model files
+*.gguf
+*.bin
+/models/
+
+# Operating-system files
+.DS_Store
+Thumbs.db
