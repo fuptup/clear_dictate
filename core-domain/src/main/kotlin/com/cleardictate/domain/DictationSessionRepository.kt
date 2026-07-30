@@ -1,21 +1,31 @@
 package com.cleardictate.domain
 
+import com.cleardictate.inference.InferenceOperationContext
+import com.cleardictate.inference.OperationPrivacy
+
 /**
  * Contains the complete transcript lineage and non-sensitive timing metadata for one saved session.
  */
 data class DictationSession(
-    val identifier: String,
+    val operationContext: InferenceOperationContext,
     val createdAtEpochMilliseconds: Long,
     val exactRawTranscript: String,
     val cleanTranscript: String,
     val polishedTranscript: String?,
     val selectedMode: TranscriptMode,
-    val isPrivate: Boolean,
     val processingDurationMilliseconds: Long,
     val recognitionDurationMilliseconds: Long,
     val cleanupDurationMilliseconds: Long,
     val semanticValidationFallback: Boolean
 )
+{
+    override fun toString(): String
+    {
+        return "DictationSession(operationContext=$operationContext, createdAtEpochMilliseconds=$createdAtEpochMilliseconds, transcripts=<redacted>, selectedMode=$selectedMode, " +
+            "processingDurationMilliseconds=$processingDurationMilliseconds, recognitionDurationMilliseconds=$recognitionDurationMilliseconds, " +
+            "cleanupDurationMilliseconds=$cleanupDurationMilliseconds, semanticValidationFallback=$semanticValidationFallback)"
+    }
+}
 
 /**
  * Reports whether persistence occurred without exposing transcript or editor information.
@@ -54,7 +64,7 @@ class PrivacyEnforcingSessionRepository(
 {
     override suspend fun save(session: DictationSession): SessionSaveResult
     {
-        if (session.isPrivate)
+        if (session.operationContext.privacy == OperationPrivacy.PRIVATE)
         {
             return SessionSaveResult.REJECTED_PRIVATE_SESSION
         }

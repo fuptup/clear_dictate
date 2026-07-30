@@ -11,6 +11,7 @@ import kotlin.test.assertTrue
 class TranscriptIntegrityValidatorTest
 {
     private val validator = TranscriptIntegrityValidator()
+    private val extractor = ProtectedInformationExtractor()
 
     @Test
     fun `accepts harmless punctuation changes while preserving protected information`()
@@ -20,7 +21,7 @@ class TranscriptIntegrityValidatorTest
             polishedTranscript = "Email alex@example.com at 10:30 on 12 July 2026. The price is £1250.50, not £1500."
         )
 
-        assertTrue(result.accepted)
+        assertTrue(result.accepted, "Unexpected rejection: ${result.failureReason}")
         assertEquals(IntegrityFailureReason.NONE, result.failureReason)
     }
 
@@ -68,5 +69,88 @@ class TranscriptIntegrityValidatorTest
 
         assertFalse(result.accepted)
         assertEquals(IntegrityFailureReason.IMPLAUSIBLE_EXPANSION, result.failureReason)
+    }
+
+    @Test
+    fun `protects sentence-final numbers compact identifiers month-first dates and short times`()
+    {
+        val values = extractor.extract("Use AB123 on July 30, 2026 at 7 pm. Keep 42.")
+            .map { information -> information.normalizedValue }
+
+        assertTrue(values.contains("ab123"))
+        assertTrue(values.contains("july 30, 2026"))
+        assertTrue(values.contains("7 pm"))
+        assertTrue(values.contains("42"))
+    }
+
+    @Test
+    fun `protects typographic-apostrophe negations`()
+    {
+        val result = validator.validate(
+            sourceTranscript = "We can’t publish this.",
+            polishedTranscript = "We can publish this."
+        )
+
+        assertEquals(IntegrityFailureReason.NEGATION_CHANGED, result.failureReason)
+    }
+
+    @Test
+    fun `rejects negation moved to a different protected value`()
+    {
+        val result = validator.validate(
+            sourceTranscript = "Use 2.2, not 2.3.",
+            polishedTranscript = "Do not use 2.2; use 2.3."
+        )
+
+        assertEquals(IntegrityFailureReason.NEGATION_CHANGED, result.failureReason)
+    }
+
+    @Test
+    fun `protects complete quoted text even when it contains a protected time`()
+    {
+        val result = validator.validate(
+            sourceTranscript = """Keep "Call Alice at 10:30" exactly.""",
+            polishedTranscript = """Keep "Email Bob at 10:30" exactly."""
+        )
+
+        assertEquals(IntegrityFailureReason.PROTECTED_VALUE_CHANGED, result.failureReason)
+    }
+
+    @Test
+    fun `rejects removed uncertainty and changed capitalized terms`()
+    {
+        val uncertaintyResult = validator.validate(
+            sourceTranscript = "Alice may approve the release.",
+            polishedTranscript = "Alice will approve the release."
+        )
+        val nameResult = validator.validate(
+            sourceTranscript = "Email Alice tomorrow.",
+            polishedTranscript = "Email Bob tomorrow."
+        )
+
+        assertEquals(IntegrityFailureReason.PROTECTED_VALUE_CHANGED, uncertaintyResult.failureReason)
+        assertEquals(IntegrityFailureReason.PROTECTED_VALUE_CHANGED, nameResult.failureReason)
+    }
+
+    @Test
+    fun `rejects an answer that replaces an editing request`()
+    {
+        val result = validator.validate(
+            sourceTranscript = "Tell me the capital of France.",
+            polishedTranscript = "Paris is the capital of France."
+        )
+
+        assertEquals(IntegrityFailureReason.ANSWERED_TRANSCRIPT, result.failureReason)
+    }
+
+    @Test
+    fun `rejects changed markup even when source already contains markup`()
+    {
+        val result = validator.validate(
+            sourceTranscript = "Keep <code>AB123</code>.",
+            polishedTranscript = "Keep <answer>AB123</answer>."
+        )
+
+        assertEquals(IntegrityFailureReason.UNREQUESTED_MARKUP, result.failureReason)
     }
 }

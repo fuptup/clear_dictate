@@ -1,7 +1,14 @@
 package com.cleardictate.domain
 
+import com.cleardictate.inference.CancellationAcknowledgement
+import com.cleardictate.inference.InferenceFailureCategory
+import com.cleardictate.inference.InferenceOperationContext
+import com.cleardictate.inference.LocalInferenceException
+import com.cleardictate.inference.OperationIdentifier
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
 /**
@@ -33,13 +40,24 @@ data class TranscriptPolishingRequest(
     val userMessage: String,
     val configuration: TranscriptPolishingConfiguration = TranscriptPolishingConfiguration()
 )
+{
+    override fun toString(): String
+    {
+        return "TranscriptPolishingRequest(systemInstruction=<redacted>, userMessage=<redacted>, configuration=$configuration)"
+    }
+}
 
 /**
  * Isolates every platform-specific local language-model implementation behind a suspending boundary.
  */
-fun interface TranscriptPolisher
+interface TranscriptPolisher
 {
-    suspend fun polish(request: TranscriptPolishingRequest): String
+    suspend fun polish(operationContext: InferenceOperationContext, request: TranscriptPolishingRequest): String
+
+    /**
+     * Requests native cancellation without waiting behind the active inference operation.
+     */
+    suspend fun cancel(operationIdentifier: OperationIdentifier): CancellationAcknowledgement
 }
 
 /**
@@ -119,6 +137,7 @@ enum class TranscriptFallbackReason
     CONTEXT_LIMIT_EXCEEDED,
     INTEGRITY_REJECTED,
     INFERENCE_TIMEOUT,
+    CANCELLATION_NOT_ACKNOWLEDGED,
     INFERENCE_FAILURE
 }
 
@@ -135,6 +154,12 @@ data class ProcessedTranscript(
     val usedDeterministicFallback: Boolean,
     val fallbackReason: TranscriptFallbackReason
 )
+{
+    override fun toString(): String
+    {
+        return "ProcessedTranscript(transcripts=<redacted>, selectedMode=$selectedMode, usedDeterministicFallback=$usedDeterministicFallback, fallbackReason=$fallbackReason)"
+    }
+}
 
 /**
  * Coordinates deterministic cleanup, optional local polishing, validation, and fail-closed fallback.
@@ -144,13 +169,18 @@ class TranscriptProcessingPipeline(
     private val cleaner: DeterministicDisfluencyCleaner = DeterministicDisfluencyCleaner(),
     private val integrityValidator: TranscriptIntegrityValidator = TranscriptIntegrityValidator(),
     private val promptTokenBudgetEstimator: PromptTokenBudgetEstimator = PromptTokenBudgetEstimator(),
-    private val polishingTimeoutMilliseconds: Long = 15_000
+    private val polishingTimeoutMilliseconds: Long = 15_000,
+    private val cancellationAcknowledgementTimeoutMilliseconds: Long = 1_000
 )
 {
     /**
      * Processes only finalized recognizer text. Partial recognition must never call this method.
      */
-    suspend fun process(exactRawTranscript: String, mode: TranscriptMode): ProcessedTranscript
+    suspend fun process(
+        operationContext: InferenceOperationContext,
+        exactRawTranscript: String,
+        mode: TranscriptMode
+    ): ProcessedTranscript
     {
         val normalizedRawTranscript = normalizeRawWhitespace(exactRawTranscript)
         val cleanupResult = cleaner.clean(exactRawTranscript)
@@ -180,10 +210,11 @@ class TranscriptProcessingPipeline(
             )
         }
 
-        return polishWithFallback(exactRawTranscript, normalizedRawTranscript, cleanTranscript)
+        return polishWithFallback(operationContext, exactRawTranscript, normalizedRawTranscript, cleanTranscript)
     }
 
     private suspend fun polishWithFallback(
+        operationContext: InferenceOperationContext,
         exactRawTranscript: String,
         normalizedRawTranscript: String,
         cleanTranscript: String
@@ -205,23 +236,41 @@ class TranscriptProcessingPipeline(
         {
             withTimeout(polishingTimeoutMilliseconds)
             {
-                polisher.polish(request)
+                polisher.polish(operationContext, request)
             }
         }
         catch (_: TimeoutCancellationException)
         {
+            val cancellationAcknowledged = requestCancellation(operationContext.operationIdentifier)
+
             return fallbackResult(
                 exactRawTranscript,
                 normalizedRawTranscript,
                 cleanTranscript,
-                TranscriptFallbackReason.INFERENCE_TIMEOUT
+                if (cancellationAcknowledged)
+                {
+                    TranscriptFallbackReason.INFERENCE_TIMEOUT
+                }
+                else
+                {
+                    TranscriptFallbackReason.CANCELLATION_NOT_ACKNOWLEDGED
+                }
             )
         }
         catch (cancellationException: CancellationException)
         {
+            val cancellationAcknowledged = requestCancellation(operationContext.operationIdentifier)
+
+            if (!cancellationAcknowledged)
+            {
+                cancellationException.addSuppressed(
+                    LocalInferenceException(InferenceFailureCategory.CANCELLATION_NOT_ACKNOWLEDGED)
+                )
+            }
+
             throw cancellationException
         }
-        catch (_: Throwable)
+        catch (_: LocalInferenceException)
         {
             return fallbackResult(
                 exactRawTranscript,
@@ -251,6 +300,31 @@ class TranscriptProcessingPipeline(
             selectedTranscript = polishedTranscript,
             selectedMode = TranscriptMode.POLISHED
         )
+    }
+
+    /**
+     * Requests cancellation in a non-cancellable scope so parent cancellation cannot skip native cleanup.
+     */
+    private suspend fun requestCancellation(operationIdentifier: OperationIdentifier): Boolean
+    {
+        return withContext(NonCancellable)
+        {
+            try
+            {
+                withTimeout(cancellationAcknowledgementTimeoutMilliseconds)
+                {
+                    polisher.cancel(operationIdentifier).operationIdentifier == operationIdentifier
+                }
+            }
+            catch (_: TimeoutCancellationException)
+            {
+                false
+            }
+            catch (_: LocalInferenceException)
+            {
+                false
+            }
+        }
     }
 
     private fun successfulResult(
@@ -295,6 +369,6 @@ class TranscriptProcessingPipeline(
 
     private fun normalizeRawWhitespace(exactRawTranscript: String): String
     {
-        return exactRawTranscript.replace(Regex("""\s+"""), " ").trim()
+        return TranscriptWhitespaceNormalizer.normalizePreservingLineBreaks(exactRawTranscript)
     }
 }

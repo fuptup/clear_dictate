@@ -6,6 +6,7 @@ androidxLifecycle = "2.10.0"
 composeAndroid = "2026.06.00"
 composeDesktop = "1.11.1"
 junitJupiter = "5.13.4"
+junit4 = "4.13.2"
 kotlin = "2.4.10"
 kotlinCoroutines = "1.10.2"
 
@@ -15,6 +16,7 @@ androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx
 androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidxLifecycle" }
 compose-android-bom = { module = "androidx.compose:compose-bom", version.ref = "composeAndroid" }
 junit-jupiter-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junitJupiter" }
+junit4 = { module = "junit:junit", version.ref = "junit4" }
 kotlin-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinCoroutines" }
 kotlin-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "kotlinCoroutines" }
 kotlin-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinCoroutines" }

@@ -66,4 +66,47 @@ class DeterministicDisfluencyCleanerTest
         assertTrue(result.report.transformations.contains(CleanupTransformation.WHITESPACE_NORMALIZED))
         assertTrue(result.report.transformations.contains(CleanupTransformation.CAPITALIZATION_RESTORED))
     }
+
+    @Test
+    fun `does not corrupt times currency file paths or web addresses`()
+    {
+        val source = """Meet at 10:30; pay £1,250.50; open C:\work\file.txt; visit https://example.com."""
+
+        val result = cleaner.clean(source)
+
+        assertEquals(source, result.cleanedTranscript)
+    }
+
+    @Test
+    fun `preserves intentional line breaks while normalizing horizontal whitespace`()
+    {
+        val result = cleaner.clean("  first   line  \r\n  second   line  ")
+
+        assertEquals("First line\nSecond line", result.cleanedTranscript)
+    }
+
+    @Test
+    fun `removes hmm only in an explicit hesitation position`()
+    {
+        val hesitation = cleaner.clean("Hmm, I think this is ready.")
+        val meaningfulUse = cleaner.clean("The machine made a hmm sound.")
+
+        assertEquals("I think this is ready.", hesitation.cleanedTranscript)
+        assertEquals("The machine made a hmm sound.", meaningfulUse.cleanedTranscript)
+    }
+
+    @Test
+    fun `preserves ambiguous repeated words without restart punctuation`()
+    {
+        val intentionalExamples = listOf(
+            "No no, that is deliberate.",
+            "Bye bye for now.",
+            "I had had enough.",
+            "It was very very difficult."
+        )
+
+        intentionalExamples.forEach { source ->
+            assertEquals(source, cleaner.clean(source).cleanedTranscript)
+        }
+    }
 }

@@ -18,6 +18,8 @@ dependencyResolutionManagement {
 rootProject.name = "ClearDictate"
 
 include(":core-domain")
+include(":core-input-connection")
 include(":core-models")
+include(":inference-contract")
 include(":desktop-app")
 include(":android-app")

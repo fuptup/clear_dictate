@@ -1,18 +1,25 @@
-package com.cleardictate.domain
+package com.cleardictate.input
 
 /**
  * Contains only the minimal, transient editor information needed for safe transcript insertion.
  */
 data class EditorContext(
+    val editorSessionIdentifier: EditorSessionIdentifier,
     val textBeforeCursor: String = "",
     val textAfterCursor: String = "",
     val hasSelection: Boolean = false,
     val replaceSelectionEnabled: Boolean = false,
     val isMultiline: Boolean = false,
     val isSensitive: Boolean = false,
-    val isPrivate: Boolean = false,
-    val editorSessionIdentifier: String = ""
+    val isPrivate: Boolean = false
 )
+{
+    override fun toString(): String
+    {
+        return "EditorContext(editorSessionIdentifier=$editorSessionIdentifier, surroundingText=<redacted>, hasSelection=$hasSelection, replaceSelectionEnabled=$replaceSelectionEnabled, " +
+            "isMultiline=$isMultiline, isSensitive=$isSensitive, isPrivate=$isPrivate)"
+    }
+}
 
 /**
  * Explains why insertion was refused without exposing editor or transcript contents.
@@ -34,6 +41,12 @@ data class TranscriptInsertionDecision(
     val textToInsert: String,
     val blockReason: InsertionBlockReason
 )
+{
+    override fun toString(): String
+    {
+        return "TranscriptInsertionDecision(insertionAllowed=$insertionAllowed, historyAllowed=$historyAllowed, textToInsert=<redacted>, blockReason=$blockReason)"
+    }
+}
 
 /**
  * Applies conservative, platform-neutral spacing, privacy, and editor-session rules.
@@ -49,7 +62,7 @@ class TranscriptInsertionPolicy
     fun decide(
         editorContext: EditorContext,
         transcript: String,
-        recordingEditorSessionIdentifier: String = editorContext.editorSessionIdentifier
+        recordingEditorSessionIdentifier: EditorSessionIdentifier
     ): TranscriptInsertionDecision
     {
         if (editorContext.isSensitive)
@@ -58,11 +71,10 @@ class TranscriptInsertionPolicy
         }
 
         if (
-            recordingEditorSessionIdentifier.isNotEmpty() &&
             recordingEditorSessionIdentifier != editorContext.editorSessionIdentifier
         )
         {
-            return blocked(InsertionBlockReason.STALE_EDITOR_SESSION, historyAllowed = !editorContext.isPrivate)
+            return blocked(InsertionBlockReason.STALE_EDITOR_SESSION, historyAllowed = false)
         }
 
         if (editorContext.hasSelection && !editorContext.replaceSelectionEnabled)

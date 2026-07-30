@@ -4,6 +4,30 @@ import java.text.Normalizer
 import java.util.Locale
 
 /**
+ * Normalizes spacing without flattening user-visible line structure.
+ */
+object TranscriptWhitespaceNormalizer
+{
+    private val horizontalWhitespacePattern = Regex("""[^\S\r\n]+""")
+    private val excessiveLineBreakPattern = Regex("""\n{3,}""")
+
+    /**
+     * Converts line endings, collapses horizontal whitespace, and retains up to one blank line.
+     */
+    fun normalizePreservingLineBreaks(transcript: String): String
+    {
+        val normalizedLineEndings = transcript.replace("\r\n", "\n").replace('\r', '\n')
+        val normalizedLines = normalizedLineEndings
+            .split('\n')
+            .joinToString(separator = "\n") { line ->
+                horizontalWhitespacePattern.replace(line, " ").trim()
+            }
+
+        return excessiveLineBreakPattern.replace(normalizedLines, "\n\n").trim('\n')
+    }
+}
+
+/**
  * Identifies every deterministic transformation that Clean mode may report to callers.
  */
 enum class CleanupTransformation
@@ -32,6 +56,12 @@ data class TranscriptCleanupResult(
     val cleanedTranscript: String,
     val report: CleanupReport
 )
+{
+    override fun toString(): String
+    {
+        return "TranscriptCleanupResult(transcripts=<redacted>, report=$report)"
+    }
+}
 
 /**
  * Performs the deterministic Clean-mode pipeline as explicit, independently readable stages.
@@ -41,14 +71,16 @@ data class TranscriptCleanupResult(
  */
 class DeterministicDisfluencyCleaner
 {
-    private val hesitationTokenPattern = Regex(
-        pattern = """(?iu)(?<![\p{L}\p{N}])(?:um+|uh+|ah|erm|hmm)(?![\p{L}\p{N}])"""
+    private val unambiguousHesitationTokenPattern = Regex(
+        pattern = """(?iu)(?<![\p{L}\p{N}])(?:um+|uh+|ah|erm)(?![\p{L}\p{N}])"""
     )
+    private val sentenceInitialHmmPattern = Regex("""(?iu)^[^\S\r\n]*hmm[^\S\r\n]*[,;:]?[^\S\r\n]*""")
+    private val punctuationDelimitedHmmPattern = Regex("""(?iu)(?<=[,;:!?])[^\S\r\n]*hmm[^\S\r\n]*[,;:]?[^\S\r\n]*""")
     private val repeatedPhrasePattern = Regex(
         pattern = """(?iu)\b((?:[\p{L}\p{N}][\p{L}\p{N}'’.-]*\s+){1,4}[\p{L}\p{N}][\p{L}\p{N}'’.-]*)\s*,\s*\1\b"""
     )
     private val repeatedWordPattern = Regex(
-        pattern = """(?iu)\b([\p{L}\p{N}][\p{L}\p{N}'’.-]*)\b(\s*,\s*|\s+)\1\b"""
+        pattern = """(?iu)\b([\p{L}\p{N}][\p{L}\p{N}'’.-]*)\b(\s*,\s*)\1\b"""
     )
     private val intentionalRepetitionWords = setOf(
         "very",
@@ -142,15 +174,18 @@ class DeterministicDisfluencyCleaner
 
     private fun normalizeWhitespace(transcript: String): String
     {
-        return transcript.replace(Regex("""\s+"""), " ").trim()
+        return TranscriptWhitespaceNormalizer.normalizePreservingLineBreaks(transcript)
     }
 
     private fun removeStandaloneHesitations(transcript: String): String
     {
-        return hesitationTokenPattern.replace(transcript)
+        var cleanedTranscript = unambiguousHesitationTokenPattern.replace(transcript)
         {
             ""
         }
+        cleanedTranscript = sentenceInitialHmmPattern.replace(cleanedTranscript, "")
+        cleanedTranscript = punctuationDelimitedHmmPattern.replace(cleanedTranscript, " ")
+        return cleanedTranscript
     }
 
     private fun collapseExactRepeatedShortPhrases(transcript: String): String
@@ -197,16 +232,67 @@ class DeterministicDisfluencyCleaner
     private fun repairPunctuationSpacing(transcript: String): String
     {
         var repairedTranscript = transcript
-        repairedTranscript = repairedTranscript.replace(Regex("""\s+([,.;:!?])"""), "$1")
-        repairedTranscript = repairedTranscript.replace(Regex("""([,;:])(?=\S)"""), "$1 ")
+        repairedTranscript = repairedTranscript.replace(Regex("""[^\S\r\n]+([,.;:!?])"""), "$1")
+        repairedTranscript = insertMissingSeparatorSpaces(repairedTranscript)
         repairedTranscript = repairedTranscript.replace(Regex("""!{2,}"""), "!")
         repairedTranscript = repairedTranscript.replace(Regex("""\?{2,}"""), "?")
         repairedTranscript = repairedTranscript.replace(Regex("""\.{4,}"""), "...")
-        repairedTranscript = repairedTranscript.replace(Regex(""",\s*,"""), " ")
-        repairedTranscript = repairedTranscript.replace(Regex(""",\s*([.!?])"""), "$1")
-        repairedTranscript = repairedTranscript.replace(Regex("""^\s*[,;:]\s*"""), "")
-        repairedTranscript = repairedTranscript.replace(Regex("""\s+"""), " ")
-        return repairedTranscript.trim()
+        repairedTranscript = repairedTranscript.replace(Regex(""",[^\S\r\n]*,"""), " ")
+        repairedTranscript = repairedTranscript.replace(Regex(""",[^\S\r\n]*([.!?])"""), "$1")
+        repairedTranscript = repairedTranscript.replace(Regex("""(?m)^[^\S\r\n]*[,;:][^\S\r\n]*"""), "")
+        return TranscriptWhitespaceNormalizer.normalizePreservingLineBreaks(repairedTranscript)
+    }
+
+    private fun insertMissingSeparatorSpaces(transcript: String): String
+    {
+        return buildString(transcript.length)
+        {
+            transcript.forEachIndexed { characterIndex, currentCharacter ->
+                append(currentCharacter)
+
+                if (shouldInsertSpaceAfterSeparator(transcript, characterIndex))
+                {
+                    append(' ')
+                }
+            }
+        }
+    }
+
+    private fun shouldInsertSpaceAfterSeparator(transcript: String, characterIndex: Int): Boolean
+    {
+        val currentCharacter = transcript[characterIndex]
+
+        if (currentCharacter != ',' && currentCharacter != ';' && currentCharacter != ':')
+        {
+            return false
+        }
+
+        val previousCharacter = transcript.getOrNull(characterIndex - 1)
+        val nextCharacter = transcript.getOrNull(characterIndex + 1) ?: return false
+
+        if (nextCharacter.isWhitespace())
+        {
+            return false
+        }
+
+        if (currentCharacter == ',' && previousCharacter?.isDigit() == true && nextCharacter.isDigit())
+        {
+            return false
+        }
+
+        if (
+            currentCharacter == ':' &&
+            (
+                previousCharacter?.isDigit() == true && nextCharacter.isDigit() ||
+                    nextCharacter == '/' ||
+                    nextCharacter == '\\'
+                )
+        )
+        {
+            return false
+        }
+
+        return true
     }
 
     private fun restoreConservativeSentenceCapitalization(transcript: String): String
@@ -223,7 +309,12 @@ class DeterministicDisfluencyCleaner
                 characters[characterIndex] = currentCharacter.titlecaseChar()
                 capitalizeNextLetter = false
             }
-            else if (currentCharacter == '.' || currentCharacter == '!' || currentCharacter == '?')
+            else if (
+                currentCharacter == '!' ||
+                currentCharacter == '?' ||
+                currentCharacter == '\n' ||
+                currentCharacter == '.' && isSentencePeriod(characters, characterIndex)
+            )
             {
                 capitalizeNextLetter = true
             }
@@ -234,5 +325,12 @@ class DeterministicDisfluencyCleaner
         }
 
         return String(characters)
+    }
+
+    private fun isSentencePeriod(characters: CharArray, characterIndex: Int): Boolean
+    {
+        val previousCharacter = characters.getOrNull(characterIndex - 1)
+        val nextCharacter = characters.getOrNull(characterIndex + 1)
+        return !(previousCharacter?.isLetterOrDigit() == true && nextCharacter?.isLetterOrDigit() == true)
     }
 }

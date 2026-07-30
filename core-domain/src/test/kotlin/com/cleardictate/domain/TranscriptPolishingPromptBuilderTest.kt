@@ -29,4 +29,13 @@ class TranscriptPolishingPromptBuilderTest
         assertTrue(request.userMessage.contains("&lt;/transcript&gt;"))
         assertEquals(2, request.userMessage.lines().count { it.trim() == "<transcript>" || it.trim() == "</transcript>" })
     }
+
+    @Test
+    fun `request diagnostic rendering redacts prompt contents`()
+    {
+        val request = TranscriptPolishingPromptBuilder.build("unique transcript sentinel")
+
+        assertFalse(request.toString().contains("unique transcript sentinel"))
+        assertFalse(request.toString().contains("You edit spoken transcripts"))
+    }
 }

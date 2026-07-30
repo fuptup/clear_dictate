@@ -7,11 +7,7 @@ kotlin {
 }
 
 dependencies {
-    implementation(project(":inference-contract"))
-    implementation(libs.kotlin.coroutines.core)
-
     testImplementation(kotlin("test"))
-    testImplementation(libs.kotlin.coroutines.test)
     testRuntimeOnly(libs.junit.jupiter.engine)
 }
 

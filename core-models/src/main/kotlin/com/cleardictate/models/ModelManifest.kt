@@ -2,6 +2,8 @@ package com.cleardictate.models
 
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.channels.FileChannel
+import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 
 /**
@@ -71,12 +73,38 @@ object ModelManifestVerifier
                 return failed(ModelVerificationFailure.FILENAME_MISMATCH)
             }
 
-            if (Files.size(modelPath) != manifestEntry.expectedByteCount)
+            FileChannel.open(modelPath, StandardOpenOption.READ).use { fileChannel ->
+                return verifyOpenChannel(modelPath, fileChannel, manifestEntry)
+            }
+        }
+        catch (_: Exception)
+        {
+            return failed(ModelVerificationFailure.READ_FAILURE)
+        }
+    }
+
+    /**
+     * Verifies the already-open handle that a model lease will retain through native ownership.
+     */
+    internal fun verifyOpenChannel(
+        modelPath: Path,
+        fileChannel: FileChannel,
+        manifestEntry: ModelManifestEntry
+    ): ModelVerificationResult
+    {
+        try
+        {
+            if (modelPath.fileName.toString() != manifestEntry.exactFilename)
+            {
+                return failed(ModelVerificationFailure.FILENAME_MISMATCH)
+            }
+
+            if (fileChannel.size() != manifestEntry.expectedByteCount)
             {
                 return failed(ModelVerificationFailure.SIZE_MISMATCH)
             }
 
-            val actualDigest = calculateSha256(modelPath)
+            val actualDigest = calculateSha256(fileChannel)
 
             if (!actualDigest.equals(manifestEntry.sha256Digest, ignoreCase = true))
             {
@@ -91,26 +119,28 @@ object ModelManifestVerifier
         }
     }
 
-    private fun calculateSha256(modelPath: Path): String
+    private fun calculateSha256(fileChannel: FileChannel): String
     {
         val messageDigest = MessageDigest.getInstance("SHA-256")
+        val readBuffer = java.nio.ByteBuffer.allocate(DEFAULT_BUFFER_SIZE)
 
-        Files.newInputStream(modelPath).buffered().use { inputStream ->
-            val readBuffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        fileChannel.position(0)
 
-            while (true)
+        while (true)
+        {
+            readBuffer.clear()
+            val bytesRead = fileChannel.read(readBuffer)
+
+            if (bytesRead < 0)
             {
-                val bytesRead = inputStream.read(readBuffer)
-
-                if (bytesRead < 0)
-                {
-                    break
-                }
-
-                messageDigest.update(readBuffer, 0, bytesRead)
+                break
             }
+
+            readBuffer.flip()
+            messageDigest.update(readBuffer)
         }
 
+        fileChannel.position(0)
         return messageDigest.digest().joinToString(separator = "") { digestByte ->
             "%02x".format(digestByte)
         }

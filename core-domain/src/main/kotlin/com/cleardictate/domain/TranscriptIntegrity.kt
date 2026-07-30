@@ -21,6 +21,8 @@ enum class ProtectedInformationType
     ALPHANUMERIC_IDENTIFIER,
     NUMBER,
     NEGATION,
+    QUALIFIER,
+    CAPITALIZED_TERM,
     QUOTED_TEXT
 }
 
@@ -34,6 +36,12 @@ data class ProtectedInformation(
     val startIndex: Int,
     val endIndexExclusive: Int
 )
+{
+    override fun toString(): String
+    {
+        return "ProtectedInformation(type=$type, value=<redacted>, startIndex=$startIndex, endIndexExclusive=$endIndexExclusive)"
+    }
+}
 
 /**
  * Extracts protected information in deterministic source order while preventing overlapping matches.
@@ -51,14 +59,30 @@ class ProtectedInformationExtractor
         ExtractionRule(ProtectedInformationType.FILE_PATH, Regex("""(?iu)(?:\b[A-Z]:\\|/)(?:[^\s<>:"|?*]+[\\/])*[^\s<>:"|?*]*""")),
         ExtractionRule(ProtectedInformationType.CURRENCY_AMOUNT, Regex("""(?iu)(?:[$£€]\s*[+-]?\d[\d,]*(?:\.\d+)?|[+-]?\d[\d,]*(?:\.\d+)?\s*(?:USD|GBP|EUR))\b?""")),
         ExtractionRule(ProtectedInformationType.PERCENTAGE, Regex("""(?iu)[+-]?\d[\d,]*(?:\.\d+)?\s*(?:%|percent)\b?""")),
-        ExtractionRule(ProtectedInformationType.DATE, Regex("""(?iu)\b(?:\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})\b""")),
-        ExtractionRule(ProtectedInformationType.TIME, Regex("""(?iu)\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm)?\b""")),
+        ExtractionRule(
+            ProtectedInformationType.DATE,
+            Regex(
+                """(?iu)\b(?:\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:,\s*|\s+)\d{4})\b"""
+            )
+        ),
+        ExtractionRule(ProtectedInformationType.TIME, Regex("""(?iu)\b(?:\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))\b""")),
         ExtractionRule(ProtectedInformationType.VERSION, Regex("""(?iu)\b(?:v(?:ersion)?\s*)?\d+(?:\.\d+){1,3}(?:[-+][\w.-]+)?\b""")),
         ExtractionRule(ProtectedInformationType.TELEPHONE_SEQUENCE, Regex("""(?x)(?<!\w)(?:\+?\d[\s().-]*){7,15}(?!\w)""")),
         ExtractionRule(ProtectedInformationType.NUMBER_WITH_UNIT, Regex("""(?iu)\b[+-]?\d[\d,]*(?:\.\d+)?\s*(?:kg|g|mg|lb|oz|km|m|cm|mm|mi|ft|in|l|ml|°c|°f|hz|khz|mhz|ghz|gb|mb|kb)\b""")),
-        ExtractionRule(ProtectedInformationType.ALPHANUMERIC_IDENTIFIER, Regex("""(?iu)\b(?=[\p{L}\p{N}-]*\p{L})(?=[\p{L}\p{N}-]*\d)[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)+\b""")),
-        ExtractionRule(ProtectedInformationType.NUMBER, Regex("""(?<![\p{L}\p{N}.])[+-]?\d[\d,]*(?:\.\d+)?(?![\p{L}\p{N}.])""")),
-        ExtractionRule(ProtectedInformationType.NEGATION, Regex("""(?iu)\b(?:not|never|no|cannot|can't|won't|didn't|isn't|aren't|wasn't|weren't|don't|doesn't|couldn't|shouldn't|wouldn't)\b""")),
+        ExtractionRule(
+            ProtectedInformationType.ALPHANUMERIC_IDENTIFIER,
+            Regex("""(?iu)\b(?=[\p{L}\p{N}-]*\p{L})(?=[\p{L}\p{N}-]*\d)[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?\b""")
+        ),
+        ExtractionRule(ProtectedInformationType.NUMBER, Regex("""(?<![\p{L}\p{N}.])[+-]?\d[\d,]*(?:\.\d+)?(?![\p{L}\p{N}]|\.\d)""")),
+        ExtractionRule(
+            ProtectedInformationType.NEGATION,
+            Regex("""(?iu)\b(?:not|never|no|cannot|can['’]t|won['’]t|didn['’]t|isn['’]t|aren['’]t|wasn['’]t|weren['’]t|don['’]t|doesn['’]t|couldn['’]t|shouldn['’]t|wouldn['’]t)\b""")
+        ),
+        ExtractionRule(
+            ProtectedInformationType.QUALIFIER,
+            Regex("""(?iu)\b(?:may|might|could|possibly|probably|likely|unlikely|uncertain|approximately|about|around)\b""")
+        ),
+        ExtractionRule(ProtectedInformationType.CAPITALIZED_TERM, Regex("""\b\p{Lu}\p{Ll}{1,}\b""")),
         ExtractionRule(ProtectedInformationType.QUOTED_TEXT, Regex("""(?s)(?:"[^"\r\n]+"|'[^'\r\n]+')"""))
     )
 
@@ -75,11 +99,20 @@ class ProtectedInformationExtractor
             {
                 val startIndex = match.range.first
                 val endIndexExclusive = match.range.last + 1
+
+                if (
+                    extractionRule.type == ProtectedInformationType.CAPITALIZED_TERM &&
+                    isSentenceInitialPosition(transcript, startIndex)
+                )
+                {
+                    continue
+                }
+
                 val overlapsExistingMatch = acceptedMatches.any {
                     startIndex < it.endIndexExclusive && endIndexExclusive > it.startIndex
                 }
 
-                if (!overlapsExistingMatch)
+                if (!overlapsExistingMatch || extractionRule.type == ProtectedInformationType.QUOTED_TEXT)
                 {
                     acceptedMatches.add(
                         ProtectedInformation(
@@ -95,6 +128,15 @@ class ProtectedInformationExtractor
         }
 
         return acceptedMatches.sortedWith(compareBy(ProtectedInformation::startIndex, ProtectedInformation::endIndexExclusive))
+    }
+
+    private fun isSentenceInitialPosition(transcript: String, startIndex: Int): Boolean
+    {
+        val precedingCharacter = transcript.substring(0, startIndex).lastOrNull { character -> !character.isWhitespace() }
+        return precedingCharacter == null ||
+            precedingCharacter == '.' ||
+            precedingCharacter == '!' ||
+            precedingCharacter == '?'
     }
 
     private fun normalizeProtectedValue(type: ProtectedInformationType, value: String): String
@@ -131,6 +173,7 @@ enum class IntegrityFailureReason
     NEGATION_CHANGED,
     MODEL_COMMENTARY,
     UNREQUESTED_MARKUP,
+    ANSWERED_TRANSCRIPT,
     IMPLAUSIBLE_EXPANSION
 }
 
@@ -156,7 +199,10 @@ class TranscriptIntegrityValidator(
         Regex("""(?iu)^\s*(?:here(?:'s| is)|edited transcript|the edited|sure[,!:])"""),
         Regex("""(?iu)\b(?:as an ai|i (?:have|made|edited)|explanation:)\b""")
     )
-    private val markupPattern = Regex("""(?s)<[^>]+>|```|^\s*#{1,6}\s+""")
+    private val markupTokenPattern = Regex("""(?m)<[^>\r\n]+>|```|^\s*#{1,6}\s+|^\s*[-*+]\s+|^\s*>\s+|\*\*|__""")
+    private val answerSeekingRequestPattern = Regex(
+        """(?iu)^\s*(?:tell me\b|what (?:is|are)\b|who (?:is|are)\b|where (?:is|are)\b|when (?:is|are)\b|how (?:do|does|can|should)\b|please (?:tell|explain|answer)\b)"""
+    )
 
     /**
      * Applies inexpensive shape checks first, then compares protected values in order and multiplicity.
@@ -173,9 +219,14 @@ class TranscriptIntegrityValidator(
             return rejected(IntegrityFailureReason.MODEL_COMMENTARY)
         }
 
-        if (markupPattern.containsMatchIn(polishedTranscript) && !markupPattern.containsMatchIn(sourceTranscript))
+        if (markupTokens(sourceTranscript) != markupTokens(polishedTranscript))
         {
             return rejected(IntegrityFailureReason.UNREQUESTED_MARKUP)
+        }
+
+        if (appearsToAnswerTranscript(sourceTranscript, polishedTranscript))
+        {
+            return rejected(IntegrityFailureReason.ANSWERED_TRANSCRIPT)
         }
 
         if (isImplausiblyExpanded(sourceTranscript, polishedTranscript))
@@ -189,6 +240,17 @@ class TranscriptIntegrityValidator(
         val polishedNegations = polishedProtectedInformation.filter { it.type == ProtectedInformationType.NEGATION }
 
         if (normalizedSequence(sourceNegations) != normalizedSequence(polishedNegations))
+        {
+            return rejected(IntegrityFailureReason.NEGATION_CHANGED)
+        }
+
+        val sourceNegationAnchors = negationAnchorSequence(sourceProtectedInformation)
+        val polishedNegationAnchors = negationAnchorSequence(polishedProtectedInformation)
+
+        if (
+            valueOnlyAnchors(sourceNegationAnchors) == valueOnlyAnchors(polishedNegationAnchors) &&
+            sourceNegationAnchors != polishedNegationAnchors
+        )
         {
             return rejected(IntegrityFailureReason.NEGATION_CHANGED)
         }
@@ -211,11 +273,52 @@ class TranscriptIntegrityValidator(
         }
     }
 
+    private fun negationAnchorSequence(values: List<ProtectedInformation>): List<String>
+    {
+        return values
+            .filter { information ->
+                information.type == ProtectedInformationType.NEGATION ||
+                    information.type == ProtectedInformationType.NUMBER ||
+                    information.type == ProtectedInformationType.NUMBER_WITH_UNIT ||
+                    information.type == ProtectedInformationType.CURRENCY_AMOUNT ||
+                    information.type == ProtectedInformationType.PERCENTAGE ||
+                    information.type == ProtectedInformationType.VERSION ||
+                    information.type == ProtectedInformationType.ALPHANUMERIC_IDENTIFIER
+            }
+            .map { information ->
+                if (information.type == ProtectedInformationType.NEGATION)
+                {
+                    "NEGATION:${information.normalizedValue}"
+                }
+                else
+                {
+                    "VALUE:${information.type}:${information.normalizedValue}"
+                }
+            }
+    }
+
+    private fun valueOnlyAnchors(anchors: List<String>): List<String>
+    {
+        return anchors.filter { anchor -> anchor.startsWith("VALUE:") }
+    }
+
+    private fun markupTokens(transcript: String): List<String>
+    {
+        return markupTokenPattern.findAll(transcript).map { match -> match.value.trim() }.toList()
+    }
+
+    private fun appearsToAnswerTranscript(sourceTranscript: String, polishedTranscript: String): Boolean
+    {
+        val requestLead = answerSeekingRequestPattern.find(sourceTranscript)?.value?.trim()?.lowercase(Locale.ROOT)
+            ?: return false
+        return !polishedTranscript.trim().lowercase(Locale.ROOT).startsWith(requestLead)
+    }
+
     private fun isImplausiblyExpanded(sourceTranscript: String, polishedTranscript: String): Boolean
     {
         val sourceWordCount = sourceTranscript.trim().split(Regex("""\s+""")).count { it.isNotBlank() }
         val polishedWordCount = polishedTranscript.trim().split(Regex("""\s+""")).count { it.isNotBlank() }
-        val permittedWordCount = (sourceWordCount * 2) + 8
+        val permittedWordCount = sourceWordCount + maxOf(3, sourceWordCount / 2)
         return polishedWordCount > permittedWordCount
     }
 

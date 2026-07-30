@@ -60,6 +60,7 @@ android {
 
 dependencies {
     implementation(project(":core-domain"))
+    implementation(project(":core-input-connection"))
     implementation(project(":core-models"))
 
     implementation(platform(libs.compose.android.bom))
@@ -71,4 +72,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    testImplementation(kotlin("test"))
+    testImplementation(libs.junit4)
 }
