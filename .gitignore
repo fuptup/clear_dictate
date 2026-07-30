@@ -11,6 +11,8 @@ local.properties
 # Native build output
 .cxx/
 **/.cxx/
+native-worker/build/
+native-worker/build-*/
 
 # Generated application packages and installers
 *.apk
