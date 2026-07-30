@@ -2,9 +2,13 @@
 
 ## Scope
 
-The current Windows slice is a developer integration target for transcript cleaning, local Qwen polishing, cancellation, semantic validation, and the pinned Moonshine streaming engine. It is not yet a complete Windows dictation product because the native microphone worker and user interface are not connected.
+The current Windows slice is a developer integration target for transcript cleaning, local Qwen polishing, cancellation, semantic validation, the pinned Moonshine streaming engine, and a host-tested native microphone capture transport. It is not yet a complete Windows dictation product because microphone capture, Moonshine recognition, the speech-worker protocol, and the user interface are not connected into one session.
 
-The Moonshine milestone is deliberately a deterministic engine test rather than a microphone demo. It verifies and leases all seven model components, streams a real spoken WAV fixture in irregular chunks, copies partial-line state before Moonshine invalidates it, forces the final transcript, and exercises cancellation cleanup. Audio capture will live in a separate native worker using event-driven shared-mode Windows Audio Session API capture and a bounded reusable buffer queue; raw microphone audio will not cross the Java process pipe.
+The Moonshine milestone is deliberately a deterministic engine test rather than a microphone-to-transcript demo. It verifies and leases all seven model components, streams a real spoken WAV fixture in irregular chunks, copies partial-line state before Moonshine invalidates it, forces the final transcript, and exercises cancellation cleanup.
+
+The native capture transport now opens either one exact selected endpoint identifier or the default console capture endpoint resolved once at recording start. It requests event-driven shared-mode conversion to 16-kilohertz mono 32-bit floating point, copies each borrowed endpoint packet into preallocated scratch, releases the endpoint packet, and only then publishes sanitized samples into a bounded preallocated queue. It preserves explicit endpoint silence as zero-valued frames and fails closed on timing damage, device loss, stalls, or overflow. Normal Stop freezes and drains already-captured endpoint packets; Cancel does not. A separate wakeable activity channel tells the future recognition consumer when audio is available or capture is terminal, so the consumer does not poll an empty queue indefinitely. The future isolated speech worker must own capture, the queue consumer, and Moonshine together so it can acknowledge cancellation only after all three actors are quiescent and all project-owned audio buffers are scrubbed. Raw microphone audio will not cross the Java process pipe.
+
+This capture milestone has been exercised only against the development computer's current default microphone. It does not establish compatibility with other internal, wired, Universal Serial Bus, or Bluetooth devices; Windows privacy-denial behavior; device changes; sleep/resume; sustained load; long recordings; input-level metering; or speech recognition from the microphone. The three-second capture-stall threshold is provisional and requires device testing before release.
 
 This remains Debug-only developer infrastructure. Upstream Moonshine currently merges unrelated text-to-speech code and VCTK-derived voice assets into its Windows static library. ClearDictate will not produce a redistributable Windows package until that code is excluded cleanly and the resulting native license set is complete.
 
@@ -169,6 +173,18 @@ Double-click `Run-ClearDictate-Developer-Preview.cmd` from File Explorer, or run
 ```
 
 The screen is intentionally a text-only development harness. Raw and Clean processing do not start the model worker. The first Polished request starts one persistent serialized worker; later requests reuse it until the application closes or **Restart local worker** is selected. The screen does not capture microphone audio, save transcript history, or claim production latency.
+
+## Run the opt-in microphone transport smoke test
+
+The following Debug-only diagnostic opens the default console microphone for two seconds, keeps samples only in bounded memory, drains and overwrites the consumer buffer, scrubs the queue, and prints only frame counts and fixed error categories:
+
+```powershell
+.\native-worker\build-llama\Debug\clear_dictate_windows_audio_session_capture_smoke.exe --allow-live-microphone-capture
+```
+
+The explicit argument prevents automated test discovery or an accidental launch from activating the microphone. This is a transport smoke test only: it does not invoke Moonshine, create a transcript, save audio, prove device compatibility, or test the desktop user interface.
+
+Windows endpoint activation and stream initialization are operating-system calls that cannot be interrupted safely from inside the capture thread. The future speech worker therefore requires a host-side startup and shutdown watchdog: if the isolated worker does not acknowledge within the bounded deadline, the existing Job Object lifetime boundary must terminate the worker process. The current in-process capture primitive does not claim bounded cancellation while Windows is inside those initialization calls.
 
 ## Privacy boundary
 

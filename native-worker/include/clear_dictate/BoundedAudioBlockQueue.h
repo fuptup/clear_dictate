@@ -51,6 +51,9 @@ namespace clear_dictate
         void DiscardAndScrub() noexcept;
 
         std::size_t SamplesPerBlock() const noexcept;
+        std::size_t TotalSampleCapacity() const noexcept;
+        // Call only before producer and consumer threads start.
+        bool IsEmptyAndScrubbedForStart() const noexcept;
         // Test/diagnostic inspection; the queue must be quiescent.
         bool StorageContainsOnlyZeroesForVerification() const noexcept;
 

@@ -25,8 +25,11 @@ namespace
     void TestPacketsSplitWithoutChangingOrder()
     {
         clear_dictate::BoundedAudioBlockQueue queue(3, 4);
+        Require(queue.TotalSampleCapacity() == 12, "The advertised sample capacity changed.");
+        Require(queue.IsEmptyAndScrubbedForStart(), "A new queue must be empty and scrubbed.");
         const std::array<float, 7> source = { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F };
         Require(queue.TryPushSamples(source.data(), source.size(), false) == AudioBlockPushResult::Accepted, "The packet should fit.");
+        Require(!queue.IsEmptyAndScrubbedForStart(), "Queued microphone samples must prevent session reuse.");
 
         std::array<float, 4> destination {};
         std::size_t sampleCount = 0;

@@ -122,6 +122,17 @@ namespace clear_dictate
         return samplesPerBlock_;
     }
 
+    std::size_t BoundedAudioBlockQueue::TotalSampleCapacity() const noexcept
+    {
+        return (blocks_.size() - 1) * samplesPerBlock_;
+    }
+
+    bool BoundedAudioBlockQueue::IsEmptyAndScrubbedForStart() const noexcept
+    {
+        return producerIndex_.load(std::memory_order_relaxed) == consumerIndex_.load(std::memory_order_relaxed) &&
+            StorageContainsOnlyZeroesForVerification();
+    }
+
     bool BoundedAudioBlockQueue::StorageContainsOnlyZeroesForVerification() const noexcept
     {
         return std::all_of(

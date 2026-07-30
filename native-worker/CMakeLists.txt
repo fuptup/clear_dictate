@@ -112,6 +112,27 @@ endif()
 
 add_test(NAME clear_dictate_bounded_audio_block_queue_tests COMMAND clear_dictate_bounded_audio_block_queue_tests)
 
+add_library(clear_dictate_audio_capture_packet_processor src/AudioCapturePacketProcessor.cpp)
+target_include_directories(clear_dictate_audio_capture_packet_processor PUBLIC include)
+target_link_libraries(clear_dictate_audio_capture_packet_processor PUBLIC clear_dictate_bounded_audio_block_queue)
+target_compile_features(clear_dictate_audio_capture_packet_processor PUBLIC cxx_std_17)
+set_target_properties(clear_dictate_audio_capture_packet_processor PROPERTIES CXX_EXTENSIONS OFF)
+
+if(MSVC)
+    target_compile_options(clear_dictate_audio_capture_packet_processor PRIVATE /EHsc /W4 /wd4324)
+endif()
+
+add_executable(clear_dictate_audio_capture_packet_processor_tests tests/AudioCapturePacketProcessorTests.cpp)
+target_link_libraries(clear_dictate_audio_capture_packet_processor_tests PRIVATE clear_dictate_audio_capture_packet_processor)
+target_compile_features(clear_dictate_audio_capture_packet_processor_tests PRIVATE cxx_std_17)
+set_target_properties(clear_dictate_audio_capture_packet_processor_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+if(MSVC)
+    target_compile_options(clear_dictate_audio_capture_packet_processor_tests PRIVATE /EHsc /W4 /wd4324)
+endif()
+
+add_test(NAME clear_dictate_audio_capture_packet_processor_tests COMMAND clear_dictate_audio_capture_packet_processor_tests)
+
 add_library(clear_dictate_text_inference_worker_session src/TextInferenceWorkerSession.cpp)
 target_include_directories(clear_dictate_text_inference_worker_session PUBLIC include)
 target_link_libraries(
@@ -139,6 +160,43 @@ endif()
 add_test(NAME clear_dictate_text_inference_worker_session_tests COMMAND clear_dictate_text_inference_worker_session_tests)
 
 if(WIN32)
+    add_library(clear_dictate_windows_audio_session_capture src/WindowsAudioSessionCapture.cpp)
+    target_include_directories(clear_dictate_windows_audio_session_capture PUBLIC include)
+    target_link_libraries(
+        clear_dictate_windows_audio_session_capture
+        PUBLIC
+        clear_dictate_audio_capture_packet_processor
+        PRIVATE
+        avrt
+        ole32
+    )
+    target_compile_features(clear_dictate_windows_audio_session_capture PUBLIC cxx_std_17)
+    set_target_properties(clear_dictate_windows_audio_session_capture PROPERTIES CXX_EXTENSIONS OFF)
+
+    if(MSVC)
+        target_compile_options(clear_dictate_windows_audio_session_capture PRIVATE /EHsc /W4 /wd4324)
+    endif()
+
+    add_executable(clear_dictate_windows_audio_session_capture_smoke tests/WindowsAudioSessionCaptureSmoke.cpp)
+    target_link_libraries(clear_dictate_windows_audio_session_capture_smoke PRIVATE clear_dictate_windows_audio_session_capture)
+    target_compile_features(clear_dictate_windows_audio_session_capture_smoke PRIVATE cxx_std_17)
+    set_target_properties(clear_dictate_windows_audio_session_capture_smoke PROPERTIES CXX_EXTENSIONS OFF)
+
+    if(MSVC)
+        target_compile_options(clear_dictate_windows_audio_session_capture_smoke PRIVATE /EHsc /W4 /wd4324)
+    endif()
+
+    add_executable(clear_dictate_windows_audio_session_capture_lifecycle_tests tests/WindowsAudioSessionCaptureLifecycleTests.cpp)
+    target_link_libraries(clear_dictate_windows_audio_session_capture_lifecycle_tests PRIVATE clear_dictate_windows_audio_session_capture)
+    target_compile_features(clear_dictate_windows_audio_session_capture_lifecycle_tests PRIVATE cxx_std_17)
+    set_target_properties(clear_dictate_windows_audio_session_capture_lifecycle_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+    if(MSVC)
+        target_compile_options(clear_dictate_windows_audio_session_capture_lifecycle_tests PRIVATE /EHsc /W4 /wd4324)
+    endif()
+
+    add_test(NAME clear_dictate_windows_audio_session_capture_lifecycle_tests COMMAND clear_dictate_windows_audio_session_capture_lifecycle_tests)
+
     add_executable(clear_dictate_worker_launcher src/WorkerLauncherMain.cpp)
     target_compile_features(clear_dictate_worker_launcher PRIVATE cxx_std_17)
     set_target_properties(clear_dictate_worker_launcher PROPERTIES CXX_EXTENSIONS OFF)
