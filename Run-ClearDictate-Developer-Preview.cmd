@@ -18,6 +18,13 @@ if not exist "%~dp0native-worker\build-llama\Debug\clear_dictate_worker.exe" (
     exit /b 1
 )
 
+if not exist "%~dp0native-worker\build-llama\Debug\clear_dictate_speech_worker.exe" (
+    echo ClearDictate could not find the Debug native speech worker.
+    echo Follow docs\WINDOWS_DEVELOPMENT.md to build it before retrying.
+    pause
+    exit /b 1
+)
+
 if not exist "%~dp0native-worker\build-llama\Debug\clear_dictate_worker_launcher.exe" (
     echo ClearDictate could not find the Debug worker launcher.
     echo Follow docs\WINDOWS_DEVELOPMENT.md to build all native targets before retrying.
@@ -27,6 +34,13 @@ if not exist "%~dp0native-worker\build-llama\Debug\clear_dictate_worker_launcher
 
 if not exist "%~dp0.tooling\models\qwen2.5-0.5b-instruct\qwen2.5-0.5b-instruct-q4_k_m.gguf" (
     echo ClearDictate could not find the configured local Qwen model.
+    echo Follow docs\WINDOWS_DEVELOPMENT.md to install it before retrying.
+    pause
+    exit /b 1
+)
+
+if not exist "%~dp0.tooling\models\moonshine-tiny-streaming-en\streaming_config.json" (
+    echo ClearDictate could not find the configured local Moonshine model.
     echo Follow docs\WINDOWS_DEVELOPMENT.md to install it before retrying.
     pause
     exit /b 1

@@ -1,52 +1,11 @@
 #pragma once
 
-#include "clear_dictate/BoundedAudioBlockQueue.h"
+#include "clear_dictate/SpeechAudioCapture.h"
 
-#include <cstdint>
 #include <memory>
-#include <string>
 
 namespace clear_dictate
 {
-    enum class WindowsCaptureState
-    {
-        Constructed,
-        Starting,
-        Capturing,
-        Stopped,
-        Cancelled,
-        Failed
-    };
-
-    enum class WindowsCaptureError
-    {
-        None,
-        PrivacyBlocked,
-        NoCaptureDevice,
-        SelectedDeviceUnavailable,
-        DeviceBusy,
-        UnsupportedFormat,
-        AudioServiceUnavailable,
-        DeviceInvalidated,
-        CaptureStalled,
-        DataDiscontinuity,
-        InvalidTimestamp,
-        NonMonotonicPosition,
-        QueueOverflow,
-        InvalidCapturePacket,
-        InitializationFailed,
-        CaptureFailed,
-        Cancelled
-    };
-
-    enum class WindowsCaptureActivity
-    {
-        AudioAvailable,
-        Terminal,
-        TimedOut,
-        WaitFailed
-    };
-
     /**
      * Owns one event-driven Windows shared-mode capture stream.
      *
@@ -62,7 +21,7 @@ namespace clear_dictate
      * must never run concurrently. RequestStop and RequestCancel are the only
      * methods designed for concurrent calls from a protocol-control thread.
      */
-    class WindowsAudioSessionCapture final
+    class WindowsAudioSessionCapture final : public SpeechAudioCapture
     {
     public:
         explicit WindowsAudioSessionCapture(BoundedAudioBlockQueue& destinationQueue);
@@ -71,7 +30,7 @@ namespace clear_dictate
         WindowsAudioSessionCapture(const WindowsAudioSessionCapture&) = delete;
         WindowsAudioSessionCapture& operator=(const WindowsAudioSessionCapture&) = delete;
 
-        WindowsCaptureError Start(const std::wstring& selectedEndpointIdentifier);
+        WindowsCaptureError Start(const std::wstring& selectedEndpointIdentifier) override;
 
         /**
          * Signals the capture thread without waiting for Windows audio calls or
@@ -79,9 +38,9 @@ namespace clear_dictate
          * Start has returned and before touching queued audio or destroying this
          * object.
          */
-        void RequestStop() noexcept;
-        void RequestCancel() noexcept;
-        void JoinProducer() noexcept;
+        void RequestStop() noexcept override;
+        void RequestCancel() noexcept override;
+        void JoinProducer() noexcept override;
 
         void StopAndJoinProducer() noexcept;
         void CancelAndJoinProducer() noexcept;
@@ -90,10 +49,10 @@ namespace clear_dictate
          * Wakes a future recognition consumer for queued audio or terminal state.
          * On Terminal, the consumer must still drain queued audio for normal Stop.
          */
-        WindowsCaptureActivity WaitForActivity(std::uint32_t timeoutMilliseconds) noexcept;
-        WindowsCaptureState State() const noexcept;
-        WindowsCaptureError Error() const noexcept;
-        std::uint64_t AcceptedFrameCount() const noexcept;
+        WindowsCaptureActivity WaitForActivity(std::uint32_t timeoutMilliseconds) noexcept override;
+        WindowsCaptureState State() const noexcept override;
+        WindowsCaptureError Error() const noexcept override;
+        std::uint64_t AcceptedFrameCount() const noexcept override;
 
     private:
         class Implementation;

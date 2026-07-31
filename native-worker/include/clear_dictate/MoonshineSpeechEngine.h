@@ -1,6 +1,6 @@
 #pragma once
 
-#include "clear_dictate\WorkerTranscriptPayloads.h"
+#include "clear_dictate/SpeechRecognitionBackend.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -26,7 +26,7 @@ namespace clear_dictate
      * Every public method must be called from the thread that constructs the
      * engine. This matches the pinned library's actual stream-mutation safety.
      */
-    class MoonshineSpeechEngine final
+    class MoonshineSpeechEngine final : public SpeechRecognitionBackend
     {
     public:
         explicit MoonshineSpeechEngine(const std::string& utf8ModelDirectory);
@@ -35,11 +35,11 @@ namespace clear_dictate
         MoonshineSpeechEngine(const MoonshineSpeechEngine&) = delete;
         MoonshineSpeechEngine& operator=(const MoonshineSpeechEngine&) = delete;
 
-        void Start();
-        void AddAudio(const float* monoSamples, std::size_t sampleCount, std::int32_t sampleRate);
-        std::vector<TranscriptDelta> TranscribeChangedLines(bool forceUpdate);
-        std::string StopAndFinish();
-        void CancelAndDiscard();
+        void Start() override;
+        void AddAudio(const float* monoSamples, std::size_t sampleCount, std::int32_t sampleRate) override;
+        std::vector<TranscriptDelta> TranscribeChangedLines(bool forceUpdate) override;
+        std::string StopAndFinish() override;
+        void CancelAndDiscard() override;
 
     private:
         void RequireOwnerThread() const;

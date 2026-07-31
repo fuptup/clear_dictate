@@ -12,11 +12,11 @@ Current implemented capabilities, with verification boundaries listed below:
 - cryptographic model verification before same-handle loading;
 - a synchronous, drained cancellation contract in the Windows worker and asynchronous cancellation fencing, native drain, and process watchdogs on Android;
 - a real Kotlin-to-worker integration test through the semantic-safety pipeline;
-- a Windows text-pipeline developer preview with editable input/output, all three transcript modes, cancellation, fallback visibility, clipboard copying, and explicit worker restart.
+- a Windows microphone developer preview with live local Moonshine recognition, editable input/output, all three transcript modes, cancellation, fallback visibility, clipboard copying, and explicit text-worker restart.
 
 Important current limitations:
 
-- the pinned Windows Moonshine streaming engine now passes a real spoken-fixture test, but the isolated microphone worker and desktop user interface are not connected yet;
+- the Windows microphone path is connected through an isolated worker and developer interface, but the final system-wide overlay, global shortcut, and target-application insertion are not implemented yet;
 - Android history, full settings/profile screens, a hybrid typing keyboard, and measured phone performance remain incomplete;
 - keyboard microphone eligibility still needs physical validation on Android 14, 15, and 16 while the host application is foregrounded;
 - the locally patched Moonshine Android library needs a long-duration device soak before the Android slice can be called production-ready;
@@ -26,6 +26,6 @@ Important current limitations:
 
 See [Windows development instructions](docs/WINDOWS_DEVELOPMENT.md) and [Android development instructions](docs/ANDROID_DEVELOPMENT.md) for the exact local workflows.
 
-On the configured development computer, double-click `Run-ClearDictate-Developer-Preview.cmd` to open the text-only Windows harness. This launcher is a convenience for the existing Debug toolchain, not a redistributable installer.
+On the configured development computer, double-click `Run-ClearDictate-Developer-Preview.cmd` to open the Windows microphone and text-pipeline harness. This launcher is a convenience for the existing Debug toolchain, not a redistributable installer.
 
 ClearDictate source is licensed under the [Apache License 2.0](LICENSE). See [third-party notices](THIRD_PARTY_NOTICES.md) for pinned dependencies and models.

@@ -43,18 +43,24 @@ import com.cleardictate.domain.TranscriptMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import java.awt.datatransfer.StringSelection
 
 /**
- * Provides a text-only Windows harness for exercising the real shared transcript pipeline.
+ * Provides a Windows harness for exercising local microphone recognition and
+ * the real shared transcript pipeline.
  *
- * This screen is intentionally not presented as the final dictation experience. Microphone
- * capture, speech recognition, saved history, and system-wide insertion remain separate work.
+ * This screen is intentionally not presented as the final dictation experience.
+ * Saved history and system-wide insertion remain separate work.
  */
 @Composable
 @OptIn(ExperimentalComposeUiApi::class)
-fun ClearDictateDesktopPreviewScreen(runtimeReadiness: DesktopRuntimeReadiness, transcriptProcessor: DesktopTranscriptProcessor)
+fun ClearDictateDesktopPreviewScreen(
+    runtimeReadiness: DesktopRuntimeReadiness,
+    speechRecorder: DesktopSpeechRecorder,
+    transcriptProcessor: DesktopTranscriptProcessor
+)
 {
     MaterialTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
@@ -65,8 +71,12 @@ fun ClearDictateDesktopPreviewScreen(runtimeReadiness: DesktopRuntimeReadiness, 
             var processingJob by remember { mutableStateOf<Job?>(null) }
             var processingInProgress by remember { mutableStateOf(false) }
             var restartInProgress by remember { mutableStateOf(false) }
+            var recordingInProgress by remember { mutableStateOf(false) }
+            var recordingCommandInProgress by remember { mutableStateOf(false) }
+            var transcriptCollectionJob by remember { mutableStateOf<Job?>(null) }
 
             val polishedModeAvailable = runtimeReadiness is DesktopRuntimeReadiness.Ready
+            val recordingAvailable = runtimeReadiness is DesktopRuntimeReadiness.Ready
 
             Column(
                 modifier = Modifier
@@ -76,10 +86,102 @@ fun ClearDictateDesktopPreviewScreen(runtimeReadiness: DesktopRuntimeReadiness, 
             ) {
                 PreviewHeader(runtimeReadiness)
                 Spacer(modifier = Modifier.height(20.dp))
+                RecordingControls(
+                    recordingAvailable = recordingAvailable,
+                    recordingInProgress = recordingInProgress,
+                    commandInProgress = recordingCommandInProgress,
+                    processingInProgress = processingInProgress,
+                    onStart = {
+                        recordingCommandInProgress = true
+                        previewState = previewState.withStatus(
+                            "Verifying and loading the local speech model, then opening the default microphone..."
+                        )
+                        coroutineScope.launch {
+                            try
+                            {
+                                val recording = speechRecorder.startRecording()
+                                recordingInProgress = true
+                                previewState = previewState.withStatus("Listening locally. Audio is not saved.")
+                                transcriptCollectionJob?.cancel()
+                                transcriptCollectionJob = launch {
+                                    recording.transcript.collect { snapshot ->
+                                        previewState = previewState
+                                            .withRawTranscript(snapshot.visibleRawTranscript)
+                                            .withStatus("Listening locally. Audio is not saved.")
+                                    }
+                                }
+                            }
+                            catch (_: Exception)
+                            {
+                                previewState = previewState.withStatus(
+                                    "Microphone recording could not start. Check Windows microphone privacy and the local speech worker."
+                                )
+                            }
+                            finally
+                            {
+                                recordingCommandInProgress = false
+                            }
+                        }
+                    },
+                    onStop = {
+                        recordingCommandInProgress = true
+                        previewState = previewState.withStatus("Finalizing local speech recognition...")
+                        coroutineScope.launch {
+                            try
+                            {
+                                val finalTranscript = speechRecorder.stopRecording()
+                                transcriptCollectionJob?.cancel()
+                                transcriptCollectionJob = null
+                                previewState = previewState
+                                    .withRawTranscript(finalTranscript)
+                                    .withStatus("Recognition finalized locally. Choose a processing mode when ready.")
+                            }
+                            catch (_: Exception)
+                            {
+                                previewState = previewState.withStatus(
+                                    "Speech finalization failed. The speech worker was discarded."
+                                )
+                            }
+                            finally
+                            {
+                                recordingInProgress = false
+                                recordingCommandInProgress = false
+                            }
+                        }
+                    },
+                    onCancel = {
+                        recordingCommandInProgress = true
+                        previewState = previewState.withStatus("Cancelling recording and waiting for native confirmation...")
+                        coroutineScope.launch {
+                            try
+                            {
+                                speechRecorder.cancelRecording()
+                                transcriptCollectionJob?.cancel()
+                                transcriptCollectionJob = null
+                                previewState = previewState
+                                    .withRawTranscript("")
+                                    .withStatus("Recording cancelled. Captured audio and transcript buffers were discarded.")
+                            }
+                            catch (_: Exception)
+                            {
+                                previewState = previewState.withStatus(
+                                    "Recording cancellation was not confirmed. The speech worker was discarded."
+                                )
+                            }
+                            finally
+                            {
+                                recordingInProgress = false
+                                recordingCommandInProgress = false
+                            }
+                        }
+                    }
+                )
+                Spacer(modifier = Modifier.height(20.dp))
                 TranscriptModeSelector(
                     selectedMode = previewState.selectedMode,
                     polishedModeAvailable = polishedModeAvailable,
-                    enabled = !processingInProgress && !restartInProgress,
+                    enabled = !processingInProgress && !restartInProgress &&
+                        !recordingInProgress && !recordingCommandInProgress,
                     onModeSelected = { previewState = previewState.withSelectedMode(it) }
                 )
                 Spacer(modifier = Modifier.height(20.dp))
@@ -88,7 +190,7 @@ fun ClearDictateDesktopPreviewScreen(runtimeReadiness: DesktopRuntimeReadiness, 
                     outputTranscript = previewState.outputTranscript,
                     cleanTranscript = previewState.cleanTranscript,
                     showRawTranscript = showRawTranscript,
-                    enabled = !processingInProgress,
+                    enabled = !processingInProgress && !recordingInProgress && !recordingCommandInProgress,
                     onRawTranscriptChanged = { previewState = previewState.withRawTranscript(it) },
                     onOutputTranscriptChanged = { updatedTranscript ->
                         previewState = previewState.withManuallyEditedOutput(updatedTranscript)
@@ -101,6 +203,7 @@ fun ClearDictateDesktopPreviewScreen(runtimeReadiness: DesktopRuntimeReadiness, 
                 ProcessingControls(
                     processingInProgress = processingInProgress,
                     restartInProgress = restartInProgress,
+                    recordingInProgress = recordingInProgress || recordingCommandInProgress,
                     selectedMode = previewState.selectedMode,
                     polishedModeAvailable = polishedModeAvailable,
                     outputTranscript = previewState.outputTranscript,
@@ -190,7 +293,7 @@ private fun PreviewHeader(runtimeReadiness: DesktopRuntimeReadiness)
         fontWeight = FontWeight.SemiBold
     )
     Text(
-        text = "Developer preview — text pipeline only",
+        text = "Developer preview — local microphone and text pipeline",
         modifier = Modifier.padding(top = 4.dp),
         style = MaterialTheme.typography.titleMedium,
         color = MaterialTheme.colorScheme.primary
@@ -199,11 +302,61 @@ private fun PreviewHeader(runtimeReadiness: DesktopRuntimeReadiness)
         text = when (runtimeReadiness)
         {
             is DesktopRuntimeReadiness.Ready ->
-                "Required local files found. The model hash will be verified before it is loaded on the first valid Polished request."
+                "Required local files found. Each model is cryptographically verified before its isolated worker loads it."
             is DesktopRuntimeReadiness.Unavailable -> runtimeReadiness.explanation
         },
         modifier = Modifier.padding(top = 10.dp),
         style = MaterialTheme.typography.bodyMedium
+    )
+}
+
+@Composable
+private fun RecordingControls(
+    recordingAvailable: Boolean,
+    recordingInProgress: Boolean,
+    commandInProgress: Boolean,
+    processingInProgress: Boolean,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+    onCancel: () -> Unit
+)
+{
+    Text(text = "Local microphone recognition", style = MaterialTheme.typography.titleMedium)
+    Row(
+        modifier = Modifier.padding(top = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Button(
+            onClick = onStart,
+            enabled = recordingAvailable && !recordingInProgress && !commandInProgress && !processingInProgress
+        ) {
+            Text(if (commandInProgress && !recordingInProgress) "Preparing…" else "Record")
+        }
+        Button(
+            onClick = onStop,
+            enabled = recordingInProgress && !commandInProgress
+        ) {
+            Text("Stop and transcribe")
+        }
+        OutlinedButton(
+            onClick = onCancel,
+            enabled = recordingInProgress && !commandInProgress
+        ) {
+            Text("Cancel recording")
+        }
+    }
+    Text(
+        text = if (recordingAvailable)
+        {
+            "Uses the default Windows microphone. Audio remains in bounded memory and is scrubbed after stop, cancellation, or failure."
+        }
+        else
+        {
+            "Build the local speech worker and install the pinned Moonshine model to enable recording."
+        },
+        modifier = Modifier.padding(top = 8.dp),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
     )
 }
 
@@ -330,6 +483,7 @@ private fun ProcessingStatusCard(previewState: DesktopPreviewPresentationState, 
 private fun ProcessingControls(
     processingInProgress: Boolean,
     restartInProgress: Boolean,
+    recordingInProgress: Boolean,
     selectedMode: TranscriptMode,
     polishedModeAvailable: Boolean,
     outputTranscript: String,
@@ -343,7 +497,8 @@ private fun ProcessingControls(
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Button(
             onClick = onProcess,
-            enabled = !processingInProgress && !restartInProgress && (selectedMode != TranscriptMode.POLISHED || polishedModeAvailable)
+            enabled = !processingInProgress && !restartInProgress && !recordingInProgress &&
+                (selectedMode != TranscriptMode.POLISHED || polishedModeAvailable)
         ) {
             Text("Process locally")
         }
@@ -353,13 +508,22 @@ private fun ProcessingControls(
                 Text("Cancel processing")
             }
         }
-        OutlinedButton(onClick = onCopy, enabled = outputTranscript.isNotEmpty() && !processingInProgress) {
+        OutlinedButton(
+            onClick = onCopy,
+            enabled = outputTranscript.isNotEmpty() && !processingInProgress && !recordingInProgress
+        ) {
             Text("Copy output")
         }
-        OutlinedButton(onClick = onClear, enabled = !processingInProgress && !restartInProgress) {
+        OutlinedButton(
+            onClick = onClear,
+            enabled = !processingInProgress && !restartInProgress && !recordingInProgress
+        ) {
             Text("Clear")
         }
-        OutlinedButton(onClick = onRestartWorker, enabled = !processingInProgress && !restartInProgress && polishedModeAvailable) {
+        OutlinedButton(
+            onClick = onRestartWorker,
+            enabled = !processingInProgress && !restartInProgress && !recordingInProgress && polishedModeAvailable
+        ) {
             Text(if (restartInProgress) "Restarting…" else "Restart local worker")
         }
     }
@@ -382,7 +546,9 @@ private fun PrivacyBoundaryNotice()
             .background(Color.Transparent)
     ) {
         Text(
-            text = "Offline developer harness: this screen does not record audio or save history. Polished text crosses only a private pipe to a local child process. Process isolation is not a hostile-code sandbox.",
+            text = "Offline developer harness: microphone audio is processed in bounded memory and is not saved; " +
+                "no transcript history is stored. Speech and Polished text cross only private pipes to local child processes. " +
+                "Process isolation is not a hostile-code sandbox.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

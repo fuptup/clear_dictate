@@ -160,6 +160,34 @@ endif()
 add_test(NAME clear_dictate_text_inference_worker_session_tests COMMAND clear_dictate_text_inference_worker_session_tests)
 
 if(WIN32)
+    add_library(clear_dictate_speech_inference_worker_session src/SpeechInferenceWorkerSession.cpp)
+    target_include_directories(clear_dictate_speech_inference_worker_session PUBLIC include)
+    target_link_libraries(
+        clear_dictate_speech_inference_worker_session
+        PUBLIC
+        clear_dictate_bounded_audio_block_queue
+        clear_dictate_worker_payloads
+        clear_dictate_worker_protocol
+        clear_dictate_worker_transcript_payloads
+    )
+    target_compile_features(clear_dictate_speech_inference_worker_session PUBLIC cxx_std_17)
+    set_target_properties(clear_dictate_speech_inference_worker_session PROPERTIES CXX_EXTENSIONS OFF)
+
+    if(MSVC)
+        target_compile_options(clear_dictate_speech_inference_worker_session PRIVATE /EHsc /W4 /wd4324)
+    endif()
+
+    add_executable(clear_dictate_speech_inference_worker_session_tests tests/SpeechInferenceWorkerSessionTests.cpp)
+    target_link_libraries(clear_dictate_speech_inference_worker_session_tests PRIVATE clear_dictate_speech_inference_worker_session)
+    target_compile_features(clear_dictate_speech_inference_worker_session_tests PRIVATE cxx_std_17)
+    set_target_properties(clear_dictate_speech_inference_worker_session_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+    if(MSVC)
+        target_compile_options(clear_dictate_speech_inference_worker_session_tests PRIVATE /EHsc /W4 /wd4324)
+    endif()
+
+    add_test(NAME clear_dictate_speech_inference_worker_session_tests COMMAND clear_dictate_speech_inference_worker_session_tests)
+
     add_library(clear_dictate_windows_audio_session_capture src/WindowsAudioSessionCapture.cpp)
     target_include_directories(clear_dictate_windows_audio_session_capture PUBLIC include)
     target_link_libraries(
@@ -363,6 +391,23 @@ if(CLEAR_DICTATE_ENABLE_MOONSHINE)
         TARGET clear_dictate_live_microphone_moonshine_pipeline_smoke
         POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CLEAR_DICTATE_ONNX_RUNTIME_DLL}" "$<TARGET_FILE_DIR:clear_dictate_live_microphone_moonshine_pipeline_smoke>"
+    )
+
+    add_executable(clear_dictate_speech_worker src/SpeechWorkerMain.cpp)
+    target_link_libraries(
+        clear_dictate_speech_worker
+        PRIVATE
+        clear_dictate_moonshine_speech_engine
+        clear_dictate_speech_inference_worker_session
+        clear_dictate_windows_audio_session_capture
+    )
+    target_compile_features(clear_dictate_speech_worker PRIVATE cxx_std_20)
+    set_target_properties(clear_dictate_speech_worker PROPERTIES CXX_EXTENSIONS OFF)
+    target_compile_options(clear_dictate_speech_worker PRIVATE /EHsc /W4 /wd4324)
+    add_custom_command(
+        TARGET clear_dictate_speech_worker
+        POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CLEAR_DICTATE_ONNX_RUNTIME_DLL}" "$<TARGET_FILE_DIR:clear_dictate_speech_worker>"
     )
 
     option(CLEAR_DICTATE_ENABLE_SPEECH_MODEL_INTEGRATION_TESTS "Build the pinned Moonshine spoken-fixture integration test." OFF)

@@ -9,8 +9,10 @@ import java.nio.file.Path
  */
 data class DesktopRuntimeConfiguration(
     val workerExecutable: Path,
+    val speechWorkerExecutable: Path,
     val workerLauncherExecutable: Path,
     val modelPath: Path,
+    val speechModelDirectory: Path,
     val inferenceThreadCount: Int = 4
 )
 
@@ -31,7 +33,8 @@ class DesktopRuntimeConfigurationLocator(
     private val currentDirectory: Path = Path.of("").toAbsolutePath().normalize(),
     private val systemPropertyReader: (String) -> String? = System::getProperty,
     private val environmentVariableReader: (String) -> String? = System::getenv,
-    private val isRegularFile: (Path) -> Boolean = Files::isRegularFile
+    private val isRegularFile: (Path) -> Boolean = Files::isRegularFile,
+    private val isDirectory: (Path) -> Boolean = Files::isDirectory
 )
 {
     fun locate(): DesktopRuntimeReadiness
@@ -44,21 +47,35 @@ class DesktopRuntimeConfigurationLocator(
                 repositoryRelativeDefault = "native-worker/build-llama/Debug/clear_dictate_worker.exe"
             )
             val workerLauncherExecutable = workerExecutable.resolveSibling("clear_dictate_worker_launcher.exe")
+            val speechWorkerExecutable = resolvePath(
+                systemPropertyName = SPEECH_WORKER_EXECUTABLE_PROPERTY,
+                environmentVariableName = SPEECH_WORKER_EXECUTABLE_ENVIRONMENT_VARIABLE,
+                repositoryRelativeDefault = "native-worker/build-llama/Debug/clear_dictate_speech_worker.exe"
+            )
             val modelPath = resolvePath(
                 systemPropertyName = TEXT_MODEL_PROPERTY,
                 environmentVariableName = TEXT_MODEL_ENVIRONMENT_VARIABLE,
                 repositoryRelativeDefault = ".tooling/models/qwen2.5-0.5b-instruct/qwen2.5-0.5b-instruct-q4_k_m.gguf"
             )
+            val speechModelDirectory = resolvePath(
+                systemPropertyName = SPEECH_MODEL_DIRECTORY_PROPERTY,
+                environmentVariableName = SPEECH_MODEL_DIRECTORY_ENVIRONMENT_VARIABLE,
+                repositoryRelativeDefault = ".tooling/models/moonshine-tiny-streaming-en"
+            )
 
             if (isRegularFile(workerExecutable) &&
+                isRegularFile(speechWorkerExecutable) &&
                 isRegularFile(workerLauncherExecutable) &&
-                isRegularFile(modelPath))
+                isRegularFile(modelPath) &&
+                isDirectory(speechModelDirectory))
             {
                 DesktopRuntimeReadiness.Ready(
                     DesktopRuntimeConfiguration(
                         workerExecutable = workerExecutable,
+                        speechWorkerExecutable = speechWorkerExecutable,
                         workerLauncherExecutable = workerLauncherExecutable,
-                        modelPath = modelPath
+                        modelPath = modelPath,
+                        speechModelDirectory = speechModelDirectory
                     )
                 )
             }
@@ -93,10 +110,14 @@ class DesktopRuntimeConfigurationLocator(
     {
         const val WORKER_EXECUTABLE_PROPERTY = "clearDictate.workerExecutable"
         const val TEXT_MODEL_PROPERTY = "clearDictate.textModel"
+        const val SPEECH_WORKER_EXECUTABLE_PROPERTY = "clearDictate.speechWorkerExecutable"
+        const val SPEECH_MODEL_DIRECTORY_PROPERTY = "clearDictate.speechModelDirectory"
         const val WORKER_EXECUTABLE_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_WORKER_EXECUTABLE"
         const val TEXT_MODEL_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_TEXT_MODEL"
+        const val SPEECH_WORKER_EXECUTABLE_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_SPEECH_WORKER_EXECUTABLE"
+        const val SPEECH_MODEL_DIRECTORY_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_SPEECH_MODEL_DIRECTORY"
 
         private const val MISSING_RUNTIME_EXPLANATION =
-            "Polished mode needs the local Debug worker and Qwen model. Raw and Clean modes remain available."
+            "Recording and Polished mode need the local Debug workers and pinned models. Text-only Raw and Clean modes remain available."
     }
 }

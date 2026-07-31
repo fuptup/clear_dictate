@@ -8,7 +8,7 @@ import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 
 /**
- * Starts the Windows text-pipeline developer preview.
+ * Starts the Windows dictation and text-pipeline developer preview.
  */
 fun main() = application {
     val runtimeReadiness = remember { DesktopRuntimeConfigurationLocator().locate() }
@@ -16,9 +16,13 @@ fun main() = application {
     val transcriptProcessor = remember(runtimeConfiguration) {
         DesktopTranscriptProcessor(runtimeConfiguration)
     }
+    val speechRecorder = remember(runtimeConfiguration) {
+        DesktopSpeechRecorder(runtimeConfiguration)
+    }
 
-    DisposableEffect(transcriptProcessor) {
+    DisposableEffect(transcriptProcessor, speechRecorder) {
         onDispose {
+            speechRecorder.close()
             transcriptProcessor.close()
         }
     }
@@ -30,6 +34,7 @@ fun main() = application {
     ) {
         ClearDictateDesktopPreviewScreen(
             runtimeReadiness = runtimeReadiness,
+            speechRecorder = speechRecorder,
             transcriptProcessor = transcriptProcessor
         )
     }
