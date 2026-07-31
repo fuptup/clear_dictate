@@ -109,6 +109,7 @@ class DesktopTranscriptProcessorTest
         return DesktopRuntimeConfiguration(
             workerExecutable = Path.of("C:/ClearDictate/clear_dictate_worker.exe"),
             speechWorkerExecutable = Path.of("C:/ClearDictate/clear_dictate_speech_worker.exe"),
+            audioDeviceEnumeratorExecutable = Path.of("C:/ClearDictate/clear_dictate_audio_device_enumerator.exe"),
             workerLauncherExecutable = Path.of("C:/ClearDictate/clear_dictate_worker_launcher.exe"),
             modelPath = Path.of("C:/ClearDictate/qwen.gguf"),
             speechModelDirectory = Path.of("C:/ClearDictate/moonshine")

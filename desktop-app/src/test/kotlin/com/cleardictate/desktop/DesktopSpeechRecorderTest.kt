@@ -44,11 +44,24 @@ class DesktopSpeechRecorderTest
         recorder.close()
     }
 
+    @Test
+    fun `selected microphone endpoint is passed unchanged to the speech worker`() = runTest {
+        val workerFactory = RecordingSpeechWorkerFactory()
+        val recorder = DesktopSpeechRecorder(readyConfiguration(), workerFactory)
+
+        recorder.startRecording("{0.0.1.00000000}.selected-endpoint")
+
+        assertEquals("{0.0.1.00000000}.selected-endpoint", workerFactory.worker.startedEndpointIdentifier)
+        recorder.cancelRecording()
+        recorder.close()
+    }
+
     private fun readyConfiguration(): DesktopRuntimeConfiguration
     {
         return DesktopRuntimeConfiguration(
             workerExecutable = Path.of("C:/ClearDictate/clear_dictate_worker.exe"),
             speechWorkerExecutable = Path.of("C:/ClearDictate/clear_dictate_speech_worker.exe"),
+            audioDeviceEnumeratorExecutable = Path.of("C:/ClearDictate/clear_dictate_audio_device_enumerator.exe"),
             workerLauncherExecutable = Path.of("C:/ClearDictate/clear_dictate_worker_launcher.exe"),
             modelPath = Path.of("C:/ClearDictate/qwen.gguf"),
             speechModelDirectory = Path.of("C:/ClearDictate/moonshine")
@@ -69,11 +82,13 @@ class DesktopSpeechRecorderTest
 
     private class RecordingSpeechWorker : DesktopSpeechWorker
     {
+        var startedEndpointIdentifier: String? = null
         var cancelledOperationIdentifier: OperationIdentifier? = null
         var closed = false
 
-        override suspend fun startRecording(operationContext: InferenceOperationContext): WindowsSpeechRecording
+        override suspend fun startRecording(operationContext: InferenceOperationContext, endpointIdentifier: String): WindowsSpeechRecording
         {
+            startedEndpointIdentifier = endpointIdentifier
             return WindowsSpeechRecording(
                 operationIdentifier = operationContext.operationIdentifier,
                 transcript = MutableStateFlow(StreamingTranscriptSnapshot.EMPTY)

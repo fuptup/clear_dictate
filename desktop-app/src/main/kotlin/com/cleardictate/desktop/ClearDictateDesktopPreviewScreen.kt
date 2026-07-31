@@ -1,6 +1,7 @@
 package com.cleardictate.desktop
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,9 +23,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.cleardictate.domain.TranscriptFallbackReason
 import com.cleardictate.domain.TranscriptMode
+import com.cleardictate.desktop.inference.WindowsCaptureDevice
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -74,9 +78,44 @@ fun ClearDictateDesktopPreviewScreen(
             var recordingInProgress by remember { mutableStateOf(false) }
             var recordingCommandInProgress by remember { mutableStateOf(false) }
             var transcriptCollectionJob by remember { mutableStateOf<Job?>(null) }
+            var captureDevices by remember { mutableStateOf<List<WindowsCaptureDevice>>(emptyList()) }
+            var selectedEndpointIdentifier by remember { mutableStateOf("") }
+            var captureDevicesLoading by remember { mutableStateOf(false) }
+            var captureDeviceLoadFailed by remember { mutableStateOf(false) }
 
             val polishedModeAvailable = runtimeReadiness is DesktopRuntimeReadiness.Ready
             val recordingAvailable = runtimeReadiness is DesktopRuntimeReadiness.Ready
+
+            LaunchedEffect(recordingAvailable, speechRecorder)
+            {
+                if (recordingAvailable)
+                {
+                    captureDevicesLoading = true
+                    captureDeviceLoadFailed = false
+                    try
+                    {
+                        captureDevices = speechRecorder.listActiveCaptureDevices()
+                        if (selectedEndpointIdentifier.isNotEmpty() && captureDevices.none { it.endpointIdentifier == selectedEndpointIdentifier })
+                        {
+                            selectedEndpointIdentifier = ""
+                        }
+                    }
+                    catch (cancellation: CancellationException)
+                    {
+                        throw cancellation
+                    }
+                    catch (_: Exception)
+                    {
+                        captureDevices = emptyList()
+                        selectedEndpointIdentifier = ""
+                        captureDeviceLoadFailed = true
+                    }
+                    finally
+                    {
+                        captureDevicesLoading = false
+                    }
+                }
+            }
 
             Column(
                 modifier = Modifier
@@ -91,15 +130,24 @@ fun ClearDictateDesktopPreviewScreen(
                     recordingInProgress = recordingInProgress,
                     commandInProgress = recordingCommandInProgress,
                     processingInProgress = processingInProgress,
+                    captureDevices = captureDevices,
+                    selectedEndpointIdentifier = selectedEndpointIdentifier,
+                    captureDevicesLoading = captureDevicesLoading,
+                    captureDeviceLoadFailed = captureDeviceLoadFailed,
+                    onMicrophoneSelected = { selectedEndpointIdentifier = it },
                     onStart = {
                         recordingCommandInProgress = true
+                        val selectedMicrophoneName = captureDevices
+                            .firstOrNull { it.endpointIdentifier == selectedEndpointIdentifier }
+                            ?.friendlyName
+                            ?: "the Windows default microphone"
                         previewState = previewState.withStatus(
-                            "Verifying and loading the local speech model, then opening the default microphone..."
+                            "Verifying and loading the local speech model, then opening $selectedMicrophoneName..."
                         )
                         coroutineScope.launch {
                             try
                             {
-                                val recording = speechRecorder.startRecording()
+                                val recording = speechRecorder.startRecording(selectedEndpointIdentifier)
                                 recordingInProgress = true
                                 previewState = previewState.withStatus("Listening locally. Audio is not saved.")
                                 transcriptCollectionJob?.cancel()
@@ -316,12 +364,48 @@ private fun RecordingControls(
     recordingInProgress: Boolean,
     commandInProgress: Boolean,
     processingInProgress: Boolean,
+    captureDevices: List<WindowsCaptureDevice>,
+    selectedEndpointIdentifier: String,
+    captureDevicesLoading: Boolean,
+    captureDeviceLoadFailed: Boolean,
+    onMicrophoneSelected: (String) -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onCancel: () -> Unit
 )
 {
     Text(text = "Local microphone recognition", style = MaterialTheme.typography.titleMedium)
+    Text(
+        text = "Microphone input",
+        modifier = Modifier.padding(top = 10.dp),
+        style = MaterialTheme.typography.labelLarge
+    )
+    MicrophoneOption(
+        label = "System default",
+        selected = selectedEndpointIdentifier.isEmpty(),
+        enabled = recordingAvailable && !recordingInProgress && !commandInProgress,
+        onSelected = { onMicrophoneSelected("") }
+    )
+    captureDevices.forEach { captureDevice ->
+        MicrophoneOption(
+            label = captureDevice.friendlyName + if (captureDevice.isDefault) " (Windows default)" else "",
+            selected = selectedEndpointIdentifier == captureDevice.endpointIdentifier,
+            enabled = recordingAvailable && !recordingInProgress && !commandInProgress,
+            onSelected = { onMicrophoneSelected(captureDevice.endpointIdentifier) }
+        )
+    }
+    Text(
+        text = when
+        {
+            captureDevicesLoading -> "Finding active Windows microphone inputs…"
+            captureDeviceLoadFailed -> "Named inputs could not be listed. System default remains available."
+            captureDevices.isEmpty() && recordingAvailable -> "No active named inputs were reported. System default remains available."
+            else -> "System default follows the Windows setting. A named input stays fixed for that recording."
+        },
+        modifier = Modifier.padding(top = 2.dp),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
     Row(
         modifier = Modifier.padding(top = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -348,7 +432,7 @@ private fun RecordingControls(
     Text(
         text = if (recordingAvailable)
         {
-            "Uses the default Windows microphone. Audio remains in bounded memory and is scrubbed after stop, cancellation, or failure."
+            "Audio remains in bounded memory and is scrubbed after stop, cancellation, or failure."
         }
         else
         {
@@ -358,6 +442,24 @@ private fun RecordingControls(
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
+}
+
+@Composable
+private fun MicrophoneOption(label: String, selected: Boolean, enabled: Boolean, onSelected: () -> Unit)
+{
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onSelected),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(
+            selected = selected,
+            onClick = onSelected,
+            enabled = enabled
+        )
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+    }
 }
 
 @Composable

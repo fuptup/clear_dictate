@@ -10,6 +10,7 @@ import java.nio.file.Path
 data class DesktopRuntimeConfiguration(
     val workerExecutable: Path,
     val speechWorkerExecutable: Path,
+    val audioDeviceEnumeratorExecutable: Path,
     val workerLauncherExecutable: Path,
     val modelPath: Path,
     val speechModelDirectory: Path,
@@ -37,6 +38,12 @@ class DesktopRuntimeConfigurationLocator(
     private val isDirectory: (Path) -> Boolean = Files::isDirectory
 )
 {
+    private val repositoryRoot: Path by lazy {
+        generateSequence(currentDirectory) { directory -> directory.parent }
+            .firstOrNull { candidate -> isRegularFile(candidate.resolve(REPOSITORY_SENTINEL_FILENAME)) }
+            ?: currentDirectory
+    }
+
     fun locate(): DesktopRuntimeReadiness
     {
         return try
@@ -51,6 +58,11 @@ class DesktopRuntimeConfigurationLocator(
                 systemPropertyName = SPEECH_WORKER_EXECUTABLE_PROPERTY,
                 environmentVariableName = SPEECH_WORKER_EXECUTABLE_ENVIRONMENT_VARIABLE,
                 repositoryRelativeDefault = "native-worker/build-llama/Debug/clear_dictate_speech_worker.exe"
+            )
+            val audioDeviceEnumeratorExecutable = resolvePath(
+                systemPropertyName = AUDIO_DEVICE_ENUMERATOR_EXECUTABLE_PROPERTY,
+                environmentVariableName = AUDIO_DEVICE_ENUMERATOR_EXECUTABLE_ENVIRONMENT_VARIABLE,
+                repositoryRelativeDefault = "native-worker/build-llama/Debug/clear_dictate_audio_device_enumerator.exe"
             )
             val modelPath = resolvePath(
                 systemPropertyName = TEXT_MODEL_PROPERTY,
@@ -73,6 +85,7 @@ class DesktopRuntimeConfigurationLocator(
                     DesktopRuntimeConfiguration(
                         workerExecutable = workerExecutable,
                         speechWorkerExecutable = speechWorkerExecutable,
+                        audioDeviceEnumeratorExecutable = audioDeviceEnumeratorExecutable,
                         workerLauncherExecutable = workerLauncherExecutable,
                         modelPath = modelPath,
                         speechModelDirectory = speechModelDirectory
@@ -102,7 +115,7 @@ class DesktopRuntimeConfigurationLocator(
         }
         else
         {
-            currentDirectory.resolve(repositoryRelativeDefault)
+            repositoryRoot.resolve(repositoryRelativeDefault)
         }.toAbsolutePath().normalize()
     }
 
@@ -111,13 +124,16 @@ class DesktopRuntimeConfigurationLocator(
         const val WORKER_EXECUTABLE_PROPERTY = "clearDictate.workerExecutable"
         const val TEXT_MODEL_PROPERTY = "clearDictate.textModel"
         const val SPEECH_WORKER_EXECUTABLE_PROPERTY = "clearDictate.speechWorkerExecutable"
+        const val AUDIO_DEVICE_ENUMERATOR_EXECUTABLE_PROPERTY = "clearDictate.audioDeviceEnumeratorExecutable"
         const val SPEECH_MODEL_DIRECTORY_PROPERTY = "clearDictate.speechModelDirectory"
         const val WORKER_EXECUTABLE_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_WORKER_EXECUTABLE"
         const val TEXT_MODEL_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_TEXT_MODEL"
         const val SPEECH_WORKER_EXECUTABLE_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_SPEECH_WORKER_EXECUTABLE"
+        const val AUDIO_DEVICE_ENUMERATOR_EXECUTABLE_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_AUDIO_DEVICE_ENUMERATOR_EXECUTABLE"
         const val SPEECH_MODEL_DIRECTORY_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_SPEECH_MODEL_DIRECTORY"
 
         private const val MISSING_RUNTIME_EXPLANATION =
             "Recording and Polished mode need the local Debug workers and pinned models. Text-only Raw and Clean modes remain available."
+        private const val REPOSITORY_SENTINEL_FILENAME = "settings.gradle.kts"
     }
 }

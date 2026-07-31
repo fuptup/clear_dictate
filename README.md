@@ -12,7 +12,7 @@ Current implemented capabilities, with verification boundaries listed below:
 - cryptographic model verification before same-handle loading;
 - a synchronous, drained cancellation contract in the Windows worker and asynchronous cancellation fencing, native drain, and process watchdogs on Android;
 - a real Kotlin-to-worker integration test through the semantic-safety pipeline;
-- a Windows microphone developer preview with live local Moonshine recognition, editable input/output, all three transcript modes, cancellation, fallback visibility, clipboard copying, and explicit text-worker restart.
+- a Windows microphone developer preview with active input selection, live local Moonshine recognition, editable input/output, all three transcript modes, cancellation, fallback visibility, clipboard copying, and explicit text-worker restart.
 
 Important current limitations:
 

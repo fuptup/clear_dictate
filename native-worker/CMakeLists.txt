@@ -91,6 +91,26 @@ endif()
 
 add_test(NAME clear_dictate_worker_transcript_payload_tests COMMAND clear_dictate_worker_transcript_payload_tests)
 
+add_library(clear_dictate_capture_device_list_payload src/CaptureDeviceListPayload.cpp)
+target_include_directories(clear_dictate_capture_device_list_payload PUBLIC include)
+target_compile_features(clear_dictate_capture_device_list_payload PUBLIC cxx_std_17)
+set_target_properties(clear_dictate_capture_device_list_payload PROPERTIES CXX_EXTENSIONS OFF)
+
+if(MSVC)
+    target_compile_options(clear_dictate_capture_device_list_payload PRIVATE /EHsc /W4)
+endif()
+
+add_executable(clear_dictate_capture_device_list_payload_tests tests/CaptureDeviceListPayloadTests.cpp)
+target_link_libraries(clear_dictate_capture_device_list_payload_tests PRIVATE clear_dictate_capture_device_list_payload)
+target_compile_features(clear_dictate_capture_device_list_payload_tests PRIVATE cxx_std_17)
+set_target_properties(clear_dictate_capture_device_list_payload_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+if(MSVC)
+    target_compile_options(clear_dictate_capture_device_list_payload_tests PRIVATE /EHsc /W4)
+endif()
+
+add_test(NAME clear_dictate_capture_device_list_payload_tests COMMAND clear_dictate_capture_device_list_payload_tests)
+
 add_library(clear_dictate_bounded_audio_block_queue src/BoundedAudioBlockQueue.cpp)
 target_include_directories(clear_dictate_bounded_audio_block_queue PUBLIC include)
 target_compile_features(clear_dictate_bounded_audio_block_queue PUBLIC cxx_std_17)
@@ -160,6 +180,30 @@ endif()
 add_test(NAME clear_dictate_text_inference_worker_session_tests COMMAND clear_dictate_text_inference_worker_session_tests)
 
 if(WIN32)
+    add_library(clear_dictate_windows_capture_device_enumerator src/WindowsCaptureDeviceEnumerator.cpp)
+    target_include_directories(clear_dictate_windows_capture_device_enumerator PUBLIC include)
+    target_link_libraries(
+        clear_dictate_windows_capture_device_enumerator
+        PUBLIC clear_dictate_capture_device_list_payload
+        PRIVATE ole32 propsys
+    )
+    target_compile_features(clear_dictate_windows_capture_device_enumerator PUBLIC cxx_std_17)
+    set_target_properties(clear_dictate_windows_capture_device_enumerator PROPERTIES CXX_EXTENSIONS OFF)
+    if(MSVC)
+        target_compile_options(clear_dictate_windows_capture_device_enumerator PRIVATE /EHsc /W4)
+    endif()
+
+    add_executable(clear_dictate_audio_device_enumerator src/AudioDeviceEnumeratorMain.cpp)
+    target_link_libraries(
+        clear_dictate_audio_device_enumerator
+        PRIVATE clear_dictate_windows_capture_device_enumerator
+    )
+    target_compile_features(clear_dictate_audio_device_enumerator PRIVATE cxx_std_17)
+    set_target_properties(clear_dictate_audio_device_enumerator PROPERTIES CXX_EXTENSIONS OFF)
+    if(MSVC)
+        target_compile_options(clear_dictate_audio_device_enumerator PRIVATE /EHsc /W4)
+    endif()
+
     add_library(clear_dictate_speech_inference_worker_session src/SpeechInferenceWorkerSession.cpp)
     target_include_directories(clear_dictate_speech_inference_worker_session PUBLIC include)
     target_link_libraries(

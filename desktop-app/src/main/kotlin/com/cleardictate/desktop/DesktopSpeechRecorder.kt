@@ -1,5 +1,7 @@
 package com.cleardictate.desktop
 
+import com.cleardictate.desktop.inference.WindowsCaptureDevice
+import com.cleardictate.desktop.inference.WindowsCaptureDeviceProvider
 import com.cleardictate.desktop.inference.WindowsSpeechRecording
 import com.cleardictate.desktop.inference.WindowsSpeechWorkerClient
 import com.cleardictate.desktop.inference.WindowsSpeechWorkerConfiguration
@@ -17,7 +19,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 interface DesktopSpeechWorker : AutoCloseable
 {
-    suspend fun startRecording(operationContext: InferenceOperationContext): WindowsSpeechRecording
+    suspend fun startRecording(operationContext: InferenceOperationContext, endpointIdentifier: String): WindowsSpeechRecording
     suspend fun stopRecording(operationIdentifier: OperationIdentifier): String
     suspend fun cancel(operationIdentifier: OperationIdentifier): CancellationAcknowledgement
 }
@@ -51,7 +53,13 @@ class DesktopSpeechRecorder(
     @Volatile
     private var closed = false
 
-    suspend fun startRecording(): WindowsSpeechRecording
+    suspend fun listActiveCaptureDevices(): List<WindowsCaptureDevice>
+    {
+        val configuration = runtimeConfiguration ?: return emptyList()
+        return WindowsCaptureDeviceProvider(configuration.audioDeviceEnumeratorExecutable).listActiveCaptureDevices()
+    }
+
+    suspend fun startRecording(endpointIdentifier: String = ""): WindowsSpeechRecording
     {
         return operationMutex.withLock {
             ensureOpen()
@@ -67,7 +75,7 @@ class DesktopSpeechRecorder(
 
             try
             {
-                val recording = acquireWorker().startRecording(operationContext)
+                val recording = acquireWorker().startRecording(operationContext, endpointIdentifier)
                 activeOperationIdentifier = operationIdentifier
                 recording
             }
@@ -197,9 +205,9 @@ private class WindowsDesktopSpeechWorker(
     private val client: WindowsSpeechWorkerClient
 ) : DesktopSpeechWorker
 {
-    override suspend fun startRecording(operationContext: InferenceOperationContext): WindowsSpeechRecording
+    override suspend fun startRecording(operationContext: InferenceOperationContext, endpointIdentifier: String): WindowsSpeechRecording
     {
-        return client.startRecording(operationContext)
+        return client.startRecording(operationContext, endpointIdentifier)
     }
 
     override suspend fun stopRecording(operationIdentifier: OperationIdentifier): String
