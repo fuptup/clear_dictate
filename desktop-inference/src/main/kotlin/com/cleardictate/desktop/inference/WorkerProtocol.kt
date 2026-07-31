@@ -33,7 +33,8 @@ enum class WorkerMessageType(val code: Int)
     SHUTDOWN(14),
     MODELS_LOADED(15),
     CONTROL_ERROR(16),
-    OPERATION_CANCELLED(17);
+    OPERATION_CANCELLED(17),
+    RECORDING_STARTED(18);
 
     val isControlMessage: Boolean
         get() = this in CONTROL_MESSAGE_TYPES
@@ -523,13 +524,21 @@ class WorkerProtocolCodec(
             WorkerMessageType.READY,
             WorkerMessageType.MODELS_LOADED,
             WorkerMessageType.SHUTDOWN,
-            WorkerMessageType.START_RECORDING,
             WorkerMessageType.STOP_RECORDING,
             WorkerMessageType.CANCEL,
             WorkerMessageType.CANCELLATION_ACKNOWLEDGED,
-            WorkerMessageType.OPERATION_CANCELLED ->
+            WorkerMessageType.OPERATION_CANCELLED,
+            WorkerMessageType.RECORDING_STARTED ->
             {
                 if (payloadSize != 0)
+                {
+                    throw WorkerProtocolException(WorkerProtocolFailure.INVALID_MESSAGE_PAYLOAD)
+                }
+            }
+
+            WorkerMessageType.START_RECORDING ->
+            {
+                if (payloadSize !in MINIMUM_RECORDING_START_PAYLOAD_BYTES..MAXIMUM_RECORDING_START_METADATA_BYTES)
                 {
                     throw WorkerProtocolException(WorkerProtocolFailure.INVALID_MESSAGE_PAYLOAD)
                 }
@@ -614,10 +623,12 @@ class WorkerProtocolCodec(
     companion object
     {
         const val MAGIC: Int = 0x43444950
-        const val PROTOCOL_VERSION: Int = 3
+        const val PROTOCOL_VERSION: Int = 4
         const val ABSOLUTE_MAXIMUM_PAYLOAD_BYTES: Int = 64 * 1024
         const val DEFAULT_MAXIMUM_PAYLOAD_BYTES: Int = ABSOLUTE_MAXIMUM_PAYLOAD_BYTES
         private const val FIXED_VALUE_PAYLOAD_BYTES: Int = 4
+        private const val MINIMUM_RECORDING_START_PAYLOAD_BYTES: Int = 10
+        private const val MAXIMUM_RECORDING_START_METADATA_BYTES: Int = 4096
         private const val MAXIMUM_MODEL_METADATA_BYTES: Int = 4096
         private const val MAXIMUM_IDENTIFIER_BYTES: Int = 64
         private const val MINIMUM_FRAME_BYTES: Int = 4 + 2 + 1 + 1 + 4

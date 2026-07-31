@@ -44,7 +44,7 @@ namespace
         {
             0x00, 0x00, 0x00, 0x35,
             0x43, 0x44, 0x49, 0x50,
-            0x00, 0x03,
+            0x00, 0x04,
             0x0B,
             0x01,
             0x00, 0x00, 0x00, 0x08,
@@ -161,6 +161,52 @@ namespace
         Require(rejected, "A partial transcript must carry a structured delta payload.");
     }
 
+    void TestRecordingStartRequiresVersionedPayload()
+    {
+        const std::vector<std::uint8_t> defaultEndpointPayload =
+        {
+            0x43, 0x44, 0x52, 0x53,
+            0x00, 0x01,
+            0x00, 0x00, 0x00, 0x00
+        };
+        const clear_dictate::WorkerProtocolFrame decodedFrame = Decode(
+            Encode(
+                clear_dictate::WorkerProtocolFrame::Operation(
+                    clear_dictate::WorkerMessageType::StartRecording,
+                    { "client-7", "operation-19", clear_dictate::OperationPrivacy::Private, 27 },
+                    defaultEndpointPayload)));
+        Require(decodedFrame.payload == defaultEndpointPayload, "The versioned recording-start payload changed.");
+
+        bool rejectedEmptyPayload = false;
+        try
+        {
+            static_cast<void>(
+                Encode(
+                    clear_dictate::WorkerProtocolFrame::Operation(
+                        clear_dictate::WorkerMessageType::StartRecording,
+                        { "client-7", "operation-19", clear_dictate::OperationPrivacy::Private, 27 },
+                        {})));
+        }
+        catch (const clear_dictate::WorkerProtocolException&)
+        {
+            rejectedEmptyPayload = true;
+        }
+        Require(rejectedEmptyPayload, "Protocol version 4 must reject an unversioned recording-start command.");
+    }
+
+    void TestRecordingStartedAcknowledgementHasNoPayload()
+    {
+        const clear_dictate::WorkerProtocolFrame decodedFrame = Decode(
+            Encode(
+                clear_dictate::WorkerProtocolFrame::Operation(
+                    clear_dictate::WorkerMessageType::RecordingStarted,
+                    { "client-7", "operation-19", clear_dictate::OperationPrivacy::Private, 27 },
+                    {})));
+        Require(
+            decodedFrame.type == clear_dictate::WorkerMessageType::RecordingStarted,
+            "The recording-start acknowledgement type changed.");
+    }
+
     int RunAllTests()
     {
         TestOperationFrameMatchesBigEndianGoldenContract();
@@ -169,6 +215,8 @@ namespace
         TestInvalidUtf8TranscriptIsRejected();
         TestEmptyFinalTranscriptIsAcceptedForSilence();
         TestEmptyPartialTranscriptIsRejected();
+        TestRecordingStartRequiresVersionedPayload();
+        TestRecordingStartedAcknowledgementHasNoPayload();
         return 0;
     }
 }

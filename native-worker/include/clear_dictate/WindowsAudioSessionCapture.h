@@ -58,6 +58,9 @@ namespace clear_dictate
      *
      * This object owns only the queue producer. The session owner must stop and
      * join the recognition consumer before scrubbing or destroying the queue.
+     * Start and JoinProducer are sequenced by that one session-owner thread and
+     * must never run concurrently. RequestStop and RequestCancel are the only
+     * methods designed for concurrent calls from a protocol-control thread.
      */
     class WindowsAudioSessionCapture final
     {
@@ -69,6 +72,17 @@ namespace clear_dictate
         WindowsAudioSessionCapture& operator=(const WindowsAudioSessionCapture&) = delete;
 
         WindowsCaptureError Start(const std::wstring& selectedEndpointIdentifier);
+
+        /**
+         * Signals the capture thread without waiting for Windows audio calls or
+         * producer teardown. The recognition owner must call JoinProducer after
+         * Start has returned and before touching queued audio or destroying this
+         * object.
+         */
+        void RequestStop() noexcept;
+        void RequestCancel() noexcept;
+        void JoinProducer() noexcept;
+
         void StopAndJoinProducer() noexcept;
         void CancelAndJoinProducer() noexcept;
 

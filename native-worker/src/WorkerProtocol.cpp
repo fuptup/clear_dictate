@@ -17,6 +17,7 @@ namespace clear_dictate
         constexpr std::size_t MaximumFrameOverheadBytes =
             4 + 2 + 1 + 1 + 4 + MaximumIdentifierBytes + 4 + MaximumIdentifierBytes + 1 + 8 + 4;
         constexpr std::size_t MaximumModelMetadataBytes = 4096;
+        constexpr std::size_t MaximumRecordingStartMetadataBytes = 4096;
         constexpr std::size_t FixedValuePayloadBytes = 4;
 
         void SecureClear(std::vector<std::uint8_t>& sensitiveBytes) noexcept
@@ -66,7 +67,7 @@ namespace clear_dictate
         WorkerMessageType DecodeMessageType(std::uint8_t code)
         {
             if (code < static_cast<std::uint8_t>(WorkerMessageType::Hello) ||
-                code > static_cast<std::uint8_t>(WorkerMessageType::OperationCancelled))
+                code > static_cast<std::uint8_t>(WorkerMessageType::RecordingStarted))
             {
                 throw WorkerProtocolException(WorkerProtocolFailure::UnknownMessageType);
             }
@@ -172,12 +173,19 @@ namespace clear_dictate
                 case WorkerMessageType::Ready:
                 case WorkerMessageType::ModelsLoaded:
                 case WorkerMessageType::Shutdown:
-                case WorkerMessageType::StartRecording:
                 case WorkerMessageType::StopRecording:
                 case WorkerMessageType::Cancel:
                 case WorkerMessageType::CancellationAcknowledged:
                 case WorkerMessageType::OperationCancelled:
+                case WorkerMessageType::RecordingStarted:
                     if (!payload.empty())
+                    {
+                        throw WorkerProtocolException(WorkerProtocolFailure::InvalidMessagePayload);
+                    }
+                    return;
+
+                case WorkerMessageType::StartRecording:
+                    if (payload.size() < 10 || payload.size() > MaximumRecordingStartMetadataBytes)
                     {
                         throw WorkerProtocolException(WorkerProtocolFailure::InvalidMessagePayload);
                     }

@@ -42,6 +42,8 @@ class WorkerProtocolStateMachine
         @Synchronized get() = lifecycleState
 
     private var activeOperation: ActiveWorkerOperation? = null
+    private var activeOperationPhase: WorkerOperationPhase? = null
+    private var phaseBeforeCancellation: WorkerOperationPhase? = null
 
     @Synchronized
     fun acceptHostFrame(frame: WorkerProtocolFrame)
@@ -83,7 +85,12 @@ class WorkerProtocolStateMachine
                             else -> reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
                         }
 
-                        activeOperation = ActiveWorkerOperation.from(frame, operationKind)
+                        activeOperation = ActiveWorkerOperation.from(frame)
+                        activeOperationPhase = when (operationKind)
+                        {
+                            WorkerOperationKind.RECORDING -> WorkerOperationPhase.RECORDING_START_SENT
+                            WorkerOperationKind.POLISHING -> WorkerOperationPhase.POLISHING
+                        }
                         lifecycleState = WorkerLifecycleState.OPERATION_ACTIVE
                     }
                 }
@@ -94,15 +101,7 @@ class WorkerProtocolStateMachine
                 val operationFrame = frame as? WorkerProtocolMessage
                     ?: reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
                 requireActiveIdentity(operationFrame)
-
-                val activeKind = requireNotNull(activeOperation).kind
-                val legalCommand = operationFrame.type == WorkerMessageType.CANCEL ||
-                    (activeKind == WorkerOperationKind.RECORDING && operationFrame.type == WorkerMessageType.STOP_RECORDING)
-
-                if (!legalCommand)
-                {
-                    reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
-                }
+                acceptActiveHostOperationFrame(operationFrame)
             }
 
             else -> reject(WorkerProtocolStateFailure.ILLEGAL_STATE)
@@ -143,44 +142,171 @@ class WorkerProtocolStateMachine
                 val operationFrame = frame as? WorkerProtocolMessage
                     ?: reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
                 requireActiveIdentity(operationFrame)
-
-                val activeKind = requireNotNull(activeOperation).kind
-                val isProgressEvent = when (activeKind)
-                {
-                    WorkerOperationKind.RECORDING ->
-                    {
-                        operationFrame.type == WorkerMessageType.AUDIO_LEVEL ||
-                            operationFrame.type == WorkerMessageType.PARTIAL_TRANSCRIPT ||
-                            operationFrame.type == WorkerMessageType.CANCELLATION_ACKNOWLEDGED
-                    }
-
-                    WorkerOperationKind.POLISHING ->
-                    {
-                        operationFrame.type == WorkerMessageType.CANCELLATION_ACKNOWLEDGED
-                    }
-                }
-
-                if (isProgressEvent)
-                {
-                    return
-                }
-
-                val isTerminalEvent = operationFrame.type == WorkerMessageType.ERROR ||
-                    operationFrame.type == WorkerMessageType.OPERATION_CANCELLED ||
-                    (activeKind == WorkerOperationKind.RECORDING && operationFrame.type == WorkerMessageType.FINAL_TRANSCRIPT) ||
-                    (activeKind == WorkerOperationKind.POLISHING && operationFrame.type == WorkerMessageType.POLISHED_TRANSCRIPT)
-
-                if (!isTerminalEvent)
-                {
-                    reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
-                }
-
-                activeOperation = null
-                lifecycleState = WorkerLifecycleState.IDLE
+                acceptActiveWorkerOperationFrame(operationFrame)
             }
 
             else -> reject(WorkerProtocolStateFailure.ILLEGAL_STATE)
         }
+    }
+
+    private fun acceptActiveHostOperationFrame(frame: WorkerProtocolMessage)
+    {
+        when (activeOperationPhase ?: reject(WorkerProtocolStateFailure.ILLEGAL_STATE))
+        {
+            WorkerOperationPhase.RECORDING_START_SENT,
+            WorkerOperationPhase.RECORDING,
+            WorkerOperationPhase.RECORDING_STOP_SENT,
+            WorkerOperationPhase.POLISHING ->
+            {
+                when (frame.type)
+                {
+                    WorkerMessageType.CANCEL ->
+                    {
+                        phaseBeforeCancellation = activeOperationPhase
+                        activeOperationPhase = WorkerOperationPhase.CANCELLATION_SENT
+                    }
+
+                    WorkerMessageType.STOP_RECORDING ->
+                    {
+                        if (activeOperationPhase != WorkerOperationPhase.RECORDING)
+                        {
+                            reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
+                        }
+                        activeOperationPhase = WorkerOperationPhase.RECORDING_STOP_SENT
+                    }
+
+                    else -> reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
+                }
+            }
+
+            WorkerOperationPhase.CANCELLATION_SENT,
+            WorkerOperationPhase.CANCELLATION_ACKNOWLEDGED ->
+            {
+                if (frame.type != WorkerMessageType.CANCEL)
+                {
+                    reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
+                }
+            }
+        }
+    }
+
+    private fun acceptActiveWorkerOperationFrame(frame: WorkerProtocolMessage)
+    {
+        when (activeOperationPhase ?: reject(WorkerProtocolStateFailure.ILLEGAL_STATE))
+        {
+            WorkerOperationPhase.RECORDING_START_SENT ->
+            {
+                when (frame.type)
+                {
+                    WorkerMessageType.RECORDING_STARTED -> activeOperationPhase = WorkerOperationPhase.RECORDING
+                    WorkerMessageType.ERROR -> completeActiveOperation()
+                    else -> reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
+                }
+            }
+
+            WorkerOperationPhase.RECORDING ->
+            {
+                when (frame.type)
+                {
+                    WorkerMessageType.AUDIO_LEVEL,
+                    WorkerMessageType.PARTIAL_TRANSCRIPT -> return
+                    WorkerMessageType.ERROR -> completeActiveOperation()
+                    else -> reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
+                }
+            }
+
+            WorkerOperationPhase.RECORDING_STOP_SENT ->
+            {
+                when (frame.type)
+                {
+                    WorkerMessageType.AUDIO_LEVEL,
+                    WorkerMessageType.PARTIAL_TRANSCRIPT -> return
+                    WorkerMessageType.FINAL_TRANSCRIPT,
+                    WorkerMessageType.ERROR -> completeActiveOperation()
+                    else -> reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
+                }
+            }
+
+            WorkerOperationPhase.POLISHING ->
+            {
+                when (frame.type)
+                {
+                    WorkerMessageType.POLISHED_TRANSCRIPT,
+                    WorkerMessageType.ERROR -> completeActiveOperation()
+                    else -> reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
+                }
+            }
+
+            WorkerOperationPhase.CANCELLATION_SENT ->
+            {
+                when (frame.type)
+                {
+                    WorkerMessageType.RECORDING_STARTED ->
+                    {
+                        if (phaseBeforeCancellation != WorkerOperationPhase.RECORDING_START_SENT)
+                        {
+                            reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
+                        }
+                        phaseBeforeCancellation = WorkerOperationPhase.RECORDING
+                    }
+
+                    WorkerMessageType.AUDIO_LEVEL,
+                    WorkerMessageType.PARTIAL_TRANSCRIPT ->
+                    {
+                        if (phaseBeforeCancellation != WorkerOperationPhase.RECORDING &&
+                            phaseBeforeCancellation != WorkerOperationPhase.RECORDING_STOP_SENT)
+                        {
+                            reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
+                        }
+                    }
+
+                    WorkerMessageType.CANCELLATION_ACKNOWLEDGED ->
+                    {
+                        activeOperationPhase = WorkerOperationPhase.CANCELLATION_ACKNOWLEDGED
+                    }
+
+                    WorkerMessageType.OPERATION_CANCELLED,
+                    WorkerMessageType.ERROR -> completeActiveOperation()
+                    WorkerMessageType.FINAL_TRANSCRIPT ->
+                    {
+                        if (phaseBeforeCancellation != WorkerOperationPhase.RECORDING_STOP_SENT)
+                        {
+                            reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
+                        }
+                        completeActiveOperation()
+                    }
+
+                    WorkerMessageType.POLISHED_TRANSCRIPT ->
+                    {
+                        if (phaseBeforeCancellation != WorkerOperationPhase.POLISHING)
+                        {
+                            reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
+                        }
+                        completeActiveOperation()
+                    }
+
+                    else -> reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
+                }
+            }
+
+            WorkerOperationPhase.CANCELLATION_ACKNOWLEDGED ->
+            {
+                when (frame.type)
+                {
+                    WorkerMessageType.OPERATION_CANCELLED,
+                    WorkerMessageType.ERROR -> completeActiveOperation()
+                    else -> reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
+                }
+            }
+        }
+    }
+
+    private fun completeActiveOperation()
+    {
+        activeOperation = null
+        activeOperationPhase = null
+        phaseBeforeCancellation = null
+        lifecycleState = WorkerLifecycleState.IDLE
     }
 
     private fun requireControlType(frame: WorkerProtocolFrame, expectedType: WorkerMessageType)
@@ -214,12 +340,21 @@ private enum class WorkerOperationKind
     POLISHING
 }
 
+private enum class WorkerOperationPhase
+{
+    RECORDING_START_SENT,
+    RECORDING,
+    RECORDING_STOP_SENT,
+    POLISHING,
+    CANCELLATION_SENT,
+    CANCELLATION_ACKNOWLEDGED
+}
+
 private data class ActiveWorkerOperation(
     val clientSessionIdentifier: ClientSessionIdentifier,
     val operationIdentifier: OperationIdentifier,
     val privacy: OperationPrivacy,
-    val workerRequestToken: WorkerRequestToken,
-    val kind: WorkerOperationKind
+    val workerRequestToken: WorkerRequestToken
 )
 {
     fun matches(frame: WorkerProtocolMessage): Boolean
@@ -232,14 +367,13 @@ private data class ActiveWorkerOperation(
 
     companion object
     {
-        fun from(frame: WorkerProtocolMessage, kind: WorkerOperationKind): ActiveWorkerOperation
+        fun from(frame: WorkerProtocolMessage): ActiveWorkerOperation
         {
             return ActiveWorkerOperation(
                 clientSessionIdentifier = frame.clientSessionIdentifier,
                 operationIdentifier = frame.operationIdentifier,
                 privacy = frame.privacy,
-                workerRequestToken = frame.workerRequestToken,
-                kind = kind
+                workerRequestToken = frame.workerRequestToken
             )
         }
     }

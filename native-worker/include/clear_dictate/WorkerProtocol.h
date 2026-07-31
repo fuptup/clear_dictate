@@ -27,7 +27,8 @@ namespace clear_dictate
         Shutdown = 14,
         ModelsLoaded = 15,
         ControlError = 16,
-        OperationCancelled = 17
+        OperationCancelled = 17,
+        RecordingStarted = 18
     };
 
     enum class WorkerFrameScope : std::uint8_t
@@ -94,13 +95,13 @@ namespace clear_dictate
     };
 
     /**
-     * Strict version-3 big-endian codec shared with the Kotlin desktop supervisor.
+     * Strict version-4 big-endian codec shared with the Kotlin desktop supervisor.
      */
     class WorkerProtocolCodec final
     {
     public:
         static constexpr std::uint32_t Magic = 0x43444950;
-        static constexpr std::uint16_t ProtocolVersion = 3;
+        static constexpr std::uint16_t ProtocolVersion = 4;
         static constexpr std::size_t AbsoluteMaximumPayloadBytes = 64 * 1024;
 
         explicit WorkerProtocolCodec(std::size_t maximumPayloadBytes = AbsoluteMaximumPayloadBytes);

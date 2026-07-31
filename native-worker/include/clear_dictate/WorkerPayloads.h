@@ -13,6 +13,24 @@ namespace clear_dictate
         std::int32_t inferenceThreadCount;
     };
 
+    /**
+     * Identifies the application-private directory containing every locked
+     * Moonshine model component required by the speech worker.
+     */
+    struct SpeechModelLoadRequest final
+    {
+        std::string modelDirectory;
+    };
+
+    /**
+     * Selects one exact Windows capture endpoint. An empty identifier requests
+     * the default console capture endpoint resolved once at recording start.
+     */
+    struct RecordingStartRequest final
+    {
+        std::string utf8EndpointIdentifier;
+    };
+
     struct TextPolishPrompt final
     {
         std::string systemInstruction;
@@ -25,6 +43,7 @@ namespace clear_dictate
         UnsupportedVersion,
         InvalidThreadCount,
         InvalidPath,
+        InvalidEndpointIdentifier,
         InvalidLength,
         TrailingBytes
     };
@@ -42,5 +61,9 @@ namespace clear_dictate
 
     std::vector<std::uint8_t> EncodeTextModelLoadRequest(const TextModelLoadRequest& request);
     TextModelLoadRequest DecodeTextModelLoadRequest(const std::vector<std::uint8_t>& payload);
+    std::vector<std::uint8_t> EncodeSpeechModelLoadRequest(const SpeechModelLoadRequest& request);
+    SpeechModelLoadRequest DecodeSpeechModelLoadRequest(const std::vector<std::uint8_t>& payload);
+    std::vector<std::uint8_t> EncodeRecordingStartRequest(const RecordingStartRequest& request);
+    RecordingStartRequest DecodeRecordingStartRequest(const std::vector<std::uint8_t>& payload);
     TextPolishPrompt BuildTextPolishPrompt(const std::string& cleanTranscript);
 }

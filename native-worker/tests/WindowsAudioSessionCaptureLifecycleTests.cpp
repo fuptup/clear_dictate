@@ -63,11 +63,43 @@ namespace
         queue.DiscardAndScrub();
     }
 
+    void TestSplitCancelRequestIsTerminalBeforeStart()
+    {
+        clear_dictate::BoundedAudioBlockQueue queue(8, 160);
+        clear_dictate::WindowsAudioSessionCapture capture(queue);
+
+        capture.RequestCancel();
+        capture.JoinProducer();
+
+        Require(capture.State() == clear_dictate::WindowsCaptureState::Cancelled, "A split pre-start Cancel must become terminal.");
+        Require(capture.Error() == clear_dictate::WindowsCaptureError::None, "A split pre-start Cancel must not become a capture failure.");
+        Require(
+            capture.Start(L"") == clear_dictate::WindowsCaptureError::Cancelled,
+            "A split pre-start Cancel must prevent later microphone activation.");
+    }
+
+    void TestSplitStopRequestIsTerminalBeforeStart()
+    {
+        clear_dictate::BoundedAudioBlockQueue queue(8, 160);
+        clear_dictate::WindowsAudioSessionCapture capture(queue);
+
+        capture.RequestStop();
+        capture.JoinProducer();
+
+        Require(capture.State() == clear_dictate::WindowsCaptureState::Stopped, "A split pre-start Stop must become terminal.");
+        Require(capture.Error() == clear_dictate::WindowsCaptureError::None, "A split pre-start Stop must not become a capture failure.");
+        Require(
+            capture.Start(L"") == clear_dictate::WindowsCaptureError::InitializationFailed,
+            "A split pre-start Stop must prevent later microphone activation.");
+    }
+
     int RunAllTests()
     {
         TestCancelBeforeStartIsTerminalAndDoesNotOpenMicrophone();
         TestStopBeforeStartIsTerminalAndDoesNotOpenMicrophone();
         TestStartRejectsAQueueContainingPriorSessionAudio();
+        TestSplitCancelRequestIsTerminalBeforeStart();
+        TestSplitStopRequestIsTerminalBeforeStart();
         return 0;
     }
 }

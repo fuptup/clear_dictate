@@ -190,6 +190,18 @@ namespace clear_dictate
 
         void StopAndJoinProducer() noexcept
         {
+            RequestStop();
+            JoinProducer();
+        }
+
+        void CancelAndJoinProducer() noexcept
+        {
+            RequestCancel();
+            JoinProducer();
+        }
+
+        void RequestStop() noexcept
+        {
             std::lock_guard<std::mutex> lifecycleLock(lifecycleMutex_);
             if (state_.load(std::memory_order_acquire) == WindowsCaptureState::Constructed)
             {
@@ -198,10 +210,9 @@ namespace clear_dictate
                 return;
             }
             RequestShutdown(ShutdownRequest::Stop);
-            JoinCaptureThread();
         }
 
-        void CancelAndJoinProducer() noexcept
+        void RequestCancel() noexcept
         {
             std::lock_guard<std::mutex> lifecycleLock(lifecycleMutex_);
             if (state_.load(std::memory_order_acquire) == WindowsCaptureState::Constructed)
@@ -212,6 +223,11 @@ namespace clear_dictate
             }
             shutdownRequest_.store(ShutdownRequest::Cancel, std::memory_order_release);
             SetEvent(stopEvent_);
+        }
+
+        void JoinProducer() noexcept
+        {
+            std::lock_guard<std::mutex> joinLock(joinMutex_);
             JoinCaptureThread();
         }
 
@@ -715,6 +731,7 @@ namespace clear_dictate
         HANDLE terminalEvent_ = nullptr;
         std::thread captureThread_;
         std::mutex lifecycleMutex_;
+        std::mutex joinMutex_;
         std::mutex initializationMutex_;
         std::condition_variable initializationCondition_;
         bool initializationCompleted_ = false;
@@ -739,6 +756,21 @@ namespace clear_dictate
     void WindowsAudioSessionCapture::StopAndJoinProducer() noexcept
     {
         implementation_->StopAndJoinProducer();
+    }
+
+    void WindowsAudioSessionCapture::RequestStop() noexcept
+    {
+        implementation_->RequestStop();
+    }
+
+    void WindowsAudioSessionCapture::RequestCancel() noexcept
+    {
+        implementation_->RequestCancel();
+    }
+
+    void WindowsAudioSessionCapture::JoinProducer() noexcept
+    {
+        implementation_->JoinProducer();
     }
 
     void WindowsAudioSessionCapture::CancelAndJoinProducer() noexcept

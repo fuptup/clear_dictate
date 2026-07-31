@@ -237,12 +237,18 @@ class WindowsTextWorkerClient private constructor(
         }
         catch (exception: Exception)
         {
-            close()
             if (exception is CancellationException)
             {
+                close()
                 throw exception
             }
-            throw processFailure(exception)
+
+            val cancellationFailure = processFailure(exception)
+            if (cancellationFailureRequiresWorkerClose(cancellationFailure))
+            {
+                close()
+            }
+            throw cancellationFailure
         }
     }
 
@@ -668,6 +674,12 @@ class WindowsTextWorkerClient private constructor(
             }
         }
     }
+}
+
+internal fun cancellationFailureRequiresWorkerClose(failure: LocalInferenceException): Boolean
+{
+    return failure.category != InferenceFailureCategory.CANCELLATION_NOT_ACKNOWLEDGED ||
+        failure.diagnosticCode != "OPERATION_ALREADY_TERMINAL"
 }
 
 internal fun mapWorkerInitializationFailure(

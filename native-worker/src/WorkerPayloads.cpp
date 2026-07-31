@@ -13,7 +13,12 @@ namespace clear_dictate
     {
         constexpr std::uint32_t ModelLoadPayloadMagic = 0x43444D4C;
         constexpr std::uint16_t ModelLoadPayloadVersion = 1;
+        constexpr std::uint32_t SpeechModelLoadPayloadMagic = 0x4344534C;
+        constexpr std::uint16_t SpeechModelLoadPayloadVersion = 1;
+        constexpr std::uint32_t RecordingStartPayloadMagic = 0x43445253;
+        constexpr std::uint16_t RecordingStartPayloadVersion = 1;
         constexpr std::size_t MaximumModelPathBytes = 4000;
+        constexpr std::size_t MaximumEndpointIdentifierBytes = 4000;
         constexpr std::int32_t MaximumInferenceThreadCount = 64;
 
         const std::string ProductionSystemInstruction = R"(You edit spoken transcripts into clear written English.
@@ -146,6 +151,97 @@ Return only the edited transcript.)";
             }
         }
 
+        void ValidateSpeechModelDirectory(const std::string& modelDirectory)
+        {
+            ValidateModelPath(modelDirectory);
+            if (std::any_of(
+                    modelDirectory.begin(),
+                    modelDirectory.end(),
+                    [](unsigned char pathByte)
+                    {
+                        return pathByte > 0x7F;
+                    }))
+            {
+                throw WorkerPayloadException(WorkerPayloadFailure::InvalidPath);
+            }
+        }
+
+        bool IsValidUtf8(const std::string& text) noexcept
+        {
+            std::size_t byteIndex = 0;
+            while (byteIndex < text.size())
+            {
+                const std::uint8_t firstByte = static_cast<std::uint8_t>(text[byteIndex]);
+                if (firstByte <= 0x7F)
+                {
+                    ++byteIndex;
+                    continue;
+                }
+
+                std::size_t continuationCount = 0;
+                std::uint32_t codePoint = 0;
+                std::uint32_t minimumCodePoint = 0;
+                if ((firstByte & 0xE0) == 0xC0)
+                {
+                    continuationCount = 1;
+                    codePoint = firstByte & 0x1F;
+                    minimumCodePoint = 0x80;
+                }
+                else if ((firstByte & 0xF0) == 0xE0)
+                {
+                    continuationCount = 2;
+                    codePoint = firstByte & 0x0F;
+                    minimumCodePoint = 0x800;
+                }
+                else if ((firstByte & 0xF8) == 0xF0)
+                {
+                    continuationCount = 3;
+                    codePoint = firstByte & 0x07;
+                    minimumCodePoint = 0x10000;
+                }
+                else
+                {
+                    return false;
+                }
+
+                if (byteIndex + continuationCount >= text.size())
+                {
+                    return false;
+                }
+
+                for (std::size_t continuationIndex = 1; continuationIndex <= continuationCount; ++continuationIndex)
+                {
+                    const std::uint8_t continuationByte = static_cast<std::uint8_t>(text[byteIndex + continuationIndex]);
+                    if ((continuationByte & 0xC0) != 0x80)
+                    {
+                        return false;
+                    }
+                    codePoint = (codePoint << 6) | (continuationByte & 0x3F);
+                }
+
+                if (codePoint < minimumCodePoint ||
+                    codePoint > 0x10FFFF ||
+                    (codePoint >= 0xD800 && codePoint <= 0xDFFF))
+                {
+                    return false;
+                }
+
+                byteIndex += continuationCount + 1;
+            }
+
+            return true;
+        }
+
+        void ValidateEndpointIdentifier(const std::string& endpointIdentifier)
+        {
+            if (endpointIdentifier.size() > MaximumEndpointIdentifierBytes ||
+                endpointIdentifier.find('\0') != std::string::npos ||
+                !IsValidUtf8(endpointIdentifier))
+            {
+                throw WorkerPayloadException(WorkerPayloadFailure::InvalidEndpointIdentifier);
+            }
+        }
+
         std::string EscapeXmlText(const std::string& text)
         {
             std::string escapedText;
@@ -240,6 +336,90 @@ Return only the edited transcript.)";
         }
 
         return { utf8ModelPath, inferenceThreadCount };
+    }
+
+    std::vector<std::uint8_t> EncodeSpeechModelLoadRequest(const SpeechModelLoadRequest& request)
+    {
+        ValidateSpeechModelDirectory(request.modelDirectory);
+
+        std::vector<std::uint8_t> payload;
+        payload.reserve(4 + 2 + 4 + request.modelDirectory.size());
+        AppendUnsigned32(payload, SpeechModelLoadPayloadMagic);
+        AppendUnsigned16(payload, SpeechModelLoadPayloadVersion);
+        AppendUnsigned32(payload, static_cast<std::uint32_t>(request.modelDirectory.size()));
+        payload.insert(payload.end(), request.modelDirectory.begin(), request.modelDirectory.end());
+        return payload;
+    }
+
+    SpeechModelLoadRequest DecodeSpeechModelLoadRequest(const std::vector<std::uint8_t>& payload)
+    {
+        PayloadReader reader(payload);
+        if (reader.ReadUnsigned32() != SpeechModelLoadPayloadMagic)
+        {
+            throw WorkerPayloadException(WorkerPayloadFailure::InvalidMagic);
+        }
+
+        if (reader.ReadUnsigned16() != SpeechModelLoadPayloadVersion)
+        {
+            throw WorkerPayloadException(WorkerPayloadFailure::UnsupportedVersion);
+        }
+
+        const std::uint32_t pathByteCount = reader.ReadUnsigned32();
+        if (pathByteCount == 0 || pathByteCount > MaximumModelPathBytes)
+        {
+            throw WorkerPayloadException(WorkerPayloadFailure::InvalidLength);
+        }
+
+        const std::string modelDirectory = reader.ReadString(pathByteCount);
+        ValidateSpeechModelDirectory(modelDirectory);
+
+        if (!reader.IsAtEnd())
+        {
+            throw WorkerPayloadException(WorkerPayloadFailure::TrailingBytes);
+        }
+
+        return { modelDirectory };
+    }
+
+    std::vector<std::uint8_t> EncodeRecordingStartRequest(const RecordingStartRequest& request)
+    {
+        ValidateEndpointIdentifier(request.utf8EndpointIdentifier);
+
+        std::vector<std::uint8_t> payload;
+        payload.reserve(4 + 2 + 4 + request.utf8EndpointIdentifier.size());
+        AppendUnsigned32(payload, RecordingStartPayloadMagic);
+        AppendUnsigned16(payload, RecordingStartPayloadVersion);
+        AppendUnsigned32(payload, static_cast<std::uint32_t>(request.utf8EndpointIdentifier.size()));
+        payload.insert(payload.end(), request.utf8EndpointIdentifier.begin(), request.utf8EndpointIdentifier.end());
+        return payload;
+    }
+
+    RecordingStartRequest DecodeRecordingStartRequest(const std::vector<std::uint8_t>& payload)
+    {
+        PayloadReader reader(payload);
+        if (reader.ReadUnsigned32() != RecordingStartPayloadMagic)
+        {
+            throw WorkerPayloadException(WorkerPayloadFailure::InvalidMagic);
+        }
+        if (reader.ReadUnsigned16() != RecordingStartPayloadVersion)
+        {
+            throw WorkerPayloadException(WorkerPayloadFailure::UnsupportedVersion);
+        }
+
+        const std::uint32_t endpointIdentifierByteCount = reader.ReadUnsigned32();
+        if (endpointIdentifierByteCount > MaximumEndpointIdentifierBytes)
+        {
+            throw WorkerPayloadException(WorkerPayloadFailure::InvalidLength);
+        }
+
+        const std::string utf8EndpointIdentifier = reader.ReadString(endpointIdentifierByteCount);
+        ValidateEndpointIdentifier(utf8EndpointIdentifier);
+        if (!reader.IsAtEnd())
+        {
+            throw WorkerPayloadException(WorkerPayloadFailure::TrailingBytes);
+        }
+
+        return { utf8EndpointIdentifier };
     }
 
     TextPolishPrompt BuildTextPolishPrompt(const std::string& cleanTranscript)

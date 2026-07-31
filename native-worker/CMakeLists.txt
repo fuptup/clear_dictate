@@ -186,6 +186,22 @@ if(WIN32)
         target_compile_options(clear_dictate_windows_audio_session_capture_smoke PRIVATE /EHsc /W4 /wd4324)
     endif()
 
+    add_executable(
+        clear_dictate_windows_audio_session_capture_cancellation_smoke
+        tests/WindowsAudioSessionCaptureCancellationSmoke.cpp
+    )
+    target_link_libraries(
+        clear_dictate_windows_audio_session_capture_cancellation_smoke
+        PRIVATE
+        clear_dictate_windows_audio_session_capture
+    )
+    target_compile_features(clear_dictate_windows_audio_session_capture_cancellation_smoke PRIVATE cxx_std_17)
+    set_target_properties(clear_dictate_windows_audio_session_capture_cancellation_smoke PROPERTIES CXX_EXTENSIONS OFF)
+
+    if(MSVC)
+        target_compile_options(clear_dictate_windows_audio_session_capture_cancellation_smoke PRIVATE /EHsc /W4 /wd4324)
+    endif()
+
     add_executable(clear_dictate_windows_audio_session_capture_lifecycle_tests tests/WindowsAudioSessionCaptureLifecycleTests.cpp)
     target_link_libraries(clear_dictate_windows_audio_session_capture_lifecycle_tests PRIVATE clear_dictate_windows_audio_session_capture)
     target_compile_features(clear_dictate_windows_audio_session_capture_lifecycle_tests PRIVATE cxx_std_17)

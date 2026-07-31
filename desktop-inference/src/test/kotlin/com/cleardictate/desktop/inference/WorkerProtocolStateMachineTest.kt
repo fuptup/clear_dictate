@@ -72,6 +72,173 @@ class WorkerProtocolStateMachineTest
         }
     }
 
+    @Test
+    fun `requires recording started before progress and stop before final transcript`()
+    {
+        val stateMachine = readyStateMachine()
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.START_RECORDING))
+
+        assertFailsWith<WorkerProtocolStateException> {
+            stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.PARTIAL_TRANSCRIPT))
+        }
+
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.RECORDING_STARTED))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.PARTIAL_TRANSCRIPT))
+
+        assertFailsWith<WorkerProtocolStateException> {
+            stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.FINAL_TRANSCRIPT))
+        }
+
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.STOP_RECORDING))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.FINAL_TRANSCRIPT))
+
+        assertEquals(WorkerLifecycleState.IDLE, stateMachine.state)
+    }
+
+    @Test
+    fun `accepts cancellation acknowledgement only after cancellation and blocks later progress`()
+    {
+        val stateMachine = readyStateMachine()
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.START_RECORDING))
+
+        assertFailsWith<WorkerProtocolStateException> {
+            stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.CANCELLATION_ACKNOWLEDGED))
+        }
+
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.CANCEL))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.CANCELLATION_ACKNOWLEDGED))
+
+        assertFailsWith<WorkerProtocolStateException> {
+            stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.PARTIAL_TRANSCRIPT))
+        }
+
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.OPERATION_CANCELLED))
+        assertEquals(WorkerLifecycleState.IDLE, stateMachine.state)
+    }
+
+    @Test
+    fun `accepts polish result when generation wins race before cancellation acknowledgement`()
+    {
+        val stateMachine = readyStateMachine()
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.POLISH_TRANSCRIPT))
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.CANCEL))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.POLISHED_TRANSCRIPT))
+
+        assertEquals(WorkerLifecycleState.IDLE, stateMachine.state)
+    }
+
+    @Test
+    fun `accepts in flight start and progress until cancellation acknowledgement`()
+    {
+        val stateMachine = readyStateMachine()
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.START_RECORDING))
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.CANCEL))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.RECORDING_STARTED))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.AUDIO_LEVEL))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.PARTIAL_TRANSCRIPT))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.CANCELLATION_ACKNOWLEDGED))
+
+        assertFailsWith<WorkerProtocolStateException> {
+            stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.PARTIAL_TRANSCRIPT))
+        }
+
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.OPERATION_CANCELLED))
+        assertEquals(WorkerLifecycleState.IDLE, stateMachine.state)
+    }
+
+    @Test
+    fun `accepts in flight recording progress after stop until final transcript`()
+    {
+        val stateMachine = readyStateMachine()
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.START_RECORDING))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.RECORDING_STARTED))
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.STOP_RECORDING))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.AUDIO_LEVEL))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.PARTIAL_TRANSCRIPT))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.FINAL_TRANSCRIPT))
+
+        assertEquals(WorkerLifecycleState.IDLE, stateMachine.state)
+    }
+
+    @Test
+    fun `rejects unsolicited cancellation terminal before host cancellation`()
+    {
+        val stateMachine = readyStateMachine()
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.START_RECORDING))
+
+        assertFailsWith<WorkerProtocolStateException> {
+            stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.OPERATION_CANCELLED))
+        }
+    }
+
+    @Test
+    fun `accepts in flight progress when cancelling active recording`()
+    {
+        val stateMachine = readyStateMachine()
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.START_RECORDING))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.RECORDING_STARTED))
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.CANCEL))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.AUDIO_LEVEL))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.PARTIAL_TRANSCRIPT))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.CANCELLATION_ACKNOWLEDGED))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.OPERATION_CANCELLED))
+
+        assertEquals(WorkerLifecycleState.IDLE, stateMachine.state)
+    }
+
+    @Test
+    fun `accepts final transcript when stop wins race before cancellation acknowledgement`()
+    {
+        val stateMachine = readyStateMachine()
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.START_RECORDING))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.RECORDING_STARTED))
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.STOP_RECORDING))
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.CANCEL))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.PARTIAL_TRANSCRIPT))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.FINAL_TRANSCRIPT))
+
+        assertEquals(WorkerLifecycleState.IDLE, stateMachine.state)
+    }
+
+    @Test
+    fun `accepts error before cancellation acknowledgement`()
+    {
+        val stateMachine = readyStateMachine()
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.START_RECORDING))
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.CANCEL))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.ERROR))
+
+        assertEquals(WorkerLifecycleState.IDLE, stateMachine.state)
+    }
+
+    @Test
+    fun `accepts duplicate matching cancellation commands before and after acknowledgement`()
+    {
+        val stateMachine = readyStateMachine()
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.START_RECORDING))
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.CANCEL))
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.CANCEL))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.CANCELLATION_ACKNOWLEDGED))
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.CANCEL))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.OPERATION_CANCELLED))
+
+        assertEquals(WorkerLifecycleState.IDLE, stateMachine.state)
+    }
+
+    @Test
+    fun `rejects wrong identity while cancellation is pending`()
+    {
+        val stateMachine = readyStateMachine()
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.START_RECORDING))
+        stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.CANCEL))
+
+        assertFailsWith<WorkerProtocolStateException> {
+            stateMachine.acceptWorkerFrame(
+                operationFrame(WorkerMessageType.CANCELLATION_ACKNOWLEDGED, workerRequestToken = 28)
+            )
+        }
+    }
+
     private fun readyStateMachine(): WorkerProtocolStateMachine
     {
         val stateMachine = WorkerProtocolStateMachine()

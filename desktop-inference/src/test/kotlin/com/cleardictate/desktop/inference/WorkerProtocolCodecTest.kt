@@ -217,6 +217,51 @@ class WorkerProtocolCodecTest
         }
     }
 
+    @Test
+    fun `requires versioned recording start payload and accepts empty recording started event`()
+    {
+        val startPayload = WorkerRecordingStartPayloadCodec.encode(
+            WorkerRecordingStartConfiguration(endpointIdentifier = "")
+        )
+        val startFrame = WorkerProtocolMessage(
+            WorkerMessageType.START_RECORDING,
+            ClientSessionIdentifier("client-7"),
+            OperationIdentifier("operation-19"),
+            OperationPrivacy.STANDARD,
+            WorkerRequestToken(27),
+            startPayload
+        )
+        val startedFrame = WorkerProtocolMessage(
+            WorkerMessageType.RECORDING_STARTED,
+            ClientSessionIdentifier("client-7"),
+            OperationIdentifier("operation-19"),
+            OperationPrivacy.STANDARD,
+            WorkerRequestToken(27),
+            ByteArray(0)
+        )
+
+        assertIs<WorkerProtocolMessage>(
+            codec.read(DataInputStream(ByteArrayInputStream(encode(startFrame))))
+        )
+        assertIs<WorkerProtocolMessage>(
+            codec.read(DataInputStream(ByteArrayInputStream(encode(startedFrame))))
+        )
+
+        assertFailsWith<WorkerProtocolException> {
+            codec.write(
+                WorkerProtocolMessage(
+                    WorkerMessageType.START_RECORDING,
+                    ClientSessionIdentifier("client-7"),
+                    OperationIdentifier("operation-19"),
+                    OperationPrivacy.STANDARD,
+                    WorkerRequestToken(27),
+                    ByteArray(0)
+                ),
+                DataOutputStream(ByteArrayOutputStream())
+            )
+        }
+    }
+
     private fun encode(frame: WorkerProtocolFrame): ByteArray
     {
         val outputBytes = ByteArrayOutputStream()

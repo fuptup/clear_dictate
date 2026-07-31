@@ -4,6 +4,10 @@
 
 The current Windows slice is a developer integration target for transcript cleaning, local Qwen polishing, cancellation, semantic validation, the pinned Moonshine streaming engine, a host-tested native microphone capture transport, and an explicitly enabled microphone-to-Moonshine pipeline diagnostic. It is not yet a complete Windows dictation product because that diagnostic is not an isolated speech-worker session and is not connected to the protocol or user interface.
 
+The shared Kotlin/C++ worker framing is now protocol version 4. It reserves an operation-scoped `RecordingStarted` acknowledgement, a separately versioned Moonshine model-directory payload, and a separately versioned recording-start payload whose empty endpoint identifier selects the default console microphone. The host state machine distinguishes start, active recording, stop, cancellation request, and cancellation acknowledgement. The capture primitive separately exposes nonblocking stop/cancel signals and the producer join required for owner-thread cleanup. These are speech-worker prerequisites only; no isolated speech-worker executable or desktop recording client exists yet.
+
+Protocol version 4 has no negotiation with the earlier developer protocol. The desktop application, launcher, text worker, and future speech worker must be built and deployed atomically from the same source revision. A mixed-version startup must fail closed and the launcher process tree must be terminated; release packaging remains blocked and therefore does not yet claim this deployment guarantee.
+
 The Moonshine milestone is deliberately a deterministic engine test rather than a microphone-to-transcript demo. It verifies and leases all seven model components, streams a real spoken WAV fixture in irregular chunks, copies partial-line state before Moonshine invalidates it, forces the final transcript, and exercises cancellation cleanup.
 
 The native capture transport now opens either one exact selected endpoint identifier or the default console capture endpoint resolved once at recording start. It requests event-driven shared-mode conversion to 16-kilohertz mono 32-bit floating point, copies each borrowed endpoint packet into preallocated scratch, releases the endpoint packet, and only then publishes sanitized samples into a bounded preallocated queue. It preserves explicit endpoint silence as zero-valued frames and fails closed on timing damage, device loss, stalls, or overflow. Normal Stop freezes and drains already-captured endpoint packets; Cancel does not. A separate wakeable activity channel tells the future recognition consumer when audio is available or capture is terminal, so the consumer does not poll an empty queue indefinitely. The future isolated speech worker must own capture, the queue consumer, and Moonshine together so it can acknowledge cancellation only after all three actors are quiescent and all project-owned audio buffers are scrubbed. Raw microphone audio will not cross the Java process pipe.
@@ -183,6 +187,12 @@ The following Debug-only diagnostic opens the default console microphone for two
 ```
 
 The explicit argument prevents automated test discovery or an accidental launch from activating the microphone. This is a transport smoke test only: it does not invoke Moonshine, create a transcript, save audio, prove device compatibility, or test the desktop user interface.
+
+The following separate Debug-only concurrency diagnostic starts producer joining while capture is still active, then proves the nonblocking cancellation signal returns without waiting behind that join. The 250-millisecond signal threshold is a regression-test allowance, not a product latency claim:
+
+```powershell
+.\native-worker\build-llama\Debug\clear_dictate_windows_audio_session_capture_cancellation_smoke.exe --allow-live-microphone-cancel-overlap
+```
 
 The following separate Debug-only diagnostic connects the same capture transport to the verified Moonshine model for three seconds. It consumes audio concurrently, scrubs reusable audio and partial-transcript buffers, and prints only frame, delta, and final-text byte counts by default:
 
