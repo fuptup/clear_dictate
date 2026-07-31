@@ -72,7 +72,7 @@ class DesktopRuntimeConfigurationLocator(
             val speechModelDirectory = resolvePath(
                 systemPropertyName = SPEECH_MODEL_DIRECTORY_PROPERTY,
                 environmentVariableName = SPEECH_MODEL_DIRECTORY_ENVIRONMENT_VARIABLE,
-                repositoryRelativeDefault = ".tooling/models/moonshine-tiny-streaming-en"
+                repositoryRelativeDefault = ".tooling/models/moonshine-medium-streaming-en"
             )
 
             if (isRegularFile(workerExecutable) &&

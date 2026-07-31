@@ -19,14 +19,15 @@ namespace clear_dictate
             const char* sha256;
         };
 
-        constexpr std::array<LockedModelComponent, 7> LockedModelComponents =
+        constexpr std::array<LockedModelComponent, 8> LockedModelComponents =
         {{
-            { "adapter.ort", 1319440, "df13e655b29d279911fcb42d8b91b0e655b8fe32b7ba1f463ece663ce55ae6eb" },
-            { "cross_kv.ort", 1264384, "5acfca68f7bb068c68c1960b54e215995ba07ee46b61645b78bff010a14e5a92" },
-            { "decoder_kv.ort", 32403688, "6e3828f1db4b634bc525cb8ba1f0b628ec56059168f0336ad060891c7c1c9154" },
-            { "encoder.ort", 7569200, "96dde726be90c4429f3bc458d04e3ea5bd1818a5fdcd0152edf4c07b8e405c07" },
-            { "frontend.ort", 8324600, "bbdf5edb120cb3df1adf9ebc07c35136539b007a7047fd148c6f2960fc56fcf1" },
-            { "streaming_config.json", 509, "74fe5ddebd63b17caf59e8a3b18c17547ff7bce1642050edbb1c3962674f8950" },
+            { "adapter.ort", 3647712, "16307442b7f4229f2f1511fc51b545cec9616e55872c588f3a297bbc6f4762ea" },
+            { "cross_kv.ort", 11544952, "354b9a955caeb768b528f447f0a36ce4b850ca7b4531900165df304d97904fba" },
+            { "decoder_kv.ort", 146216448, "fa67aa87521247f5bf44d3e44d4e4978e58c1f114249c3c6909c882624056715" },
+            { "decoder_kv_with_attention.ort", 146138304, "40919de95d08690da3a8ff6df14cf55b3220046f3b767b4a4b769e7b32aaf2d2" },
+            { "encoder.ort", 94202872, "a5f11167a62eef61787fe8410453257d6ddb8eba90af461a9604e5f2e93d5322" },
+            { "frontend.ort", 47467256, "378fe8a5d7090a1b9ab88bbb1fc95bde010cdd64ec23419350d2d23c675636e9" },
+            { "streaming_config.json", 513, "28e83b7a28e91472692a035e0dae3116422ae43aeb2bef5ed822c44ce89b88af" },
             { "tokenizer.bin", 249974, "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d" }
         }};
 
@@ -88,7 +89,7 @@ namespace clear_dictate
         };
         transcriberHandle_ = moonshine_load_transcriber_from_files(
             utf8ModelDirectory.c_str(),
-            MOONSHINE_MODEL_ARCH_TINY_STREAMING,
+            MOONSHINE_MODEL_ARCH_MEDIUM_STREAMING,
             options,
             static_cast<std::uint64_t>(std::size(options)),
             MOONSHINE_HEADER_VERSION);

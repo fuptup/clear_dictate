@@ -1,7 +1,6 @@
 package com.cleardictate.desktop
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,19 +17,28 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -374,26 +382,13 @@ private fun RecordingControls(
     onCancel: () -> Unit
 )
 {
-    Text(text = "Local microphone recognition", style = MaterialTheme.typography.titleMedium)
-    Text(
-        text = "Microphone input",
-        modifier = Modifier.padding(top = 10.dp),
-        style = MaterialTheme.typography.labelLarge
-    )
-    MicrophoneOption(
-        label = "System default",
-        selected = selectedEndpointIdentifier.isEmpty(),
+    Text(text = "Local microphone recognition — Moonshine Medium Streaming", style = MaterialTheme.typography.titleMedium)
+    MicrophoneDropdown(
+        captureDevices = captureDevices,
+        selectedEndpointIdentifier = selectedEndpointIdentifier,
         enabled = recordingAvailable && !recordingInProgress && !commandInProgress,
-        onSelected = { onMicrophoneSelected("") }
+        onMicrophoneSelected = onMicrophoneSelected
     )
-    captureDevices.forEach { captureDevice ->
-        MicrophoneOption(
-            label = captureDevice.friendlyName + if (captureDevice.isDefault) " (Windows default)" else "",
-            selected = selectedEndpointIdentifier == captureDevice.endpointIdentifier,
-            enabled = recordingAvailable && !recordingInProgress && !commandInProgress,
-            onSelected = { onMicrophoneSelected(captureDevice.endpointIdentifier) }
-        )
-    }
     Text(
         text = when
         {
@@ -445,20 +440,56 @@ private fun RecordingControls(
 }
 
 @Composable
-private fun MicrophoneOption(label: String, selected: Boolean, enabled: Boolean, onSelected: () -> Unit)
+@OptIn(ExperimentalMaterial3Api::class)
+private fun MicrophoneDropdown(captureDevices: List<WindowsCaptureDevice>, selectedEndpointIdentifier: String, enabled: Boolean, onMicrophoneSelected: (String) -> Unit)
 {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onSelected),
-        verticalAlignment = Alignment.CenterVertically
+    val microphoneOptions = buildDesktopMicrophoneOptions(captureDevices)
+    val selectedOption = microphoneOptions.firstOrNull { option -> option.endpointIdentifier == selectedEndpointIdentifier }
+        ?: microphoneOptions.first()
+    var expanded by remember { mutableStateOf(false) }
+
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+        tooltip = {
+            PlainTooltip {
+                Text("System default follows Windows. A named microphone stays fixed for that recording.")
+            }
+        },
+        state = rememberTooltipState()
     ) {
-        RadioButton(
-            selected = selected,
-            onClick = onSelected,
-            enabled = enabled
-        )
-        Text(label, style = MaterialTheme.typography.bodyMedium)
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { requestedExpansion -> expanded = enabled && requestedExpansion },
+            modifier = Modifier.padding(top = 10.dp)
+        ) {
+            OutlinedTextField(
+                value = selectedOption.displayLabel,
+                onValueChange = {},
+                modifier = Modifier
+                    .width(520.dp)
+                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled),
+                enabled = enabled,
+                readOnly = true,
+                singleLine = true,
+                label = { Text("Microphone input") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) }
+            )
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                microphoneOptions.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option.displayLabel) },
+                        onClick = {
+                            onMicrophoneSelected(option.endpointIdentifier)
+                            expanded = false
+                        },
+                        contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+                    )
+                }
+            }
+        }
     }
 }
 

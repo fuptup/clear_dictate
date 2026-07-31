@@ -58,7 +58,7 @@ class DesktopRuntimeConfigurationLocatorTest
         val modelPath = repositoryRoot.resolve(".tooling/models/qwen2.5-0.5b-instruct/qwen2.5-0.5b-instruct-q4_k_m.gguf")
         val speechWorkerExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_speech_worker.exe")
         val audioDeviceEnumeratorExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_audio_device_enumerator.exe")
-        val speechModelDirectory = repositoryRoot.resolve(".tooling/models/moonshine-tiny-streaming-en")
+        val speechModelDirectory = repositoryRoot.resolve(".tooling/models/moonshine-medium-streaming-en")
         val repositorySentinel = repositoryRoot.resolve("settings.gradle.kts")
         val locator = DesktopRuntimeConfigurationLocator(
             currentDirectory = repositoryRoot,
@@ -87,7 +87,7 @@ class DesktopRuntimeConfigurationLocatorTest
         val audioDeviceEnumeratorExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_audio_device_enumerator.exe")
         val workerLauncherExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_worker_launcher.exe")
         val modelPath = repositoryRoot.resolve(".tooling/models/qwen2.5-0.5b-instruct/qwen2.5-0.5b-instruct-q4_k_m.gguf")
-        val speechModelDirectory = repositoryRoot.resolve(".tooling/models/moonshine-tiny-streaming-en")
+        val speechModelDirectory = repositoryRoot.resolve(".tooling/models/moonshine-medium-streaming-en")
         val repositorySentinel = repositoryRoot.resolve("settings.gradle.kts")
         val locator = DesktopRuntimeConfigurationLocator(
             currentDirectory = repositoryRoot.resolve("desktop-app"),
@@ -113,7 +113,7 @@ class DesktopRuntimeConfigurationLocatorTest
         val speechWorkerExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_speech_worker.exe")
         val workerLauncherExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_worker_launcher.exe")
         val modelPath = repositoryRoot.resolve(".tooling/models/qwen2.5-0.5b-instruct/qwen2.5-0.5b-instruct-q4_k_m.gguf")
-        val speechModelDirectory = repositoryRoot.resolve(".tooling/models/moonshine-tiny-streaming-en")
+        val speechModelDirectory = repositoryRoot.resolve(".tooling/models/moonshine-medium-streaming-en")
         val repositorySentinel = repositoryRoot.resolve("settings.gradle.kts")
         val locator = DesktopRuntimeConfigurationLocator(
             currentDirectory = repositoryRoot,

@@ -53,10 +53,10 @@ The development commands expect:
 E:\VoiceToText\.tooling\upstream\llama.cpp-2026-07-30
 E:\VoiceToText\.tooling\upstream\moonshine-windows-clean
 E:\VoiceToText\.tooling\models\qwen2.5-0.5b-instruct\qwen2.5-0.5b-instruct-q4_k_m.gguf
-E:\VoiceToText\.tooling\models\moonshine-tiny-streaming-en
+E:\VoiceToText\.tooling\models\moonshine-medium-streaming-en
 ```
 
-The `.tooling` directory and model files are intentionally excluded from Git.
+The `.tooling` directory and model files are intentionally excluded from Git. The Windows preview uses Medium Streaming because its larger recognition model materially improves accuracy while the isolated, bounded worker architecture keeps the extra memory and computation outside the user-interface process. Android remains on Tiny Streaming until Medium has been measured on representative phones.
 
 ## Recreate the pinned Windows inputs
 
@@ -65,7 +65,7 @@ From a clean checkout, create the ignored tooling directories:
 ```powershell
 New-Item -ItemType Directory -Force -Path .tooling\upstream
 New-Item -ItemType Directory -Force -Path .tooling\models\qwen2.5-0.5b-instruct
-New-Item -ItemType Directory -Force -Path .tooling\models\moonshine-tiny-streaming-en
+New-Item -ItemType Directory -Force -Path .tooling\models\moonshine-medium-streaming-en
 ```
 
 Clone llama.cpp and detach the checkout at the exact reviewed commit:
@@ -90,13 +90,14 @@ Download the pinned Qwen file directly from its immutable repository revision:
 
 ```powershell
 curl.exe -L --fail --output .tooling\models\qwen2.5-0.5b-instruct\qwen2.5-0.5b-instruct-q4_k_m.gguf https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q4_k_m.gguf
-curl.exe -L --fail --output .tooling\models\moonshine-tiny-streaming-en\adapter.ort https://download.moonshine.ai/model/tiny-streaming-en/quantized/adapter.ort
-curl.exe -L --fail --output .tooling\models\moonshine-tiny-streaming-en\cross_kv.ort https://download.moonshine.ai/model/tiny-streaming-en/quantized/cross_kv.ort
-curl.exe -L --fail --output .tooling\models\moonshine-tiny-streaming-en\decoder_kv.ort https://download.moonshine.ai/model/tiny-streaming-en/quantized/decoder_kv.ort
-curl.exe -L --fail --output .tooling\models\moonshine-tiny-streaming-en\encoder.ort https://download.moonshine.ai/model/tiny-streaming-en/quantized/encoder.ort
-curl.exe -L --fail --output .tooling\models\moonshine-tiny-streaming-en\frontend.ort https://download.moonshine.ai/model/tiny-streaming-en/quantized/frontend.ort
-curl.exe -L --fail --output .tooling\models\moonshine-tiny-streaming-en\streaming_config.json https://download.moonshine.ai/model/tiny-streaming-en/quantized/streaming_config.json
-curl.exe -L --fail --output .tooling\models\moonshine-tiny-streaming-en\tokenizer.bin https://download.moonshine.ai/model/tiny-streaming-en/quantized/tokenizer.bin
+curl.exe -L --fail --output .tooling\models\moonshine-medium-streaming-en\adapter.ort https://download.moonshine.ai/model/medium-streaming-en/quantized/adapter.ort
+curl.exe -L --fail --output .tooling\models\moonshine-medium-streaming-en\cross_kv.ort https://download.moonshine.ai/model/medium-streaming-en/quantized/cross_kv.ort
+curl.exe -L --fail --output .tooling\models\moonshine-medium-streaming-en\decoder_kv.ort https://download.moonshine.ai/model/medium-streaming-en/quantized/decoder_kv.ort
+curl.exe -L --fail --output .tooling\models\moonshine-medium-streaming-en\decoder_kv_with_attention.ort https://download.moonshine.ai/model/medium-streaming-en/quantized/decoder_kv_with_attention.ort
+curl.exe -L --fail --output .tooling\models\moonshine-medium-streaming-en\encoder.ort https://download.moonshine.ai/model/medium-streaming-en/quantized/encoder.ort
+curl.exe -L --fail --output .tooling\models\moonshine-medium-streaming-en\frontend.ort https://download.moonshine.ai/model/medium-streaming-en/quantized/frontend.ort
+curl.exe -L --fail --output .tooling\models\moonshine-medium-streaming-en\streaming_config.json https://download.moonshine.ai/model/medium-streaming-en/quantized/streaming_config.json
+curl.exe -L --fail --output .tooling\models\moonshine-medium-streaming-en\tokenizer.bin https://download.moonshine.ai/model/medium-streaming-en/quantized/tokenizer.bin
 ```
 
 Verify the downloaded file before configuring the native build:
@@ -104,7 +105,7 @@ Verify the downloaded file before configuring the native build:
 ```powershell
 Get-Item .tooling\models\qwen2.5-0.5b-instruct\qwen2.5-0.5b-instruct-q4_k_m.gguf | Select-Object Length
 Get-FileHash -Algorithm SHA256 .tooling\models\qwen2.5-0.5b-instruct\qwen2.5-0.5b-instruct-q4_k_m.gguf
-Get-ChildItem .tooling\models\moonshine-tiny-streaming-en -File | Get-FileHash -Algorithm SHA256
+Get-ChildItem .tooling\models\moonshine-medium-streaming-en -File | Get-FileHash -Algorithm SHA256
 Get-FileHash -Algorithm SHA256 .tooling\upstream\moonshine-windows-clean\test-assets\two_cities_16k.wav
 ```
 
@@ -114,12 +115,13 @@ The Moonshine model files are locked as follows:
 
 | File | Bytes | Secure Hash Algorithm 256-bit digest |
 | --- | ---: | --- |
-| `adapter.ort` | 1319440 | `df13e655b29d279911fcb42d8b91b0e655b8fe32b7ba1f463ece663ce55ae6eb` |
-| `cross_kv.ort` | 1264384 | `5acfca68f7bb068c68c1960b54e215995ba07ee46b61645b78bff010a14e5a92` |
-| `decoder_kv.ort` | 32403688 | `6e3828f1db4b634bc525cb8ba1f0b628ec56059168f0336ad060891c7c1c9154` |
-| `encoder.ort` | 7569200 | `96dde726be90c4429f3bc458d04e3ea5bd1818a5fdcd0152edf4c07b8e405c07` |
-| `frontend.ort` | 8324600 | `bbdf5edb120cb3df1adf9ebc07c35136539b007a7047fd148c6f2960fc56fcf1` |
-| `streaming_config.json` | 509 | `74fe5ddebd63b17caf59e8a3b18c17547ff7bce1642050edbb1c3962674f8950` |
+| `adapter.ort` | 3647712 | `16307442b7f4229f2f1511fc51b545cec9616e55872c588f3a297bbc6f4762ea` |
+| `cross_kv.ort` | 11544952 | `354b9a955caeb768b528f447f0a36ce4b850ca7b4531900165df304d97904fba` |
+| `decoder_kv.ort` | 146216448 | `fa67aa87521247f5bf44d3e44d4e4978e58c1f114249c3c6909c882624056715` |
+| `decoder_kv_with_attention.ort` | 146138304 | `40919de95d08690da3a8ff6df14cf55b3220046f3b767b4a4b769e7b32aaf2d2` |
+| `encoder.ort` | 94202872 | `a5f11167a62eef61787fe8410453257d6ddb8eba90af461a9604e5f2e93d5322` |
+| `frontend.ort` | 47467256 | `378fe8a5d7090a1b9ab88bbb1fc95bde010cdd64ec23419350d2d23c675636e9` |
+| `streaming_config.json` | 513 | `28e83b7a28e91472692a035e0dae3116422ae43aeb2bef5ed822c44ce89b88af` |
 | `tokenizer.bin` | 249974 | `6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d` |
 
 ## Configure the native build
@@ -127,7 +129,7 @@ The Moonshine model files are locked as follows:
 Open PowerShell in the repository root. The following command starts a Visual Studio x64 developer environment and asks CMake to generate the native build tree. The options select the Debug-tested central processing unit backend, enable the project adapter, and identify the pinned local dependency and model:
 
 ```powershell
-cmd.exe /d /v:on /c 'set "SAVED_BUILD_PATH=!PATH!" && set "Path=" && set "PATH=!SAVED_BUILD_PATH!" && call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 && cmake -S native-worker -B native-worker/build-llama -DCLEAR_DICTATE_ENABLE_LLAMA=ON -DCLEAR_DICTATE_ENABLE_MODEL_INTEGRATION_TESTS=ON -DLLAMA_CPP_SOURCE_DIR=E:/VoiceToText/.tooling/upstream/llama.cpp-2026-07-30 -DCLEAR_DICTATE_TEST_TEXT_MODEL=E:/VoiceToText/.tooling/models/qwen2.5-0.5b-instruct/qwen2.5-0.5b-instruct-q4_k_m.gguf -DCLEAR_DICTATE_ENABLE_MOONSHINE=ON -DMOONSHINE_SOURCE_DIR=E:/VoiceToText/.tooling/upstream/moonshine-windows-clean -DMOONSHINE_BUILD_DIR=E:/VoiceToText/.tooling/upstream/moonshine-windows-clean/build-cleardictate-debug -DCLEAR_DICTATE_ENABLE_SPEECH_MODEL_INTEGRATION_TESTS=ON -DCLEAR_DICTATE_TEST_SPEECH_MODEL_DIRECTORY=E:/VoiceToText/.tooling/models/moonshine-tiny-streaming-en -DCLEAR_DICTATE_TEST_SPEECH_WAVE=E:/VoiceToText/.tooling/upstream/moonshine-windows-clean/test-assets/two_cities_16k.wav'
+cmd.exe /d /v:on /c 'set "SAVED_BUILD_PATH=!PATH!" && set "Path=" && set "PATH=!SAVED_BUILD_PATH!" && call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 && cmake -S native-worker -B native-worker/build-llama -DCLEAR_DICTATE_ENABLE_LLAMA=ON -DCLEAR_DICTATE_ENABLE_MODEL_INTEGRATION_TESTS=ON -DLLAMA_CPP_SOURCE_DIR=E:/VoiceToText/.tooling/upstream/llama.cpp-2026-07-30 -DCLEAR_DICTATE_TEST_TEXT_MODEL=E:/VoiceToText/.tooling/models/qwen2.5-0.5b-instruct/qwen2.5-0.5b-instruct-q4_k_m.gguf -DCLEAR_DICTATE_ENABLE_MOONSHINE=ON -DMOONSHINE_SOURCE_DIR=E:/VoiceToText/.tooling/upstream/moonshine-windows-clean -DMOONSHINE_BUILD_DIR=E:/VoiceToText/.tooling/upstream/moonshine-windows-clean/build-cleardictate-debug -DCLEAR_DICTATE_ENABLE_SPEECH_MODEL_INTEGRATION_TESTS=ON -DCLEAR_DICTATE_TEST_SPEECH_MODEL_DIRECTORY=E:/VoiceToText/.tooling/models/moonshine-medium-streaming-en -DCLEAR_DICTATE_TEST_SPEECH_WAVE=E:/VoiceToText/.tooling/upstream/moonshine-windows-clean/test-assets/two_cities_16k.wav'
 ```
 
 ## Build and test native code
@@ -183,7 +185,7 @@ The screen is intentionally a developer harness rather than the final dictation 
 The live integration test is skipped unless all three explicit properties are supplied. It opens the default microphone for three seconds, keeps audio in bounded memory, finalizes the transcript locally, verifies the host state, and shuts down the worker:
 
 ```powershell
-.\gradlew.bat :desktop-inference:test --tests com.cleardictate.desktop.inference.WindowsSpeechWorkerClientIntegrationTest '-DclearDictate.speechWorkerExecutable=E:\VoiceToText\native-worker\build-llama\Debug\clear_dictate_speech_worker.exe' '-DclearDictate.speechModelDirectory=E:\VoiceToText\.tooling\models\moonshine-tiny-streaming-en' '-DclearDictate.allowLiveMicrophone=true'
+.\gradlew.bat :desktop-inference:test --tests com.cleardictate.desktop.inference.WindowsSpeechWorkerClientIntegrationTest '-DclearDictate.speechWorkerExecutable=E:\VoiceToText\native-worker\build-llama\Debug\clear_dictate_speech_worker.exe' '-DclearDictate.speechModelDirectory=E:\VoiceToText\.tooling\models\moonshine-medium-streaming-en' '-DclearDictate.allowLiveMicrophone=true'
 ```
 
 ## Run the opt-in microphone transport smoke test
@@ -205,7 +207,7 @@ The following separate Debug-only concurrency diagnostic starts producer joining
 The following separate Debug-only diagnostic connects the same capture transport to the verified Moonshine model for three seconds. It consumes audio concurrently, scrubs reusable audio and partial-transcript buffers, and prints only frame, delta, and final-text byte counts by default:
 
 ```powershell
-.\native-worker\build-llama\Debug\clear_dictate_live_microphone_moonshine_pipeline_smoke.exe --allow-live-microphone-moonshine-pipeline E:\VoiceToText\.tooling\models\moonshine-tiny-streaming-en
+.\native-worker\build-llama\Debug\clear_dictate_live_microphone_moonshine_pipeline_smoke.exe --allow-live-microphone-moonshine-pipeline E:\VoiceToText\.tooling\models\moonshine-medium-streaming-en
 ```
 
 Add `--print-transcript` only when you deliberately want recognized ambient speech written to persistent console scrollback. Silence and an empty transcript are valid for this diagnostic: success requires a nonzero frame count and proves every accepted microphone frame reached the live Moonshine pipeline on the development computer, while the separate pinned spoken-fixture test proves recognition output. This diagnostic remains useful below the isolated-worker boundary; it does not prove the device-compatibility matrix or real-time headroom.
