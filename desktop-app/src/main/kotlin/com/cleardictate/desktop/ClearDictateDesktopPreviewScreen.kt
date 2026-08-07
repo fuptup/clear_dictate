@@ -1,5 +1,6 @@
 package com.cleardictate.desktop
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,12 +10,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
@@ -43,8 +41,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.cleardictate.desktop.inference.WindowsCaptureDevice
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.awt.datatransfer.StringSelection
 
@@ -67,125 +67,146 @@ fun ClearDictateDesktopPreviewScreen(
             val microphoneActivity by speechRecorder.microphoneActivity.collectAsState()
             var captureDevices by remember { mutableStateOf<List<WindowsCaptureDevice>>(emptyList()) }
             var selectedEndpointIdentifier by remember { mutableStateOf("") }
+            var modelsReady by remember(ready) { mutableStateOf(false) }
+            var preparingModels by remember(ready) { mutableStateOf(ready) }
             var recording by remember { mutableStateOf(false) }
             var processing by remember { mutableStateOf(false) }
             var rawTranscript by remember { mutableStateOf("") }
             var polishedTranscript by remember { mutableStateOf("") }
-            var status by remember { mutableStateOf(if (ready) "Hold the button and speak." else (runtimeReadiness as DesktopRuntimeReadiness.Unavailable).explanation) }
+            var status by remember { mutableStateOf(if (ready) "Preparing AI…" else (runtimeReadiness as DesktopRuntimeReadiness.Unavailable).explanation) }
 
-            LaunchedEffect(ready, speechRecorder)
+            LaunchedEffect(ready, speechRecorder, dictationPipeline)
             {
                 if (ready)
                 {
                     captureDevices = runCatching { speechRecorder.listActiveCaptureDevices() }.getOrDefault(emptyList())
+                    preparingModels = true
+                    try
+                    {
+                        dictationPipeline.prepareModels()
+                        modelsReady = true
+                        status = "Ready"
+                    }
+                    catch (cancellation: CancellationException)
+                    {
+                        throw cancellation
+                    }
+                    catch (_: Exception)
+                    {
+                        modelsReady = false
+                        status = "AI startup failed. Restart ClearDictate."
+                    }
+                    finally
+                    {
+                        preparingModels = false
+                    }
                 }
             }
 
             Column(
-                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp, vertical = 20.dp)
+                modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 16.dp)
             ) {
-                Text("ClearDictate", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
-                Text("Local push-to-talk dictation", modifier = Modifier.padding(top = 4.dp), color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.height(14.dp))
-
-                MicrophoneDropdown(captureDevices, selectedEndpointIdentifier, ready && !recording && !processing) {
-                    selectedEndpointIdentifier = it
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("ClearDictate", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.weight(1.0F))
+                    MicrophoneDropdown(
+                        captureDevices,
+                        selectedEndpointIdentifier,
+                        ready && !recording && !processing,
+                        Modifier.width(240.dp)
+                    ) {
+                        selectedEndpointIdentifier = it
+                    }
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(10.dp))
 
-                PushToTalkButton(
-                    enabled = ready && !processing,
-                    recording = recording,
-                    onPress = {
-                        try
-                        {
-                            dictationPipeline.startRecording(selectedEndpointIdentifier)
-                            recording = true
-                            status = "Listening… release to transcribe."
-                            true
-                        }
-                        catch (_: Exception)
-                        {
-                            status = "The microphone could not start. Check Windows microphone privacy settings."
-                            false
-                        }
-                    },
-                    onRelease = { released ->
-                        recording = false
-                        if (!released)
-                        {
-                            runCatching { dictationPipeline.cancelDictation() }
-                            status = "Recording cancelled."
-                        }
-                        else
-                        {
-                            processing = true
-                            status = "Transcribing with Qwen3-ASR, then polishing with Qwen3.5…"
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    PushToTalkButton(
+                        enabled = modelsReady && !processing,
+                        recording = recording,
+                        onPress = {
                             try
                             {
-                                val result = dictationPipeline.finishDictation()
-                                rawTranscript = result.rawTranscript
-                                polishedTranscript = result.polishedTranscript
-                                status = "Polished text is ready."
+                                dictationPipeline.startRecording(selectedEndpointIdentifier)
+                                recording = true
+                                true
                             }
                             catch (_: Exception)
                             {
-                                status = "Local transcription or polishing failed. The recording was discarded."
+                                status = "Microphone unavailable."
+                                false
                             }
-                            finally
+                        },
+                        onRelease = { released ->
+                            recording = false
+                            if (!released)
                             {
-                                processing = false
+                                runCatching { dictationPipeline.cancelDictation() }
+                                status = "Recording cancelled."
+                            }
+                            else
+                            {
+                                processing = true
+                                status = "Processing…"
+                                try
+                                {
+                                    val result = dictationPipeline.finishDictation()
+                                    rawTranscript = result.rawTranscript
+                                    polishedTranscript = result.polishedTranscript
+                                    status = "Ready"
+                                }
+                                catch (_: Exception)
+                                {
+                                    status = "Processing failed. Try again."
+                                }
+                                finally
+                                {
+                                    processing = false
+                                }
                             }
                         }
-                    }
-                )
-
-                DictationActivityIndicator(recording, processing, microphoneActivity, status)
-                Spacer(Modifier.height(14.dp))
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    DictationActivityIndicator(recording, preparingModels || processing, microphoneActivity, status, Modifier.weight(1.0F))
+                }
+                Spacer(Modifier.height(10.dp))
                 OutlinedTextField(
                     value = polishedTranscript,
                     onValueChange = { polishedTranscript = it },
-                    modifier = Modifier.fillMaxWidth().height(140.dp),
+                    modifier = Modifier.fillMaxWidth().height(124.dp),
                     enabled = !recording && !processing,
-                    label = { Text("Polished text") },
-                    placeholder = { Text("Release push-to-talk and the polished result will appear here.") }
+                    label = { Text("Polished") }
                 )
                 OutlinedTextField(
                     value = rawTranscript,
                     onValueChange = {},
-                    modifier = Modifier.fillMaxWidth().height(100.dp).padding(top = 10.dp),
+                    modifier = Modifier.fillMaxWidth().height(76.dp).padding(top = 8.dp),
                     readOnly = true,
-                    label = { Text("Raw Qwen3-ASR transcript") }
+                    label = { Text("Raw") }
                 )
-                Row(modifier = Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         enabled = polishedTranscript.isNotEmpty() && !recording && !processing,
                         onClick = {
                             scope.launch {
                                 clipboard.setClipEntry(ClipEntry(StringSelection(polishedTranscript)))
-                                status = "Polished text copied to the clipboard."
+                                status = "Copied"
                             }
                         }
                     ) {
-                        Text("Copy polished text")
+                        Text("Copy")
                     }
                     OutlinedButton(
                         enabled = !recording && !processing,
                         onClick = {
                             rawTranscript = ""
                             polishedTranscript = ""
-                            status = "Hold the button and speak."
+                            status = "Ready"
                         }
                     ) {
                         Text("Clear")
                     }
                 }
-                Text(
-                    "Audio stays in memory only until transcription finishes. Models and transcripts remain on this PC.",
-                    modifier = Modifier.padding(top = 14.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         }
     }
@@ -205,7 +226,7 @@ private fun PushToTalkButton(enabled: Boolean, recording: Boolean, onPress: susp
         shape = MaterialTheme.shapes.extraLarge,
         color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
         contentColor = if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.width(260.dp).height(58.dp).pointerInput(enabled) {
+        modifier = Modifier.width(148.dp).height(40.dp).pointerInput(enabled) {
             detectTapGestures(
                 onPress = {
                     if (enabled)
@@ -221,34 +242,32 @@ private fun PushToTalkButton(enabled: Boolean, recording: Boolean, onPress: susp
         }
     ) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(if (recording) "Release to transcribe" else "Hold to talk", fontWeight = FontWeight.Medium)
+            Text(if (recording) "Release" else "Hold to talk", fontWeight = FontWeight.Medium)
         }
     }
 }
 
 /**
- * Makes live capture and post-release inference visually distinct without adding another control surface.
+ * Renders compact activity feedback alongside the push-to-talk control.
  */
 @Composable
-private fun DictationActivityIndicator(recording: Boolean, processing: Boolean, microphoneActivity: Float, status: String)
+private fun DictationActivityIndicator(recording: Boolean, processing: Boolean, microphoneActivity: Float, status: String, modifier: Modifier)
 {
-    Column(modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp).padding(top = 10.dp)) {
+    Row(modifier = modifier.height(40.dp), verticalAlignment = Alignment.CenterVertically) {
         when
         {
             recording ->
             {
-                Text("Microphone signal", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text("Mic", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                 LinearProgressIndicator(
                     progress = { microphoneActivity },
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(8.dp)
+                    modifier = Modifier.weight(1.0F).padding(start = 8.dp).height(8.dp)
                 )
             }
             processing ->
             {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 3.dp)
-                    Text(status, modifier = Modifier.padding(start = 10.dp), style = MaterialTheme.typography.bodyMedium)
-                }
+                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 3.dp)
+                Text(status, modifier = Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium)
             }
             else -> Text(status, style = MaterialTheme.typography.bodyMedium)
         }
@@ -260,23 +279,25 @@ private fun DictationActivityIndicator(recording: Boolean, processing: Boolean, 
  */
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-private fun MicrophoneDropdown(captureDevices: List<WindowsCaptureDevice>, selectedEndpointIdentifier: String, enabled: Boolean, onMicrophoneSelected: (String) -> Unit)
+private fun MicrophoneDropdown(captureDevices: List<WindowsCaptureDevice>, selectedEndpointIdentifier: String, enabled: Boolean, modifier: Modifier, onMicrophoneSelected: (String) -> Unit)
 {
     val options = buildDesktopMicrophoneOptions(captureDevices)
     val selected = options.firstOrNull { it.endpointIdentifier == selectedEndpointIdentifier } ?: options.first()
     var expanded by remember { mutableStateOf(false) }
 
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = enabled && it }) {
-        OutlinedTextField(
-            value = selected.displayLabel,
-            onValueChange = {},
-            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled),
-            enabled = enabled,
-            readOnly = true,
-            singleLine = true,
-            label = { Text("Microphone input") },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) }
-        )
+        Surface(
+            modifier = modifier.height(42.dp).menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled),
+            shape = MaterialTheme.shapes.small,
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+            border = BorderStroke(1.dp, if (enabled) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Row(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(selected.displayLabel, modifier = Modifier.weight(1.0F), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                ExposedDropdownMenuDefaults.TrailingIcon(expanded)
+            }
+        }
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->
                 DropdownMenuItem(

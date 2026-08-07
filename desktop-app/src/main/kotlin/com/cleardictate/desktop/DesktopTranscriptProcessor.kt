@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicLong
 interface DesktopTextWorker : TranscriptPolisher, AutoCloseable
 
 /**
- * Starts the isolated Windows worker only when Polished mode first needs it.
+ * Starts the isolated Windows worker when the owning pipeline requests it.
  */
 fun interface DesktopTextWorkerFactory
 {
@@ -36,7 +36,7 @@ fun interface DesktopTextWorkerFactory
 }
 
 /**
- * Owns one serialized developer-preview transcript pipeline and its lazily loaded model worker.
+ * Owns one serialized transcript pipeline and its persistent model worker.
  */
 class DesktopTranscriptProcessor(
     private val runtimeConfiguration: DesktopRuntimeConfiguration?,
@@ -91,6 +91,17 @@ class DesktopTranscriptProcessor(
             }
 
             processedTranscript
+        }
+    }
+
+    /**
+     * Loads and verifies the persistent polishing worker before the first dictation.
+     */
+    override suspend fun prepare()
+    {
+        operationMutex.withLock {
+            ensureOpen()
+            acquireWorker()
         }
     }
 

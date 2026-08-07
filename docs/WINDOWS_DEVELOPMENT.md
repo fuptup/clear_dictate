@@ -80,4 +80,4 @@ Double-click `Run-ClearDictate-Developer-Preview.cmd` or run:
 .\gradlew.bat :desktop-app:run
 ```
 
-Select a microphone, hold **Hold to talk**, speak, and release. The first release loads both local models and therefore takes longer. Later utterances reuse both persistent model workers.
+Wait for **Ready**, select a microphone, hold **Hold to talk**, speak, and release. ClearDictate loads both persistent model workers during startup so the first dictation does not also pay their loading cost.

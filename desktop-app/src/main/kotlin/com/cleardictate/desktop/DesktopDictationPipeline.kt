@@ -17,6 +17,7 @@ interface DesktopAudioRecorder : AutoCloseable
  */
 interface DesktopSpeechTranscriber : AutoCloseable
 {
+    suspend fun prepare()
     suspend fun transcribe(capturedAudio: CapturedAudio): String
 }
 
@@ -25,6 +26,7 @@ interface DesktopSpeechTranscriber : AutoCloseable
  */
 interface DesktopTranscriptRewriter : AutoCloseable
 {
+    suspend fun prepare()
     suspend fun rewrite(rawTranscript: String): String
 }
 
@@ -42,6 +44,15 @@ class DesktopDictationPipeline(
     private val transcriptRewriter: DesktopTranscriptRewriter
 ) : AutoCloseable
 {
+    /**
+     * Loads both persistent inference workers before dictation is enabled.
+     */
+    suspend fun prepareModels()
+    {
+        speechTranscriber.prepare()
+        transcriptRewriter.prepare()
+    }
+
     suspend fun startRecording(endpointIdentifier: String)
     {
         audioRecorder.startRecording(endpointIdentifier)

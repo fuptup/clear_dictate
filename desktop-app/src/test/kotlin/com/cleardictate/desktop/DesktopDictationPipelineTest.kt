@@ -40,6 +40,11 @@ class DesktopDictationPipelineTest
             },
             speechTranscriber = object : DesktopSpeechTranscriber
             {
+                override suspend fun prepare()
+                {
+                    events += "prepare-speech"
+                }
+
                 override suspend fun transcribe(capturedAudio: CapturedAudio): String
                 {
                     events += "transcribe"
@@ -52,6 +57,11 @@ class DesktopDictationPipelineTest
             },
             transcriptRewriter = object : DesktopTranscriptRewriter
             {
+                override suspend fun prepare()
+                {
+                    events += "prepare-rewrite"
+                }
+
                 override suspend fun rewrite(rawTranscript: String): String
                 {
                     events += "rewrite:$rawTranscript"
@@ -65,6 +75,7 @@ class DesktopDictationPipelineTest
         )
 
         kotlinx.coroutines.test.runTest {
+            pipeline.prepareModels()
             pipeline.startRecording("headset-endpoint")
             val result = pipeline.finishDictation()
 
@@ -74,6 +85,8 @@ class DesktopDictationPipelineTest
 
         assertEquals(
             listOf(
+                "prepare-speech",
+                "prepare-rewrite",
                 "start:headset-endpoint",
                 "stop",
                 "transcribe",

@@ -204,6 +204,14 @@ class QwenDesktopSpeechTranscriber(private val runtimeConfiguration: DesktopRunt
     @Volatile
     private var closed = false
 
+    /**
+     * Starts and verifies the persistent ASR worker before recording is enabled.
+     */
+    override suspend fun prepare()
+    {
+        acquireClient()
+    }
+
     override suspend fun transcribe(capturedAudio: CapturedAudio): String
     {
         return try

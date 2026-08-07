@@ -8,7 +8,7 @@ import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 
 /**
- * Starts the Windows push-to-talk developer preview and owns its local worker pipeline.
+ * Starts the Windows push-to-talk application and owns its local worker pipeline.
  */
 fun main() = application {
     val runtimeReadiness = remember { DesktopRuntimeConfigurationLocator().locate() }
@@ -26,8 +26,8 @@ fun main() = application {
 
     Window(
         onCloseRequest = ::exitApplication,
-        title = "ClearDictate — Developer Preview",
-        state = WindowState(width = 820.dp, height = 680.dp)
+        title = "ClearDictate",
+        state = WindowState(width = 600.dp, height = 440.dp)
     ) {
         ClearDictateDesktopPreviewScreen(runtimeReadiness, speechRecorder, dictationPipeline)
     }
