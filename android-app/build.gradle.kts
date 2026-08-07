@@ -62,7 +62,6 @@ android {
 dependencies {
     implementation(project(":core-domain"))
     implementation(project(":core-input-connection"))
-    implementation(project(":core-models"))
     implementation(project(":inference-contract"))
     implementation(project(":inference-service"))
 
@@ -70,7 +69,6 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
-    implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.compose.material3)
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)

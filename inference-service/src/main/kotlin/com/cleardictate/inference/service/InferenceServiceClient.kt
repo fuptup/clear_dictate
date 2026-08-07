@@ -307,7 +307,7 @@ class InferenceServiceClient(
     /**
      * Promotes the service from the user's visible tap before sending the bounded begin command.
      */
-    fun startDictation(transcriptMode: TranscriptMode, privacy: OperationPrivacy): Boolean
+    fun startDictation(privacy: OperationPrivacy): Boolean
     {
         if (closed)
         {
@@ -319,7 +319,7 @@ class InferenceServiceClient(
         if (service == null)
         {
             mutableState.update { currentState ->
-                currentState.copy(failureMessage = "The local inference process is not connected.")
+                currentState.copy(failureMessage = "The recording service is not connected.")
             }
             return false
         }
@@ -338,7 +338,7 @@ class InferenceServiceClient(
         if (mutableState.value.speechModelState != SpeechModelState.READY)
         {
             mutableState.update { currentState ->
-                currentState.copy(failureMessage = "The local speech model is not ready.")
+                currentState.copy(failureMessage = "The paired PC is not ready.")
             }
             return false
         }
@@ -387,7 +387,6 @@ class InferenceServiceClient(
                     applicationContext,
                     clientSessionIdentifier,
                     operationIdentifier,
-                    transcriptMode,
                     privacy
                 )
             )
@@ -447,6 +446,22 @@ class InferenceServiceClient(
         catch (_: Exception)
         {
             handleServiceDisconnected()
+        }
+    }
+
+    /**
+     * Copies a verified pairing into the isolated inference process before asking it to re-check the PC.
+     */
+    fun configurePcEndpoint(endpoint: PcDictationEndpoint): Boolean
+    {
+        val service = remoteService ?: return false
+        return try
+        {
+            service.configurePcEndpoint(clientSessionIdentifier, endpoint.baseUrl, endpoint.authorizationToken)
+        }
+        catch (_: Exception)
+        {
+            false
         }
     }
 
@@ -530,7 +545,7 @@ class InferenceServiceClient(
         }
         clearOperationTranscripts(
             recordingState = ClientRecordingState.ERROR,
-            failureMessage = "The local inference process stopped. Reconnect to try again.",
+            failureMessage = "The recording service stopped. Reconnect to try again.",
             connectionState = InferenceConnectionState.DISCONNECTED
         )
     }
@@ -671,11 +686,11 @@ private fun failureMessage(code: Int): String
 {
     return when (code)
     {
-        InferenceProtocolCodes.FAILURE_MODEL_UNAVAILABLE -> "The verified local speech model is unavailable."
+        InferenceProtocolCodes.FAILURE_MODEL_UNAVAILABLE -> "The paired PC is unavailable."
         InferenceProtocolCodes.FAILURE_SPEECH_ENGINE -> "Local speech recognition failed."
-        InferenceProtocolCodes.FAILURE_SERVICE_CLOSED -> "The local inference process is shutting down."
+        InferenceProtocolCodes.FAILURE_SERVICE_CLOSED -> "The recording service is shutting down."
         InferenceProtocolCodes.FAILURE_FOREGROUND_NOT_AUTHORIZED ->
             "Android did not authorize foreground microphone capture."
-        else -> "The local inference request was invalid."
+        else -> "The recording request was invalid."
     }
 }

@@ -3,12 +3,17 @@ package com.cleardictate.inference.service
 import com.cleardictate.inference.remote.RemoteDictationProtocol
 import com.cleardictate.inference.remote.RemotePcmAudio
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 
@@ -30,6 +35,11 @@ data class PcDictationEndpoint(
     }
 
     fun resolve(path: String) = baseUrl.trimEnd('/').plus(path).toHttpUrl()
+
+    override fun toString(): String
+    {
+        return "PcDictationEndpoint(baseUrl=$baseUrl, authorizationToken=<redacted>)"
+    }
 }
 
 enum class PcDictationFailure
@@ -45,25 +55,34 @@ class PcDictationException(
 ) : IllegalStateException("PC dictation request failed: $failure")
 
 /**
+ * Defines the cancellable network operations used by endpoint verification and completed recording upload.
+ */
+interface PcDictationTransport
+{
+    suspend fun checkHealth(endpoint: PcDictationEndpoint): Boolean
+    suspend fun dictate(endpoint: PcDictationEndpoint, audio: RemotePcmAudio): String
+}
+
+/**
  * Sends one completed Android recording to the paired PC and returns only its polished transcript.
  */
 class PcDictationClient(
     private val httpClient: OkHttpClient = defaultHttpClient()
-)
+) : PcDictationTransport
 {
     /**
      * Verifies the paired service without uploading audio.
      */
-    suspend fun checkHealth(endpoint: PcDictationEndpoint): Boolean = withContext(Dispatchers.IO)
+    override suspend fun checkHealth(endpoint: PcDictationEndpoint): Boolean = withContext(Dispatchers.IO)
     {
         val request = authenticatedRequest(endpoint, RemoteDictationProtocol.HEALTH_PATH).get().build()
-        httpClient.newCall(request).execute().use { response -> response.isSuccessful }
+        httpClient.newCall(request).await().use { response -> response.isSuccessful }
     }
 
     /**
      * Takes ownership of the completed PCM array, erases it after the synchronous upload, and bounds the returned text.
      */
-    suspend fun dictate(endpoint: PcDictationEndpoint, audio: RemotePcmAudio): String = withContext(Dispatchers.IO)
+    override suspend fun dictate(endpoint: PcDictationEndpoint, audio: RemotePcmAudio): String = withContext(Dispatchers.IO)
     {
         val payload = RemoteDictationProtocol.encodeAudio(audio)
         try
@@ -71,7 +90,7 @@ class PcDictationClient(
             val request = authenticatedRequest(endpoint, RemoteDictationProtocol.DICTATION_PATH)
                 .post(payload.toRequestBody(RemoteDictationProtocol.AUDIO_CONTENT_TYPE.toMediaType()))
                 .build()
-            httpClient.newCall(request).execute().use { response ->
+            httpClient.newCall(request).await().use { response ->
                 if (!response.isSuccessful)
                 {
                     throw PcDictationException(PcDictationFailure.HTTP_FAILURE, response.code)
@@ -111,6 +130,32 @@ class PcDictationClient(
             .url(endpoint.resolve(path))
             .header("Authorization", "Bearer ${endpoint.authorizationToken}")
             .header("Cache-Control", "no-store")
+    }
+
+    /**
+     * Couples coroutine cancellation to OkHttp cancellation so an abandoned editor session cannot retain audio in flight.
+     */
+    private suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation { cancel() }
+        enqueue(object : Callback
+        {
+            override fun onFailure(call: Call, exception: IOException)
+            {
+                continuation.resumeWith(Result.failure(exception))
+            }
+
+            override fun onResponse(call: Call, response: Response)
+            {
+                if (!continuation.isActive)
+                {
+                    response.close()
+                }
+                else
+                {
+                    continuation.resumeWith(Result.success(response))
+                }
+            }
+        })
     }
 
     private companion object

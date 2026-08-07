@@ -136,7 +136,7 @@ interface VerifiedSpeechModelLease : AutoCloseable
 }
 
 /**
- * Acquires one all-files-verified Moonshine model lease before native parsing is permitted.
+ * Acquires one verified speech-resource lease before opening the serialized audio engine.
  */
 fun interface VerifiedSpeechModelProvider
 {
@@ -776,7 +776,6 @@ class InferenceCoordinator(
                     processedTranscript
                 )
             }
-            releaseIdleTextModelOnNativeWorker()
         }
         catch (_: kotlinx.coroutines.CancellationException)
         {
@@ -814,7 +813,6 @@ class InferenceCoordinator(
         }
 
         transcriptAccumulator.cancelSession(operation.accumulatorSessionIdentifier)
-        releaseIdleTextModelOnNativeWorker()
         safelyNotify {
             operation.endpoint.onFailure(operation.request.operationContext.operationIdentifier, failure)
         }
@@ -841,7 +839,6 @@ class InferenceCoordinator(
         }
 
         transcriptAccumulator.cancelSession(operation.accumulatorSessionIdentifier)
-        releaseIdleTextModelOnNativeWorker()
 
         if (notifyClient)
         {
@@ -1108,26 +1105,6 @@ class InferenceCoordinator(
     }
 
     /**
-     * Requests memory release without racing an active transcript operation.
-     */
-    fun releaseIdleTextModel()
-    {
-        if (isClosed())
-        {
-            return
-        }
-
-        try
-        {
-            nativeWorker.execute(::releaseIdleTextModelOnNativeWorker)
-        }
-        catch (_: RejectedExecutionException)
-        {
-            // Coordinator teardown already owns native lifetime.
-        }
-    }
-
-    /**
      * Releases both native models under operating-system memory pressure when no operation owns them.
      */
     fun releaseIdleModelsForMemoryPressure()
@@ -1168,12 +1145,7 @@ class InferenceCoordinator(
                         resources.second?.close()
                     }
 
-                    val textReleaseResult = releaseIdleTextModelOnNativeWorker()
-
-                    if (textReleaseResult != IdleTextModelReleaseResult.FATAL_FAILURE)
-                    {
-                        notifyModelState(SpeechModelState.NOT_PREPARED)
-                    }
+                    notifyModelState(SpeechModelState.NOT_PREPARED)
                 }
                 catch (_: Throwable)
                 {
@@ -1191,24 +1163,6 @@ class InferenceCoordinator(
         {
             // Coordinator teardown already owns native lifetime.
         }
-    }
-
-    private fun releaseIdleTextModelOnNativeWorker(): IdleTextModelReleaseResult?
-    {
-        val releaseResult =
-            (transcriptPolisher as? IdleReleasableTranscriptPolisher)?.releaseModelIfIdle()
-
-        if (releaseResult == IdleTextModelReleaseResult.FATAL_FAILURE)
-        {
-            synchronized(coordinationLock)
-            {
-                nativeProcessPoisoned = true
-                speechModelState = SpeechModelState.FAILED
-            }
-            notifyModelState(SpeechModelState.FAILED)
-            reportFatalNativeFailureOnce()
-        }
-        return releaseResult
     }
 
     /**

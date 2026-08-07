@@ -10,20 +10,22 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,10 +33,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -94,8 +101,6 @@ class ClearDictateInputMethodService : android.inputmethodservice.InputMethodSer
     private var lastHandledOperationIdentifier: String? = null
     private var pendingInsertionTranscript by mutableStateOf("")
     private var localStatusMessage by mutableStateOf<String?>(null)
-    private var selectedTranscriptMode by mutableStateOf(TranscriptMode.CLEAN)
-    private var reviewBeforeInsertion by mutableStateOf(false)
     private var activeRecordingReviewRequired = false
     private var microphonePermissionGranted by mutableStateOf(false)
     private var notificationPermissionGranted by mutableStateOf(false)
@@ -295,14 +300,13 @@ class ClearDictateInputMethodService : android.inputmethodservice.InputMethodSer
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 260.dp)
+                .heightIn(min = 190.dp)
         ) {
             Column(
                 modifier = Modifier.padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 InputMethodHeader(clientState)
-                InputMethodModeControls(recordingActive)
                 InputMethodTranscriptStatus(clientState)
                 InputMethodPrimaryActions(clientState, recordingActive, dictationReady)
                 BasicEditingControls()
@@ -318,75 +322,33 @@ class ClearDictateInputMethodService : android.inputmethodservice.InputMethodSer
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text("ClearDictate", style = MaterialTheme.typography.titleLarge)
-            Text("Speech: ${clientState.speechModelState.name.lowercase().replace('_', ' ')}")
-        }
-    }
-
-    @Composable
-    private fun InputMethodModeControls(recordingActive: Boolean)
-    {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            TranscriptMode.entries.forEach { mode ->
-                FilterChip(
-                    selected = selectedTranscriptMode == mode,
-                    onClick = {
-                        selectedTranscriptMode = mode
-                        if (mode == TranscriptMode.POLISHED)
-                        {
-                            reviewBeforeInsertion = true
-                        }
-                    },
-                    enabled = !recordingActive,
-                    label = {
-                        Text(
-                            if (mode == TranscriptMode.POLISHED)
-                            {
-                                "Polished (review required)"
-                            }
-                            else
-                            {
-                                mode.name.lowercase().replaceFirstChar { it.uppercase() }
-                            }
-                        )
-                    }
-                )
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("Review before insertion")
-            Switch(
-                checked = reviewBeforeInsertion,
-                enabled = selectedTranscriptMode != TranscriptMode.POLISHED && !recordingActive,
-                onCheckedChange = { checked ->
-                    reviewBeforeInsertion = checked
-                },
-                modifier = Modifier.semantics {
-                    contentDescription = "Require review before committing dictated text to the active field"
-                }
-            )
+            Text("PC: ${clientState.speechModelState.name.lowercase().replace('_', ' ')}")
         }
     }
 
     @Composable
     private fun InputMethodTranscriptStatus(clientState: InferenceClientState)
     {
-        LinearProgressIndicator(
-            progress = { clientState.normalizedAudioLevel },
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics {
-                    contentDescription = "Current microphone input level"
-                }
-        )
+        if (clientState.recordingState == ClientRecordingState.FINALIZING)
+        {
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Recording is being processed on the PC" }
+            )
+        }
+        else
+        {
+            LinearProgressIndicator(
+                progress = { clientState.normalizedAudioLevel },
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Current microphone input level" }
+            )
+        }
         Text(
             pendingInsertionTranscript.ifEmpty {
-                clientState.partialRawTranscript.ifEmpty {
-                    clientState.failureMessage
-                        ?: localStatusMessage
-                        ?: "Ready for local dictation."
+                clientState.failureMessage ?: localStatusMessage ?: when (clientState.recordingState)
+                {
+                    ClientRecordingState.FINALIZING -> "Transcribing and polishing on your PC…"
+                    ClientRecordingState.LISTENING, ClientRecordingState.SPEECH_DETECTED -> "Listening… release when finished."
+                    else -> "Ready for PC-polished dictation."
                 }
             },
             maxLines = 3
@@ -401,22 +363,11 @@ class ClearDictateInputMethodService : android.inputmethodservice.InputMethodSer
     )
     {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = {
-                    if (recordingActive)
-                    {
-                        inferenceServiceClient.stopDictation()
-                    }
-                    else
-                    {
-                        startRecording(selectedTranscriptMode)
-                    }
-                },
+            HoldToTalkControl(
                 enabled = dictationReady &&
-                    clientState.recordingState != ClientRecordingState.FINALIZING
-            ) {
-                Text(if (recordingActive) "Stop" else "Microphone")
-            }
+                    clientState.recordingState != ClientRecordingState.FINALIZING,
+                recordingActive = recordingActive
+            )
 
             if (recordingActive)
             {
@@ -435,6 +386,60 @@ class ClearDictateInputMethodService : android.inputmethodservice.InputMethodSer
                 OutlinedButton(onClick = ::openSetupActivity) {
                     Text("Setup")
                 }
+            }
+        }
+    }
+
+    /**
+     * Starts on press and finalizes on release, while retaining a toggle action for accessibility services.
+     */
+    @Composable
+    private fun HoldToTalkControl(enabled: Boolean, recordingActive: Boolean)
+    {
+        val label = if (recordingActive) "Release to process" else "Hold to talk"
+        Surface(
+            color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier
+                .heightIn(min = 48.dp)
+                .pointerInput(enabled) {
+                    awaitEachGesture {
+                        awaitFirstDown()
+                        if (!enabled)
+                        {
+                            waitForUpOrCancellation()
+                            return@awaitEachGesture
+                        }
+                        startRecording()
+                        if (waitForUpOrCancellation() == null)
+                        {
+                            inferenceServiceClient.cancelDictation()
+                        }
+                        else
+                        {
+                            inferenceServiceClient.stopDictation()
+                        }
+                    }
+                }
+                .semantics(mergeDescendants = true) {
+                    role = Role.Button
+                    contentDescription = label
+                    onClick {
+                        if (recordingActive)
+                        {
+                            inferenceServiceClient.stopDictation()
+                        }
+                        else
+                        {
+                            startRecording()
+                        }
+                        true
+                    }
+                }
+        ) {
+            Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
+                Text(label)
             }
         }
     }
@@ -474,7 +479,7 @@ class ClearDictateInputMethodService : android.inputmethodservice.InputMethodSer
         }
     }
 
-    private fun startRecording(transcriptMode: TranscriptMode)
+    private fun startRecording()
     {
         val currentSession = currentEditorSessionIdentifier ?: return
 
@@ -491,7 +496,7 @@ class ClearDictateInputMethodService : android.inputmethodservice.InputMethodSer
         }
 
         recordingEditorSessionIdentifier = currentSession
-        activeRecordingReviewRequired = reviewBeforeInsertion || transcriptMode == TranscriptMode.POLISHED
+        activeRecordingReviewRequired = true
         pendingInsertionTranscript = ""
         lastHandledOperationIdentifier = null
         val privacy = if (currentSafetyDecision.historyAllowed)
@@ -503,7 +508,7 @@ class ClearDictateInputMethodService : android.inputmethodservice.InputMethodSer
             OperationPrivacy.PRIVATE
         }
 
-        if (!inferenceServiceClient.startDictation(transcriptMode, privacy))
+        if (!inferenceServiceClient.startDictation(privacy))
         {
             recordingEditorSessionIdentifier = null
         }

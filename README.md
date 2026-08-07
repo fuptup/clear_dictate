@@ -1,17 +1,17 @@
 # ClearDictate
 
-ClearDictate is an offline dictation project targeting Android and Windows. It is being built as a native Android application and Android Input Method Editor,
-with a Windows development application for exercising the same deterministic transcript-cleaning and local text-polishing behavior.
+ClearDictate is a private-network dictation project targeting Android and Windows. The Android recorder and system keyboard capture speech, then the Windows
+application runs speech recognition and text polishing on the PC's NVIDIA GPU.
 
 Current implemented capabilities, with verification boundaries listed below:
 
 - deterministic Raw and Clean transcript processing;
 - protected-value validation and fail-closed Polished fallback;
-- an Android standalone recording screen and system Input Method Editor with private-process speech and text inference ownership, microphone capture, resumable model download, review/insert, and sensitive-field blocking;
+- an Android standalone recorder and system Input Method Editor with PC pairing, foreground microphone capture, live input level, processing feedback, review/insert, and sensitive-field blocking;
 - a bounded, versioned Kotlin/C++ worker protocol;
 - a persistent CUDA Windows text worker using Qwen3.5 9B Q6_K through pinned llama.cpp;
 - cryptographic model verification before same-handle loading;
-- a synchronous, drained cancellation contract in the Windows worker and asynchronous cancellation fencing, native drain, and process watchdogs on Android;
+- a synchronous, drained cancellation contract in the Windows worker and asynchronous cancellation fencing on Android;
 - a real Kotlin-to-worker integration test through the semantic-safety pipeline;
 - a Windows push-to-talk preview with compact microphone selection, release-triggered Qwen3-ASR 1.7B recognition, automatic Qwen3.5 polishing, editable polished output, and clipboard copying;
 - a bounded PCM16 phone protocol, authenticated Windows developer endpoint, and Android transport client for sending completed recordings to the PC GPU pipeline.
@@ -21,12 +21,9 @@ Important current limitations:
 - the Windows push-to-talk path is connected through isolated local workers, but the final system-wide overlay, global shortcut, and target-application insertion are not implemented yet;
 - Android history, full settings/profile screens, a hybrid typing keyboard, and measured phone performance remain incomplete;
 - keyboard microphone eligibility still needs physical validation on Android 14, 15, and 16 while the host application is foregrounded;
-- the locally patched Moonshine Android library needs a long-duration device soak before the Android slice can be called production-ready;
-- the locally patched llama.cpp Android library and Qwen polishing path have build and host-side test coverage but have not yet run on a physical Android device;
 - the Windows executable is a Debug development artifact and depends on Microsoft Debug runtimes; it is not a distributable installer;
 - measured tests on the target Motorola Edge+ phones have not yet been performed;
-- the Android recorder and input method still use the on-device inference service; the PC transport client is proven independently but is not yet wired into their recording lifecycle;
-- the current developer LAN endpoint uses authenticated cleartext HTTP and must be used only on a trusted private network until certificate pairing is implemented.
+- the current Android/PC endpoint uses authenticated cleartext HTTP in Debug builds and must be used only on a trusted private network until certificate pairing is implemented.
 
 See [Windows development instructions](docs/WINDOWS_DEVELOPMENT.md) and [Android development instructions](docs/ANDROID_DEVELOPMENT.md) for the exact local workflows.
 

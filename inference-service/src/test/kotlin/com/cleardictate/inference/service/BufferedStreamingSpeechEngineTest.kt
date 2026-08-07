@@ -13,11 +13,11 @@ import kotlin.test.assertTrue
 /**
  * Verifies bounded audio buffering and serialized stop/cancellation without Android hardware.
  */
-class MoonshineStreamingSpeechEngineTest
+class BufferedStreamingSpeechEngineTest
 {
     private val audioSource = FakePcmAudioSource()
     private val recognitionBackend = RecordingRecognitionBackend()
-    private val speechEngine = MoonshineStreamingSpeechEngine(
+    private val speechEngine = BufferedStreamingSpeechEngine(
         audioSourceFactory = PcmAudioSourceFactory { _ -> audioSource },
         recognitionBackend = recognitionBackend
     )
@@ -114,7 +114,7 @@ class MoonshineStreamingSpeechEngineTest
         val interruptedAudioSource = FakePcmAudioSource()
         val interruptedRecognitionBackend = RecordingRecognitionBackend()
         lateinit var interruptionListener: () -> Unit
-        val interruptedEngine = MoonshineStreamingSpeechEngine(
+        val interruptedEngine = BufferedStreamingSpeechEngine(
             audioSourceFactory = PcmAudioSourceFactory { suppliedInterruptionListener ->
                 interruptionListener = suppliedInterruptionListener
                 interruptedAudioSource

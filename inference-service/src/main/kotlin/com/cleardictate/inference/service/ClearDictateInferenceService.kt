@@ -15,7 +15,6 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Build
 import android.os.Looper
-import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -31,7 +30,7 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Runs all native speech ownership in a private application process shared by the app and keyboard.
+ * Runs foreground microphone capture and paired-PC inference in a private process shared by the app and keyboard.
  */
 class ClearDictateInferenceService : Service()
 {
@@ -42,8 +41,7 @@ class ClearDictateInferenceService : Service()
     private val pendingTerminalRegistry = PendingOperationTerminalRegistry()
     private val registrationGeneration = AtomicLong(0L)
     private lateinit var coordinator: InferenceCoordinator
-    private lateinit var transcriptPolisher: AndroidQwenTranscriptPolisher
-    private var thermalStatusListener: PowerManager.OnThermalStatusChangedListener? = null
+    private lateinit var endpointPreferences: PcEndpointPreferences
     private var foregroundOperation: ForegroundOperation? = null
 
     private val binder = object : IClearDictateInferenceService.Stub()
@@ -63,6 +61,19 @@ class ClearDictateInferenceService : Service()
             unregisterBinderClient(validatedClientIdentifier)
         }
 
+        override fun configurePcEndpoint(clientSessionIdentifier: String, baseUrl: String, authorizationToken: String): Boolean
+        {
+            if (findEndpoint(clientSessionIdentifier) == null)
+            {
+                return false
+            }
+            return runCatching {
+                endpointPreferences.save(baseUrl, authorizationToken)
+                coordinator.prepareSpeechModel()
+                true
+            }.getOrDefault(false)
+        }
+
         override fun prepareSpeechModel()
         {
             coordinator.prepareSpeechModel()
@@ -71,7 +82,6 @@ class ClearDictateInferenceService : Service()
         override fun beginDictation(
             clientSessionIdentifier: String,
             operationIdentifier: String,
-            transcriptModeCode: Int,
             privacyCode: Int
         )
         {
@@ -85,7 +95,6 @@ class ClearDictateInferenceService : Service()
             beginAuthorizedDictation(
                 clientSessionIdentifier,
                 operationIdentifier,
-                transcriptModeCode,
                 privacyCode
             )
         }
@@ -133,17 +142,15 @@ class ClearDictateInferenceService : Service()
     private fun beginAuthorizedDictation(
         clientSessionIdentifier: String,
         operationIdentifier: String,
-        transcriptModeCode: Int,
         privacyCode: Int
     ): BeginDictationResult?
     {
         val clientIdentifier = parseClientIdentifier(clientSessionIdentifier) ?: return null
         val operation = parseOperationIdentifier(operationIdentifier)
-        val mode = parseTranscriptMode(transcriptModeCode)
         val privacy = parsePrivacy(privacyCode)
         val endpoint = clientRegistrations.find(clientIdentifier)?.endpoint ?: return null
 
-        if (operation == null || mode == null || privacy == null)
+        if (operation == null || privacy == null)
         {
             endpoint.notifyInvalidRequest(operationIdentifier)
             endForegroundOperation(clientSessionIdentifier, operationIdentifier)
@@ -159,7 +166,8 @@ class ClearDictateInferenceService : Service()
                     operationIdentifier = operation,
                     privacy = privacy
                 ),
-                transcriptMode = mode
+                // The PC has already produced the selected polished text; local processing must not rewrite it again.
+                transcriptMode = TranscriptMode.RAW
             )
         )
 
@@ -182,16 +190,15 @@ class ClearDictateInferenceService : Service()
         }
 
         createNotificationChannel()
-        transcriptPolisher = AndroidQwenTranscriptPolisher(
-            verifiedTextModelProvider = AndroidVerifiedTextModelProvider(this),
-            textInferenceEngineFactory = LlamaAndroidTextInferenceEngineFactory(this)
-        )
+        endpointPreferences = PcEndpointPreferences(this)
+        val pcTransport = PcDictationClient()
         coordinator = InferenceCoordinator(
-            verifiedSpeechModelProvider = AndroidVerifiedSpeechModelProvider(this),
-            streamingSpeechEngineFactory = MoonshineStreamingSpeechEngineFactory(
-                AndroidPcmAudioSourceFactory(this)
+            verifiedSpeechModelProvider = PcEndpointVerifiedSpeechModelProvider(endpointPreferences, pcTransport),
+            streamingSpeechEngineFactory = PcStreamingSpeechEngineFactory(
+                audioSourceFactory = AndroidPcmAudioSourceFactory(this),
+                endpointProvider = endpointPreferences,
+                transport = pcTransport
             ),
-            transcriptPolisher = transcriptPolisher,
             fatalNativeFailureHandler = {
                 mainHandler.post {
                     endAnyForegroundOperation()
@@ -199,7 +206,6 @@ class ClearDictateInferenceService : Service()
                 }
             }
         )
-        registerThermalStatusListener()
     }
 
     override fun onBind(intent: Intent?): IBinder?
@@ -230,10 +236,6 @@ class ClearDictateInferenceService : Service()
 
         val clientIdentifier = intent.getStringExtra(EXTRA_CLIENT_IDENTIFIER).orEmpty()
         val operationIdentifier = intent.getStringExtra(EXTRA_OPERATION_IDENTIFIER).orEmpty()
-        val transcriptModeCode = intent.getIntExtra(
-            EXTRA_TRANSCRIPT_MODE,
-            InferenceProtocolCodes.TRANSCRIPT_MODE_CLEAN
-        )
         val privacyCode = intent.getIntExtra(
             EXTRA_PRIVACY,
             InferenceProtocolCodes.PRIVACY_STANDARD
@@ -305,7 +307,6 @@ class ClearDictateInferenceService : Service()
         val beginResult = beginAuthorizedDictation(
             clientIdentifier,
             operationIdentifier,
-            transcriptModeCode,
             privacyCode
         )
 
@@ -339,7 +340,6 @@ class ClearDictateInferenceService : Service()
     override fun onDestroy()
     {
         PROCESS_SHUTTING_DOWN.set(true)
-        unregisterThermalStatusListener()
         val registrations = clientRegistrations.drain()
         registrations.forEach { registration ->
             registration.callback.asBinder().unlinkToDeath(registration.deathRecipient, 0)
@@ -388,51 +388,6 @@ class ClearDictateInferenceService : Service()
             coordinator.releaseIdleModelsForMemoryPressure()
         }
         super.onLowMemory()
-    }
-
-    private fun registerThermalStatusListener()
-    {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q)
-        {
-            return
-        }
-
-        val powerManager = getSystemService(PowerManager::class.java)
-        val listener = PowerManager.OnThermalStatusChangedListener { thermalStatus ->
-            applyThermalStatus(thermalStatus)
-        }
-        thermalStatusListener = listener
-        powerManager.addThermalStatusListener(listener)
-        applyThermalStatus(powerManager.currentThermalStatus)
-    }
-
-    private fun unregisterThermalStatusListener()
-    {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q)
-        {
-            return
-        }
-
-        thermalStatusListener?.let { listener ->
-            getSystemService(PowerManager::class.java).removeThermalStatusListener(listener)
-        }
-        thermalStatusListener = null
-    }
-
-    private fun applyThermalStatus(thermalStatus: Int)
-    {
-        if (!::transcriptPolisher.isInitialized)
-        {
-            return
-        }
-
-        transcriptPolisher.setThermalConstrained(
-            thermalStatus >= PowerManager.THERMAL_STATUS_SEVERE
-        )
-        if (::coordinator.isInitialized)
-        {
-            coordinator.releaseIdleTextModel()
-        }
     }
 
     private fun registerBinderClient(
@@ -656,17 +611,6 @@ class ClearDictateInferenceService : Service()
         }
     }
 
-    private fun parseTranscriptMode(code: Int): TranscriptMode?
-    {
-        return when (code)
-        {
-            InferenceProtocolCodes.TRANSCRIPT_MODE_RAW -> TranscriptMode.RAW
-            InferenceProtocolCodes.TRANSCRIPT_MODE_CLEAN -> TranscriptMode.CLEAN
-            InferenceProtocolCodes.TRANSCRIPT_MODE_POLISHED -> TranscriptMode.POLISHED
-            else -> null
-        }
-    }
-
     private fun parsePrivacy(code: Int): OperationPrivacy?
     {
         return when (code)
@@ -695,7 +639,6 @@ class ClearDictateInferenceService : Service()
             "com.cleardictate.inference.service.action.PROMOTE_FOR_MICROPHONE"
         private const val EXTRA_CLIENT_IDENTIFIER = "client_session_identifier"
         private const val EXTRA_OPERATION_IDENTIFIER = "operation_identifier"
-        private const val EXTRA_TRANSCRIPT_MODE = "transcript_mode"
         private const val EXTRA_PRIVACY = "privacy"
         private const val MICROPHONE_NOTIFICATION_CHANNEL = "active_dictation"
         private const val MICROPHONE_NOTIFICATION_IDENTIFIER = 4101
@@ -706,7 +649,6 @@ class ClearDictateInferenceService : Service()
             context: Context,
             clientSessionIdentifier: String,
             operationIdentifier: String,
-            transcriptMode: TranscriptMode,
             privacy: OperationPrivacy
         ): Intent
         {
@@ -714,7 +656,6 @@ class ClearDictateInferenceService : Service()
                 action = ACTION_PROMOTE_FOR_MICROPHONE
                 putExtra(EXTRA_CLIENT_IDENTIFIER, clientSessionIdentifier)
                 putExtra(EXTRA_OPERATION_IDENTIFIER, operationIdentifier)
-                putExtra(EXTRA_TRANSCRIPT_MODE, transcriptMode.toProtocolCode())
                 putExtra(EXTRA_PRIVACY, privacy.toProtocolCode())
             }
         }
@@ -784,16 +725,17 @@ private class BinderInferenceClientEndpoint(
     {
         try
         {
+            val pcPolishedTranscript = processedTranscript.selectedTranscript
             safelyDeliver {
                 callback.onFinalTranscript(
                     operationIdentifier.value,
-                    processedTranscript.exactRawTranscript,
-                    processedTranscript.cleanTranscript,
-                    processedTranscript.polishedTranscript.orEmpty(),
-                    processedTranscript.selectedTranscript,
-                    processedTranscript.selectedMode.toProtocolCode(),
-                    processedTranscript.usedDeterministicFallback,
-                    processedTranscript.fallbackReason.ordinal
+                    "",
+                    "",
+                    pcPolishedTranscript,
+                    pcPolishedTranscript,
+                    TranscriptMode.POLISHED.toProtocolCode(),
+                    false,
+                    0
                 )
             }
         }

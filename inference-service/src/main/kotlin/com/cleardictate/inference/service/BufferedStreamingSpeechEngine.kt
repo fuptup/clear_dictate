@@ -1,9 +1,5 @@
 package com.cleardictate.inference.service
 
-import ai.moonshine.voice.JNI
-import ai.moonshine.voice.Transcriber
-import ai.moonshine.voice.TranscriberOption
-import ai.moonshine.voice.TranscriptEvent
 import android.os.Process
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
@@ -25,45 +21,13 @@ internal interface StreamingRecognitionBackend : AutoCloseable
 }
 
 /**
- * Opens Moonshine Tiny Streaming only after the complete verified group lease is live.
- */
-class MoonshineStreamingSpeechEngineFactory(
-    private val audioSourceFactory: PcmAudioSourceFactory
-) : StreamingSpeechEngineFactory
-{
-    override fun open(verifiedModelLease: VerifiedSpeechModelLease): StreamingSpeechEngine
-    {
-        val transcriber = Transcriber(
-            listOf(TranscriberOption("return_audio_data", "false"))
-        )
-
-        try
-        {
-            transcriber.loadFromFiles(
-                verifiedModelLease.verifiedModelDirectoryPath,
-                JNI.MOONSHINE_MODEL_ARCH_TINY_STREAMING
-            )
-            return MoonshineStreamingSpeechEngine(
-                audioSourceFactory = audioSourceFactory,
-                recognitionBackend = MoonshineRecognitionBackend(transcriber)
-            )
-        }
-        catch (failure: Throwable)
-        {
-            transcriber.close()
-            throw failure
-        }
-    }
-}
-
-/**
- * Feeds bounded, pooled microphone buffers to one serialized Moonshine session.
+ * Feeds bounded, pooled microphone buffers to one serialized recognition backend.
  *
  * The capture thread performs no allocation in its repeated read loop. A fixed pool allows up to
  * 1.6 seconds of buffering at the default 100-millisecond chunk size before capture backpressure
  * becomes visible, while the recognition thread remains the sole caller of streaming native work.
  */
-internal class MoonshineStreamingSpeechEngine(
+internal class BufferedStreamingSpeechEngine(
     private val audioSourceFactory: PcmAudioSourceFactory,
     private val recognitionBackend: StreamingRecognitionBackend
 ) : StreamingSpeechEngine
@@ -528,153 +492,5 @@ private class AudioRecognitionSession(
         const val QUEUE_POLL_MILLISECONDS = 20L
         const val THREAD_JOIN_TIMEOUT_MILLISECONDS = 3_000L
         const val MAXIMUM_SESSION_SAMPLE_COUNT = 16_000L * 60L * 5L
-    }
-}
-
-/**
- * Keeps every Moonshine call on the recognition thread and copies only text out of native events.
- */
-private class MoonshineRecognitionBackend(
-    private val transcriber: Transcriber
-) : StreamingRecognitionBackend
-{
-    private var activeListener: StreamingSpeechEventListener? = null
-    private var streamHandle = INVALID_STREAM_HANDLE
-    private var reusableFloatSamples = FloatArray(0)
-    private val transcriptEventListener = java.util.function.Consumer<TranscriptEvent> { event ->
-        deliverTranscriptEvent(event)
-    }
-
-    init
-    {
-        transcriber.addListener(transcriptEventListener)
-    }
-
-    override fun startSession(listener: StreamingSpeechEventListener)
-    {
-        check(streamHandle == INVALID_STREAM_HANDLE) { "A Moonshine stream is already active." }
-        activeListener = listener
-        streamHandle = transcriber.createStream()
-        transcriber.startStream(streamHandle)
-    }
-
-    override fun acceptPcm16(samples: ShortArray, sampleCount: Int, sampleRateHertz: Int)
-    {
-        check(streamHandle != INVALID_STREAM_HANDLE) { "No Moonshine stream is active." }
-        check(sampleCount in 1..samples.size) { "The Pulse Code Modulation sample count is invalid." }
-
-        if (reusableFloatSamples.size != sampleCount)
-        {
-            reusableFloatSamples = FloatArray(sampleCount)
-        }
-
-        for (sampleIndex in 0 until sampleCount)
-        {
-            reusableFloatSamples[sampleIndex] = samples[sampleIndex] / 32768.0f
-        }
-
-        try
-        {
-            transcriber.addAudioToStream(streamHandle, reusableFloatSamples, sampleRateHertz)
-        }
-        finally
-        {
-            // Moonshine copies the Java samples synchronously into its stream before this call returns.
-            reusableFloatSamples.fill(0.0f)
-        }
-    }
-
-    override fun stopAndFlush()
-    {
-        finishStream()
-    }
-
-    override fun cancelAndFlush()
-    {
-        discardStream()
-    }
-
-    override fun close()
-    {
-        if (streamHandle != INVALID_STREAM_HANDLE)
-        {
-            finishStream()
-        }
-        transcriber.removeListener(transcriptEventListener)
-        transcriber.close()
-    }
-
-    private fun finishStream()
-    {
-        val handleToClose = streamHandle
-
-        if (handleToClose == INVALID_STREAM_HANDLE)
-        {
-            return
-        }
-
-        try
-        {
-            transcriber.stopStream(handleToClose)
-        }
-        finally
-        {
-            try
-            {
-                transcriber.freeStream(handleToClose)
-            }
-            finally
-            {
-                streamHandle = INVALID_STREAM_HANDLE
-                activeListener = null
-                reusableFloatSamples.fill(0.0f)
-            }
-        }
-    }
-
-    private fun discardStream()
-    {
-        val handleToClose = streamHandle
-
-        if (handleToClose == INVALID_STREAM_HANDLE)
-        {
-            return
-        }
-
-        activeListener = null
-
-        try
-        {
-            transcriber.freeStream(handleToClose)
-        }
-        finally
-        {
-            streamHandle = INVALID_STREAM_HANDLE
-            reusableFloatSamples.fill(0.0f)
-        }
-    }
-
-    private fun deliverTranscriptEvent(event: TranscriptEvent)
-    {
-        val listener = activeListener ?: return
-
-        when (event)
-        {
-            is TranscriptEvent.LineStarted -> listener.onSpeechDetected()
-            is TranscriptEvent.LineTextChanged -> listener.onPartial(
-                lineIdentifier = event.line.id,
-                text = event.line.text.orEmpty()
-            )
-            is TranscriptEvent.LineCompleted -> listener.onCompleted(
-                lineIdentifier = event.line.id,
-                text = event.line.text.orEmpty()
-            )
-            is TranscriptEvent.Error -> listener.onFailure()
-        }
-    }
-
-    private companion object
-    {
-        const val INVALID_STREAM_HANDLE = -1
     }
 }
