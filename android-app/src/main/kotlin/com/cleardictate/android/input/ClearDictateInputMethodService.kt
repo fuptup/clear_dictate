@@ -122,6 +122,13 @@ class ClearDictateInputMethodService : android.inputmethodservice.InputMethodSer
         }
         composeLifecycleOwner = lifecycleOwner
 
+        // Compose creates its window recomposer from the IME window hierarchy, so the owners must be available on the decor view before the input view is attached.
+        window?.window?.decorView?.apply {
+            setViewTreeLifecycleOwner(lifecycleOwner)
+            setViewTreeSavedStateRegistryOwner(lifecycleOwner)
+            setViewTreeViewModelStoreOwner(lifecycleOwner)
+        }
+
         return ComposeView(this).apply {
             setViewTreeLifecycleOwner(lifecycleOwner)
             setViewTreeSavedStateRegistryOwner(lifecycleOwner)

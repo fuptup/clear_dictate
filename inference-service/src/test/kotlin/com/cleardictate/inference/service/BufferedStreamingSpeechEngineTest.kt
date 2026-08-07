@@ -7,6 +7,8 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.concurrent.thread
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -139,6 +141,34 @@ class BufferedStreamingSpeechEngineTest
             interruptedEngine.close()
         }
     }
+
+    @Test
+    fun `stop waits for bounded backend finalization beyond the microphone shutdown deadline`()
+    {
+        recognitionBackend.stopAndFlushRelease = CountDownLatch(1)
+        recognitionBackend.expectedAudioCallbacks = CountDownLatch(1)
+        speechEngine.start(RecordingSpeechEventListener())
+        assertTrue(recognitionBackend.expectedAudioCallbacks.await(2, TimeUnit.SECONDS))
+        val stopFailure = AtomicReference<Throwable?>(null)
+        val stopThread = thread(start = true) {
+            runCatching { speechEngine.stopAndFlush() }.exceptionOrNull()?.let(stopFailure::set)
+        }
+
+        try
+        {
+            assertTrue(recognitionBackend.stopAndFlushStarted.await(2, TimeUnit.SECONDS))
+            Thread.sleep(3_100L)
+            assertTrue(stopThread.isAlive, "The old local-recognition deadline discarded the in-flight PC result.")
+        }
+        finally
+        {
+            recognitionBackend.stopAndFlushRelease.countDown()
+        }
+        stopThread.join(2_000L)
+
+        assertTrue(!stopThread.isAlive)
+        assertEquals(null, stopFailure.get())
+    }
 }
 
 private class FakePcmAudioSource : PcmAudioSource
@@ -220,6 +250,8 @@ private class RecordingRecognitionBackend : StreamingRecognitionBackend
     val cancelAndFlushCount = AtomicInteger(0)
     val failNextAudioAcceptance = AtomicBoolean(false)
     val sampleArrays = Collections.synchronizedList(mutableListOf<ShortArray>())
+    val stopAndFlushStarted = CountDownLatch(1)
+    var stopAndFlushRelease = CountDownLatch(0)
 
     override fun startSession(listener: StreamingSpeechEventListener)
     {
@@ -240,6 +272,8 @@ private class RecordingRecognitionBackend : StreamingRecognitionBackend
 
     override fun stopAndFlush()
     {
+        stopAndFlushStarted.countDown()
+        stopAndFlushRelease.await()
         stopAndFlushCount.incrementAndGet()
     }
 

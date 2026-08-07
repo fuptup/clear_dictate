@@ -57,8 +57,8 @@ class ProtectedInformationExtractor
         ExtractionRule(ProtectedInformationType.EMAIL_ADDRESS, Regex("""(?iu)\b[\w.!#$%&'*+/=?^`{|}~-]+@[\w.-]+\.[\p{L}]{2,}\b""")),
         ExtractionRule(ProtectedInformationType.WEB_ADDRESS, Regex("""(?iu)\b(?:https?://|www\.)[^\s<>()]+""")),
         ExtractionRule(ProtectedInformationType.FILE_PATH, Regex("""(?iu)(?:\b[A-Z]:\\|/)(?:[^\s<>:"|?*]+[\\/])*[^\s<>:"|?*]*""")),
-        ExtractionRule(ProtectedInformationType.CURRENCY_AMOUNT, Regex("""(?iu)(?:[$£€]\s*[+-]?\d[\d,]*(?:\.\d+)?|[+-]?\d[\d,]*(?:\.\d+)?\s*(?:USD|GBP|EUR))\b?""")),
-        ExtractionRule(ProtectedInformationType.PERCENTAGE, Regex("""(?iu)[+-]?\d[\d,]*(?:\.\d+)?\s*(?:%|percent)\b?""")),
+        ExtractionRule(ProtectedInformationType.CURRENCY_AMOUNT, Regex("""(?iu)(?:[$£€]\s*[+-]?\d[\d,]*(?:\.\d+)?|[+-]?\d[\d,]*(?:\.\d+)?\s*(?:USD|GBP|EUR)\b)""")),
+        ExtractionRule(ProtectedInformationType.PERCENTAGE, Regex("""(?iu)[+-]?\d[\d,]*(?:\.\d+)?\s*(?:%|percent\b)""")),
         ExtractionRule(
             ProtectedInformationType.DATE,
             Regex(

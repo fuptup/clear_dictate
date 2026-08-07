@@ -687,7 +687,7 @@ private fun failureMessage(code: Int): String
     return when (code)
     {
         InferenceProtocolCodes.FAILURE_MODEL_UNAVAILABLE -> "The paired PC is unavailable."
-        InferenceProtocolCodes.FAILURE_SPEECH_ENGINE -> "Local speech recognition failed."
+        InferenceProtocolCodes.FAILURE_SPEECH_ENGINE -> "PC transcription failed."
         InferenceProtocolCodes.FAILURE_SERVICE_CLOSED -> "The recording service is shutting down."
         InferenceProtocolCodes.FAILURE_FOREGROUND_NOT_AUTHORIZED ->
             "Android did not authorize foreground microphone capture."

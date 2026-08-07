@@ -393,13 +393,15 @@ private class AudioRecognitionSession(
 
     private fun joinSessionThreads()
     {
-        captureThread.join(THREAD_JOIN_TIMEOUT_MILLISECONDS)
-        recognitionThread.join(THREAD_JOIN_TIMEOUT_MILLISECONDS)
+        captureThread.join(CAPTURE_THREAD_JOIN_TIMEOUT_MILLISECONDS)
 
-        if (captureThread.isAlive || recognitionThread.isAlive)
+        if (captureThread.isAlive)
         {
-            throw IllegalStateException("Speech-session threads did not terminate within the safety timeout.")
+            throw IllegalStateException("The microphone capture thread did not terminate within the safety timeout.")
         }
+
+        // Recognition owns a transport with its own bounded timeout. Waiting here preserves a valid PC result instead of applying the obsolete local-model deadline.
+        recognitionThread.join()
     }
 
     private fun safelyStopAudioSource()
@@ -490,7 +492,7 @@ private class AudioRecognitionSession(
     {
         const val BUFFER_POOL_SIZE = 16
         const val QUEUE_POLL_MILLISECONDS = 20L
-        const val THREAD_JOIN_TIMEOUT_MILLISECONDS = 3_000L
+        const val CAPTURE_THREAD_JOIN_TIMEOUT_MILLISECONDS = 3_000L
         const val MAXIMUM_SESSION_SAMPLE_COUNT = 16_000L * 60L * 5L
     }
 }

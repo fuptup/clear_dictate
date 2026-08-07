@@ -84,6 +84,18 @@ class TranscriptIntegrityValidatorTest
     }
 
     @Test
+    fun `protects currency and percentage symbols without accepting longer unit names`()
+    {
+        val values = extractor.extract("Charge £12.50 or 15 EUR, then add 20% but ignore 30 percentagePoints.")
+            .map { information -> information.normalizedValue }
+
+        assertTrue(values.contains("£12.50"))
+        assertTrue(values.contains("15 eur"))
+        assertTrue(values.contains("20%"))
+        assertFalse(values.contains("30 percentage"))
+    }
+
+    @Test
     fun `protects typographic-apostrophe negations`()
     {
         val result = validator.validate(

@@ -47,6 +47,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -119,6 +120,7 @@ class MainActivity : ComponentActivity()
 private fun ClearDictateScreen(inferenceServiceClient: InferenceServiceClient)
 {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
     val clientState by inferenceServiceClient.state.collectAsStateWithLifecycle()
@@ -133,9 +135,10 @@ private fun ClearDictateScreen(inferenceServiceClient: InferenceServiceClient)
         mutableStateOf(if (savedEndpoint == null) "Enter the address and token shown by ClearDictate on your PC." else "Checking paired PC…")
     }
     var connectionCheckRunning by remember { mutableStateOf(false) }
+    var manualConnectionAttempted by remember { mutableStateOf(false) }
     var editableTranscript by remember { mutableStateOf("") }
     val recordingActive = clientState.recordingState.isActive()
-    val recordingDuration = rememberRecordingDuration(recordingActive)
+    val recordingDuration = rememberRecordingDuration(clientState.recordingState.isCapturing())
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         permissions.refresh()
     }
@@ -162,7 +165,7 @@ private fun ClearDictateScreen(inferenceServiceClient: InferenceServiceClient)
 
     LaunchedEffect(clientState.speechModelState, pairedEndpointExists, connectionCheckRunning)
     {
-        if (pairedEndpointExists && !connectionCheckRunning)
+        if (pairedEndpointExists && !connectionCheckRunning && !manualConnectionAttempted)
         {
             connectionMessage = when (clientState.speechModelState)
             {
@@ -175,6 +178,8 @@ private fun ClearDictateScreen(inferenceServiceClient: InferenceServiceClient)
     }
 
     val connect: () -> Unit = {
+        focusManager.clearFocus()
+        manualConnectionAttempted = true
         connectionCheckRunning = true
         connectionMessage = "Connecting…"
         coroutineScope.launch {
@@ -387,13 +392,22 @@ private fun RecordingCard(state: ScreenState, actions: ScreenActions)
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(state.clientState.recordingState.readableName(), style = MaterialTheme.typography.titleMedium)
             Text(state.recordingDuration)
-            LinearProgressIndicator(
-                progress = { if (finalizing) 0.75f else state.clientState.normalizedAudioLevel },
-                modifier = Modifier.fillMaxWidth().semantics { contentDescription = if (finalizing) "Recording is being processed" else "Current microphone input level" }
-            )
+            if (finalizing)
+            {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Recording is being processed" }
+                )
+            }
+            else
+            {
+                LinearProgressIndicator(
+                    progress = { state.clientState.normalizedAudioLevel },
+                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Current microphone input level" }
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = actions.recordOrStop, enabled = state.recordingReady && !finalizing) {
-                    Text(if (state.recordingActive) "Stop and process" else "Start recording")
+                    Text(if (finalizing) "Processing…" else if (state.recordingActive) "Stop and process" else "Start recording")
                 }
                 if (state.recordingActive)
                 {
@@ -471,15 +485,15 @@ private class RecordingPermissionState(private val context: Context)
 @Composable
 private fun rememberRecordingDuration(recordingActive: Boolean): String
 {
-    var elapsedMilliseconds by remember(recordingActive) { mutableLongStateOf(0L) }
+    var elapsedMilliseconds by remember { mutableLongStateOf(0L) }
     LaunchedEffect(recordingActive)
     {
         if (!recordingActive)
         {
-            elapsedMilliseconds = 0L
             return@LaunchedEffect
         }
         val startedAt = SystemClock.elapsedRealtime()
+        elapsedMilliseconds = 0L
         while (true)
         {
             elapsedMilliseconds = SystemClock.elapsedRealtime() - startedAt
@@ -493,6 +507,11 @@ private fun rememberRecordingDuration(recordingActive: Boolean): String
 private fun ClientRecordingState.isActive(): Boolean
 {
     return this == ClientRecordingState.PREPARING || this == ClientRecordingState.LISTENING || this == ClientRecordingState.SPEECH_DETECTED || this == ClientRecordingState.FINALIZING
+}
+
+private fun ClientRecordingState.isCapturing(): Boolean
+{
+    return this == ClientRecordingState.PREPARING || this == ClientRecordingState.LISTENING || this == ClientRecordingState.SPEECH_DETECTED
 }
 
 private fun ClientRecordingState.readableName(): String
