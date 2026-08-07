@@ -13,6 +13,9 @@ import com.cleardictate.inference.OperationIdentifier
 import com.cleardictate.inference.OperationPrivacy
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
@@ -33,7 +36,7 @@ interface DesktopAudioCaptureWorker : AutoCloseable
  */
 fun interface DesktopAudioCaptureWorkerFactory
 {
-    suspend fun start(configuration: DesktopRuntimeConfiguration): DesktopAudioCaptureWorker
+    suspend fun start(configuration: DesktopRuntimeConfiguration, inputLevelChanged: (Float) -> Unit): DesktopAudioCaptureWorker
 }
 
 /**
@@ -48,6 +51,9 @@ class DesktopSpeechRecorder(
     private val ownershipLock = Any()
     private val operationSequence = AtomicLong(0)
     private val clientSessionIdentifier = ClientSessionIdentifier("desktop_capture_" + UUID.randomUUID().toString().replace("-", ""))
+    private val mutableMicrophoneActivity = MutableStateFlow(0.0F)
+
+    val microphoneActivity: StateFlow<Float> = mutableMicrophoneActivity.asStateFlow()
 
     @Volatile
     private var activeWorker: DesktopAudioCaptureWorker? = null
@@ -70,6 +76,7 @@ class DesktopSpeechRecorder(
             ensureOpen()
             check(activeOperationIdentifier == null) { "A desktop recording is already active." }
             requireNotNull(runtimeConfiguration) { "Desktop recording is unavailable until the local runtime is installed." }
+            mutableMicrophoneActivity.value = 0.0F
 
             val operationIdentifier = OperationIdentifier("desktop_capture_${operationSequence.incrementAndGet()}")
             val operationContext = InferenceOperationContext(clientSessionIdentifier, operationIdentifier, OperationPrivacy.PRIVATE)
@@ -94,11 +101,15 @@ class DesktopSpeechRecorder(
             val worker = requireNotNull(activeWorker) { "The active desktop capture worker is unavailable." }
             try
             {
-                worker.stopRecording(operationIdentifier).also { activeOperationIdentifier = null }
+                worker.stopRecording(operationIdentifier).also {
+                    activeOperationIdentifier = null
+                    mutableMicrophoneActivity.value = 0.0F
+                }
             }
             catch (throwable: Throwable)
             {
                 activeOperationIdentifier = null
+                mutableMicrophoneActivity.value = 0.0F
                 discardActiveWorker()
                 throw throwable
             }
@@ -115,10 +126,12 @@ class DesktopSpeechRecorder(
             {
                 worker.cancel(operationIdentifier)
                 activeOperationIdentifier = null
+                mutableMicrophoneActivity.value = 0.0F
             }
             catch (throwable: Throwable)
             {
                 activeOperationIdentifier = null
+                mutableMicrophoneActivity.value = 0.0F
                 discardActiveWorker()
                 throw throwable
             }
@@ -135,6 +148,7 @@ class DesktopSpeechRecorder(
             }
             closed = true
             activeOperationIdentifier = null
+            mutableMicrophoneActivity.value = 0.0F
             activeWorker.also { activeWorker = null }
         }
         workerToClose?.close()
@@ -148,7 +162,7 @@ class DesktopSpeechRecorder(
             activeWorker?.let { return it }
         }
 
-        val startedWorker = workerFactory.start(requireNotNull(runtimeConfiguration))
+        val startedWorker = workerFactory.start(requireNotNull(runtimeConfiguration)) { inputLevel -> mutableMicrophoneActivity.value = inputLevel }
         try
         {
             currentCoroutineContext().ensureActive()
@@ -167,6 +181,7 @@ class DesktopSpeechRecorder(
 
     private fun discardActiveWorker()
     {
+        mutableMicrophoneActivity.value = 0.0F
         synchronized(ownershipLock) { activeWorker.also { activeWorker = null } }?.close()
     }
 
@@ -246,10 +261,11 @@ class QwenDesktopSpeechTranscriber(private val runtimeConfiguration: DesktopRunt
 
 private class WindowsDesktopAudioCaptureWorkerFactory : DesktopAudioCaptureWorkerFactory
 {
-    override suspend fun start(configuration: DesktopRuntimeConfiguration): DesktopAudioCaptureWorker
+    override suspend fun start(configuration: DesktopRuntimeConfiguration, inputLevelChanged: (Float) -> Unit): DesktopAudioCaptureWorker
     {
         val client = WindowsAudioCaptureWorkerClient.start(
-            WindowsAudioCaptureWorkerConfiguration(configuration.audioCaptureWorkerExecutable, configuration.workerLauncherExecutable)
+            WindowsAudioCaptureWorkerConfiguration(configuration.audioCaptureWorkerExecutable, configuration.workerLauncherExecutable),
+            inputLevelChanged
         )
         return WindowsDesktopAudioCaptureWorker(client)
     }

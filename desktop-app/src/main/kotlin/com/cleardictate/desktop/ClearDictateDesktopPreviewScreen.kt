@@ -2,22 +2,26 @@ package com.cleardictate.desktop
 
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -25,11 +29,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -57,6 +64,7 @@ fun ClearDictateDesktopPreviewScreen(
             val scope = rememberCoroutineScope()
             val clipboard = LocalClipboard.current
             val ready = runtimeReadiness is DesktopRuntimeReadiness.Ready
+            val microphoneActivity by speechRecorder.microphoneActivity.collectAsState()
             var captureDevices by remember { mutableStateOf<List<WindowsCaptureDevice>>(emptyList()) }
             var selectedEndpointIdentifier by remember { mutableStateOf("") }
             var recording by remember { mutableStateOf(false) }
@@ -132,7 +140,7 @@ fun ClearDictateDesktopPreviewScreen(
                     }
                 )
 
-                Text(status, modifier = Modifier.padding(top = 10.dp), style = MaterialTheme.typography.bodyMedium)
+                DictationActivityIndicator(recording, processing, microphoneActivity, status)
                 Spacer(Modifier.height(14.dp))
                 OutlinedTextField(
                     value = polishedTranscript,
@@ -189,24 +197,61 @@ fun ClearDictateDesktopPreviewScreen(
 @Composable
 private fun PushToTalkButton(enabled: Boolean, recording: Boolean, onPress: suspend () -> Boolean, onRelease: suspend (Boolean) -> Unit)
 {
-    Button(
-        onClick = {},
-        enabled = enabled,
-        modifier = Modifier.width(260.dp).height(58.dp).pointerInput(enabled, onPress, onRelease) {
+    val releaseScope = rememberCoroutineScope()
+    val currentOnPress by rememberUpdatedState(onPress)
+    val currentOnRelease by rememberUpdatedState(onRelease)
+
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.width(260.dp).height(58.dp).pointerInput(enabled) {
             detectTapGestures(
                 onPress = {
                     if (enabled)
                     {
-                        if (onPress())
+                        if (currentOnPress())
                         {
-                            onRelease(tryAwaitRelease())
+                            val released = tryAwaitRelease()
+                            releaseScope.launch { currentOnRelease(released) }
                         }
                     }
                 }
             )
         }
     ) {
-        Text(if (recording) "Release to transcribe" else "Hold to talk")
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(if (recording) "Release to transcribe" else "Hold to talk", fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+/**
+ * Makes live capture and post-release inference visually distinct without adding another control surface.
+ */
+@Composable
+private fun DictationActivityIndicator(recording: Boolean, processing: Boolean, microphoneActivity: Float, status: String)
+{
+    Column(modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp).padding(top = 10.dp)) {
+        when
+        {
+            recording ->
+            {
+                Text("Microphone signal", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                LinearProgressIndicator(
+                    progress = { microphoneActivity },
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(8.dp)
+                )
+            }
+            processing ->
+            {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 3.dp)
+                    Text(status, modifier = Modifier.padding(start = 10.dp), style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            else -> Text(status, style = MaterialTheme.typography.bodyMedium)
+        }
     }
 }
 

@@ -47,6 +47,20 @@ class DesktopSpeechRecorderTest
         recorder.close()
     }
 
+    @Test
+    fun `captured activity is exposed while recording and reset on release`() = runTest {
+        val workerFactory = RecordingCaptureWorkerFactory()
+        val recorder = DesktopSpeechRecorder(readyConfiguration(), workerFactory)
+
+        recorder.startRecording("")
+        workerFactory.publishInputLevel(0.65F)
+        assertEquals(0.65F, recorder.microphoneActivity.value)
+
+        recorder.stopRecording()
+        assertEquals(0.0F, recorder.microphoneActivity.value)
+        recorder.close()
+    }
+
     private fun readyConfiguration(): DesktopRuntimeConfiguration
     {
         return DesktopRuntimeConfiguration(
@@ -66,11 +80,18 @@ class DesktopSpeechRecorderTest
     {
         val worker = RecordingCaptureWorker()
         var createdWorkerCount = 0
+        private var inputLevelChanged: (Float) -> Unit = {}
 
-        override suspend fun start(configuration: DesktopRuntimeConfiguration): DesktopAudioCaptureWorker
+        override suspend fun start(configuration: DesktopRuntimeConfiguration, inputLevelChanged: (Float) -> Unit): DesktopAudioCaptureWorker
         {
             createdWorkerCount += 1
+            this.inputLevelChanged = inputLevelChanged
             return worker
+        }
+
+        fun publishInputLevel(inputLevel: Float)
+        {
+            inputLevelChanged(inputLevel)
         }
     }
 

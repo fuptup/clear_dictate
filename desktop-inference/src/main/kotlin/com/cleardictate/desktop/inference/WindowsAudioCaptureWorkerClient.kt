@@ -20,6 +20,17 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import kotlin.math.abs
+import kotlin.math.sqrt
+
+/**
+ * Maps normalized PCM peak amplitude to a perceptually clearer zero-to-one meter value.
+ */
+internal fun calculateMicrophoneActivity(samples: FloatArray): Float
+{
+    val peakAmplitude = samples.maxOfOrNull { sample -> abs(sample) } ?: return 0.0F
+    return sqrt(peakAmplitude.coerceIn(0.0F, 1.0F))
+}
 
 data class WindowsAudioCaptureWorkerConfiguration(
     val workerExecutable: Path,
@@ -35,7 +46,8 @@ data class WindowsAudioCaptureWorkerConfiguration(
  */
 class WindowsAudioCaptureWorkerClient private constructor(
     private val configuration: WindowsAudioCaptureWorkerConfiguration,
-    private val process: Process
+    private val process: Process,
+    private val inputLevelChanged: (Float) -> Unit
 ) : AutoCloseable
 {
     private data class RequestIdentity(
@@ -52,7 +64,7 @@ class WindowsAudioCaptureWorkerClient private constructor(
         }
     }
 
-    private class ActiveRecording(val identity: RequestIdentity)
+    private class ActiveRecording(val identity: RequestIdentity, private val inputLevelChanged: (Float) -> Unit)
     {
         val recordingStarted = CompletableFuture<Unit>()
         val completedAudio = CompletableFuture<CapturedAudio>()
@@ -69,6 +81,7 @@ class WindowsAudioCaptureWorkerClient private constructor(
             }
             sampleRate = capturedAudioChunk.sampleRate
             audioChunks += capturedAudioChunk.samples
+            inputLevelChanged(calculateMicrophoneActivity(capturedAudioChunk.samples))
         }
 
         fun finish(): CapturedAudio
@@ -124,7 +137,8 @@ class WindowsAudioCaptureWorkerClient private constructor(
 
     suspend fun startRecording(operationContext: InferenceOperationContext, endpointIdentifier: String = "")
     {
-        val recording = ActiveRecording(RequestIdentity(operationContext, requestTokenAllocator.allocate()))
+        val recording = ActiveRecording(RequestIdentity(operationContext, requestTokenAllocator.allocate()), inputLevelChanged)
+        inputLevelChanged(0.0F)
         withContext(Dispatchers.IO)
         {
             synchronized(protocolLock)
@@ -379,6 +393,7 @@ class WindowsAudioCaptureWorkerClient private constructor(
 
     private fun finishRecording(recording: ActiveRecording)
     {
+        inputLevelChanged(0.0F)
         recording.cancellationCompleted.completeExceptionally(LocalInferenceException(InferenceFailureCategory.CANCELLATION_NOT_ACKNOWLEDGED, "CAPTURE_ALREADY_TERMINAL"))
         if (activeRecording === recording)
         {
@@ -410,6 +425,7 @@ class WindowsAudioCaptureWorkerClient private constructor(
         val failure = LocalInferenceException(category, diagnosticCode)
         ready.completeExceptionally(failure)
         val recording = synchronized(protocolLock) { activeRecording.also { activeRecording = null } }
+        inputLevelChanged(0.0F)
         recording?.scrubChunks()
         recording?.recordingStarted?.completeExceptionally(failure)
         recording?.completedAudio?.completeExceptionally(failure)
@@ -462,7 +478,7 @@ class WindowsAudioCaptureWorkerClient private constructor(
 
     companion object
     {
-        suspend fun start(configuration: WindowsAudioCaptureWorkerConfiguration): WindowsAudioCaptureWorkerClient
+        suspend fun start(configuration: WindowsAudioCaptureWorkerConfiguration, inputLevelChanged: (Float) -> Unit = {}): WindowsAudioCaptureWorkerClient
         {
             val workerExecutable = configuration.workerExecutable.toAbsolutePath().normalize()
             val workerLauncherExecutable = configuration.workerLauncherExecutable.toAbsolutePath().normalize()
@@ -478,7 +494,11 @@ class WindowsAudioCaptureWorkerClient private constructor(
                     hostIdentity.creationTimeTicks.toString()
                 ).start()
             }
-            val client = WindowsAudioCaptureWorkerClient(configuration.copy(workerExecutable = workerExecutable, workerLauncherExecutable = workerLauncherExecutable), process)
+            val client = WindowsAudioCaptureWorkerClient(
+                configuration.copy(workerExecutable = workerExecutable, workerLauncherExecutable = workerLauncherExecutable),
+                process,
+                inputLevelChanged
+            )
             try
             {
                 currentCoroutineContext().ensureActive()
