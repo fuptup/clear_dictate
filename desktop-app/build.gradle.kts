@@ -29,5 +29,10 @@ tasks.test {
 compose.desktop {
     application {
         mainClass = "com.cleardictate.desktop.ClearDictateDesktopApplicationKt"
+
+        nativeDistributions {
+            packageName = "ClearDictate"
+            packageVersion = "0.1.0"
+        }
     }
 }

@@ -41,7 +41,7 @@ fun interface DesktopTextWorkerFactory
 class DesktopTranscriptProcessor(
     private val runtimeConfiguration: DesktopRuntimeConfiguration?,
     private val workerFactory: DesktopTextWorkerFactory = WindowsDesktopTextWorkerFactory()
-) : AutoCloseable
+) : DesktopTranscriptRewriter
 {
     private val operationMutex = Mutex()
     private val ownershipLock = Any()
@@ -92,6 +92,14 @@ class DesktopTranscriptProcessor(
 
             processedTranscript
         }
+    }
+
+    /**
+     * Runs the complete deterministic-cleaning and local-polishing path selected by push-to-talk.
+     */
+    override suspend fun rewrite(rawTranscript: String): String
+    {
+        return process(rawTranscript, TranscriptMode.POLISHED).selectedTranscript
     }
 
     suspend fun restartWorker()
@@ -199,9 +207,9 @@ private class WindowsDesktopTextWorkerFactory : DesktopTextWorkerFactory
     {
         val client = WindowsTextWorkerClient.start(
             WindowsTextWorkerConfiguration(
-                workerExecutable = configuration.workerExecutable,
+                workerExecutable = configuration.textWorkerExecutable,
                 workerLauncherExecutable = configuration.workerLauncherExecutable,
-                modelPath = configuration.modelPath,
+                modelPath = configuration.textModelPath,
                 inferenceThreadCount = configuration.inferenceThreadCount
             )
         )

@@ -44,7 +44,7 @@ namespace
         {
             0x00, 0x00, 0x00, 0x35,
             0x43, 0x44, 0x49, 0x50,
-            0x00, 0x04,
+            0x00, 0x05,
             0x0B,
             0x01,
             0x00, 0x00, 0x00, 0x08,
@@ -128,19 +128,19 @@ namespace
         Require(rejected, "Invalid UTF-8 transcript output must fail closed.");
     }
 
-    void TestEmptyFinalTranscriptIsAcceptedForSilence()
+    void TestRecordingCompleteHasNoPayload()
     {
         const clear_dictate::WorkerProtocolFrame decodedFrame = Decode(
             Encode(
                 clear_dictate::WorkerProtocolFrame::Operation(
-                    clear_dictate::WorkerMessageType::FinalTranscript,
+                    clear_dictate::WorkerMessageType::RecordingComplete,
                     { "client-7", "operation-19", clear_dictate::OperationPrivacy::Private, 27 },
                     {})));
 
-        Require(decodedFrame.payload.empty(), "A silent recording must round-trip as an empty final transcript.");
+        Require(decodedFrame.payload.empty(), "Recording completion must round-trip without a payload.");
     }
 
-    void TestEmptyPartialTranscriptIsRejected()
+    void TestEmptyAudioChunkIsRejected()
     {
         bool rejected = false;
 
@@ -149,7 +149,7 @@ namespace
             static_cast<void>(
                 Encode(
                     clear_dictate::WorkerProtocolFrame::Operation(
-                        clear_dictate::WorkerMessageType::PartialTranscript,
+                        clear_dictate::WorkerMessageType::AudioChunk,
                         { "client-7", "operation-19", clear_dictate::OperationPrivacy::Private, 27 },
                         {})));
         }
@@ -158,7 +158,7 @@ namespace
             rejected = true;
         }
 
-        Require(rejected, "A partial transcript must carry a structured delta payload.");
+        Require(rejected, "An audio chunk must carry a structured captured-audio payload.");
     }
 
     void TestRecordingStartRequiresVersionedPayload()
@@ -191,7 +191,7 @@ namespace
         {
             rejectedEmptyPayload = true;
         }
-        Require(rejectedEmptyPayload, "Protocol version 4 must reject an unversioned recording-start command.");
+        Require(rejectedEmptyPayload, "Protocol version 5 must reject an unversioned recording-start command.");
     }
 
     void TestRecordingStartedAcknowledgementHasNoPayload()
@@ -213,8 +213,8 @@ namespace
         TestControlFrameNeedsNoOperationIdentity();
         TestEveryTruncatedFrameFailsWithFixedCategory();
         TestInvalidUtf8TranscriptIsRejected();
-        TestEmptyFinalTranscriptIsAcceptedForSilence();
-        TestEmptyPartialTranscriptIsRejected();
+        TestRecordingCompleteHasNoPayload();
+        TestEmptyAudioChunkIsRejected();
         TestRecordingStartRequiresVersionedPayload();
         TestRecordingStartedAcknowledgementHasNoPayload();
         return 0;

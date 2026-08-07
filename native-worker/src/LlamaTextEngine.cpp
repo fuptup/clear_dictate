@@ -20,10 +20,6 @@ namespace clear_dictate
 {
     namespace
     {
-        // llama.cpp treats this as a borrowed, null-terminated offload-device list.
-        // Static storage keeps the borrowed pointer valid for the model lifetime.
-        ggml_backend_dev_t NoOffloadDevices[] = { nullptr };
-
         void SecureClear(std::string& sensitiveText) noexcept
         {
             volatile char* sensitiveBytes = sensitiveText.empty() ? nullptr : sensitiveText.data();
@@ -333,7 +329,19 @@ namespace clear_dictate
                 throw std::runtime_error("The local text model produced an unstable formatted request size.");
             }
 
-            return std::string(formattedPrompt.data(), static_cast<std::size_t>(actualByteCount));
+            std::string result(formattedPrompt.data(), static_cast<std::size_t>(actualByteCount));
+            constexpr const char* GenerationSuffix = "<|im_start|>assistant\n";
+            constexpr const char* DirectGenerationSuffix = "<|im_start|>assistant\n<think>\n\n</think>\n\n";
+            const std::size_t generationSuffixLength = std::char_traits<char>::length(GenerationSuffix);
+            if (result.size() < generationSuffixLength || result.compare(result.size() - generationSuffixLength, generationSuffixLength, GenerationSuffix) != 0)
+            {
+                throw std::runtime_error("The pinned Qwen chat template does not expose the expected thinking-mode boundary.");
+            }
+
+            // llama.cpp's compact ChatML renderer ends at the assistant boundary. Dictation rewriting needs a short direct answer, so append Qwen3.5's non-thinking
+            // prefix instead of spending the bounded output budget on hidden reasoning.
+            result.replace(result.size() - generationSuffixLength, generationSuffixLength, DirectGenerationSuffix);
+            return result;
         }
 
         void PopulateBatch(
@@ -552,10 +560,9 @@ namespace clear_dictate
         static llama_model_params CreateModelParameters()
         {
             llama_model_params modelParameters = llama_model_default_params();
-            modelParameters.devices = NoOffloadDevices;
-            modelParameters.n_gpu_layers = 0;
+            modelParameters.n_gpu_layers = INT_MAX;
             modelParameters.split_mode = LLAMA_SPLIT_MODE_NONE;
-            modelParameters.main_gpu = -1;
+            modelParameters.main_gpu = 0;
             modelParameters.check_tensors = true;
             return modelParameters;
         }
@@ -572,6 +579,10 @@ namespace clear_dictate
             if (ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU) == nullptr)
             {
                 throw std::runtime_error("The local text model CPU backend is unavailable.");
+            }
+            if (ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_GPU) == nullptr)
+            {
+                throw std::runtime_error("The local text model CUDA backend is unavailable.");
             }
 
             LlamaModelHandle model(llama_model_load_from_file_ptr(verifiedModelFile, CreateModelParameters()));
@@ -602,9 +613,9 @@ namespace clear_dictate
             contextParameters.n_threads_batch = inferenceThreadCount;
             contextParameters.abort_callback = ShouldAbortDecode;
             contextParameters.abort_callback_data = &cancellationController;
-            contextParameters.offload_kqv = false;
-            contextParameters.op_offload = false;
-            contextParameters.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
+            contextParameters.offload_kqv = true;
+            contextParameters.op_offload = true;
+            contextParameters.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
             contextParameters.no_perf = true;
 
             LlamaContextHandle context(llama_init_from_model(model, contextParameters));

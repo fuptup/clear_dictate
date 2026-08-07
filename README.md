@@ -1,6 +1,7 @@
 # ClearDictate
 
-ClearDictate is an offline dictation project targeting Android and Windows. It is being built as a native Android application and Android Input Method Editor, with a Windows development application for exercising the same deterministic transcript-cleaning and local text-polishing behavior.
+ClearDictate is an offline dictation project targeting Android and Windows. It is being built as a native Android application and Android Input Method Editor,
+with a Windows development application for exercising the same deterministic transcript-cleaning and local text-polishing behavior.
 
 Current implemented capabilities, with verification boundaries listed below:
 
@@ -8,15 +9,15 @@ Current implemented capabilities, with verification boundaries listed below:
 - protected-value validation and fail-closed Polished fallback;
 - an Android standalone recording screen and system Input Method Editor with private-process speech and text inference ownership, microphone capture, resumable model download, review/insert, and sensitive-field blocking;
 - a bounded, versioned Kotlin/C++ worker protocol;
-- a persistent Windows worker using the pinned Qwen2.5 0.5B model through pinned llama.cpp;
+- a persistent CUDA Windows text worker using Qwen3.5 9B Q6_K through pinned llama.cpp;
 - cryptographic model verification before same-handle loading;
 - a synchronous, drained cancellation contract in the Windows worker and asynchronous cancellation fencing, native drain, and process watchdogs on Android;
 - a real Kotlin-to-worker integration test through the semantic-safety pipeline;
-- a Windows microphone developer preview with compact input selection, live local Moonshine Medium Streaming recognition, editable input/output, all three transcript modes, cancellation, fallback visibility, clipboard copying, and explicit text-worker restart.
+- a Windows push-to-talk preview with compact microphone selection, release-triggered Qwen3-ASR 1.7B recognition, automatic Qwen3.5 polishing, editable polished output, and clipboard copying.
 
 Important current limitations:
 
-- the Windows microphone path is connected through an isolated worker and developer interface, but the final system-wide overlay, global shortcut, and target-application insertion are not implemented yet;
+- the Windows push-to-talk path is connected through isolated local workers, but the final system-wide overlay, global shortcut, and target-application insertion are not implemented yet;
 - Android history, full settings/profile screens, a hybrid typing keyboard, and measured phone performance remain incomplete;
 - keyboard microphone eligibility still needs physical validation on Android 14, 15, and 16 while the host application is foregrounded;
 - the locally patched Moonshine Android library needs a long-duration device soak before the Android slice can be called production-ready;

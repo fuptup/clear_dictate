@@ -58,79 +58,6 @@ namespace
         Require(rejected, "A non-positive model thread count must be rejected.");
     }
 
-    void TestSpeechModelLoadPayloadRoundTripsUtf8Directory()
-    {
-        const clear_dictate::SpeechModelLoadRequest request { "E:\\models\\moonshine" };
-        const std::vector<std::uint8_t> encodedRequest = clear_dictate::EncodeSpeechModelLoadRequest(request);
-        const std::vector<std::uint8_t> expectedPayload =
-        {
-            0x43, 0x44, 0x53, 0x4C,
-            0x00, 0x01,
-            0x00, 0x00, 0x00, 0x13,
-            'E', ':', '\\', 'm', 'o', 'd', 'e', 'l', 's', '\\',
-            'm', 'o', 'o', 'n', 's', 'h', 'i', 'n', 'e'
-        };
-        const clear_dictate::SpeechModelLoadRequest decodedRequest =
-            clear_dictate::DecodeSpeechModelLoadRequest(encodedRequest);
-
-        Require(encodedRequest == expectedPayload, "The speech-model payload changed from the cross-language golden bytes.");
-        Require(
-            decodedRequest.modelDirectory == request.modelDirectory,
-            "The speech-model directory changed during payload round trip.");
-    }
-
-    void TestTextAndSpeechModelPayloadsCannotBeConfused()
-    {
-        bool rejected = false;
-
-        try
-        {
-            static_cast<void>(
-                clear_dictate::DecodeSpeechModelLoadRequest(
-                    clear_dictate::EncodeTextModelLoadRequest({ "C:/models/qwen.gguf", 4 })));
-        }
-        catch (const clear_dictate::WorkerPayloadException&)
-        {
-            rejected = true;
-        }
-
-        Require(rejected, "The speech worker must reject a text-worker model payload.");
-    }
-
-    void TestInvalidSpeechModelDirectoryIsRejectedBeforeWorkerLoad()
-    {
-        bool rejected = false;
-
-        try
-        {
-            static_cast<void>(
-                clear_dictate::EncodeSpeechModelLoadRequest({ std::string("C:/models/moonshine\0hidden", 27) }));
-        }
-        catch (const clear_dictate::WorkerPayloadException&)
-        {
-            rejected = true;
-        }
-
-        Require(rejected, "A speech-model directory containing a null byte must be rejected.");
-    }
-
-    void TestNonAsciiSpeechModelDirectoryIsRejectedBeforeWorkerLoad()
-    {
-        bool rejected = false;
-
-        try
-        {
-            static_cast<void>(
-                clear_dictate::EncodeSpeechModelLoadRequest({ "C:/models/moonshine-\xC3\xA9" }));
-        }
-        catch (const clear_dictate::WorkerPayloadException&)
-        {
-            rejected = true;
-        }
-
-        Require(rejected, "The pinned Moonshine Windows loader cannot safely accept a non-ASCII model directory.");
-    }
-
     void TestRecordingStartPayloadRoundTripsDefaultAndSelectedEndpoints()
     {
         const clear_dictate::RecordingStartRequest defaultRequest { "" };
@@ -186,10 +113,6 @@ namespace
         TestModelLoadPayloadRoundTripsUtf8Path();
         TestProductionPromptEscapesTranscriptDelimiters();
         TestInvalidThreadCountIsRejectedBeforeWorkerLoad();
-        TestSpeechModelLoadPayloadRoundTripsUtf8Directory();
-        TestTextAndSpeechModelPayloadsCannotBeConfused();
-        TestInvalidSpeechModelDirectoryIsRejectedBeforeWorkerLoad();
-        TestNonAsciiSpeechModelDirectoryIsRejectedBeforeWorkerLoad();
         TestRecordingStartPayloadRoundTripsDefaultAndSelectedEndpoints();
         TestRecordingStartPayloadRejectsMalformedUtf8();
         return 0;

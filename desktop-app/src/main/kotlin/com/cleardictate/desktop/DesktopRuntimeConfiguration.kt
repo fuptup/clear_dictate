@@ -5,30 +5,32 @@ import java.nio.file.InvalidPathException
 import java.nio.file.Path
 
 /**
- * Identifies the external native worker and model required by the Windows developer preview.
+ * Identifies every local executable, script, and model required by push-to-talk dictation.
  */
 data class DesktopRuntimeConfiguration(
-    val workerExecutable: Path,
-    val speechWorkerExecutable: Path,
+    val textWorkerExecutable: Path,
+    val audioCaptureWorkerExecutable: Path,
     val audioDeviceEnumeratorExecutable: Path,
     val workerLauncherExecutable: Path,
-    val modelPath: Path,
-    val speechModelDirectory: Path,
-    val inferenceThreadCount: Int = 4
+    val pythonExecutable: Path,
+    val asrWorkerScript: Path,
+    val asrModelLock: Path,
+    val textModelPath: Path,
+    val asrModelDirectory: Path,
+    val inferenceThreadCount: Int = 8
 )
 
 /**
- * Describes whether local polishing can be started without exposing transcript content.
+ * Describes whether the complete local dictation pipeline can start.
  */
 sealed interface DesktopRuntimeReadiness
 {
     data class Ready(val configuration: DesktopRuntimeConfiguration) : DesktopRuntimeReadiness
-
     data class Unavailable(val explanation: String) : DesktopRuntimeReadiness
 }
 
 /**
- * Resolves explicit overrides first, then the checked-out repository's developer build layout.
+ * Resolves explicit overrides first, then the checked-out repository's Debug runtime layout.
  */
 class DesktopRuntimeConfigurationLocator(
     private val currentDirectory: Path = Path.of("").toAbsolutePath().normalize(),
@@ -48,47 +50,30 @@ class DesktopRuntimeConfigurationLocator(
     {
         return try
         {
-            val workerExecutable = resolvePath(
-                systemPropertyName = WORKER_EXECUTABLE_PROPERTY,
-                environmentVariableName = WORKER_EXECUTABLE_ENVIRONMENT_VARIABLE,
-                repositoryRelativeDefault = "native-worker/build-llama/Debug/clear_dictate_worker.exe"
-            )
-            val workerLauncherExecutable = workerExecutable.resolveSibling("clear_dictate_worker_launcher.exe")
-            val speechWorkerExecutable = resolvePath(
-                systemPropertyName = SPEECH_WORKER_EXECUTABLE_PROPERTY,
-                environmentVariableName = SPEECH_WORKER_EXECUTABLE_ENVIRONMENT_VARIABLE,
-                repositoryRelativeDefault = "native-worker/build-llama/Debug/clear_dictate_speech_worker.exe"
-            )
-            val audioDeviceEnumeratorExecutable = resolvePath(
-                systemPropertyName = AUDIO_DEVICE_ENUMERATOR_EXECUTABLE_PROPERTY,
-                environmentVariableName = AUDIO_DEVICE_ENUMERATOR_EXECUTABLE_ENVIRONMENT_VARIABLE,
-                repositoryRelativeDefault = "native-worker/build-llama/Debug/clear_dictate_audio_device_enumerator.exe"
-            )
-            val modelPath = resolvePath(
-                systemPropertyName = TEXT_MODEL_PROPERTY,
-                environmentVariableName = TEXT_MODEL_ENVIRONMENT_VARIABLE,
-                repositoryRelativeDefault = ".tooling/models/qwen2.5-0.5b-instruct/qwen2.5-0.5b-instruct-q4_k_m.gguf"
-            )
-            val speechModelDirectory = resolvePath(
-                systemPropertyName = SPEECH_MODEL_DIRECTORY_PROPERTY,
-                environmentVariableName = SPEECH_MODEL_DIRECTORY_ENVIRONMENT_VARIABLE,
-                repositoryRelativeDefault = ".tooling/models/moonshine-medium-streaming-en"
-            )
+            val textWorkerExecutable = resolvePath(TEXT_WORKER_PROPERTY, TEXT_WORKER_ENVIRONMENT_VARIABLE, "native-worker/build-llama/Debug/clear_dictate_worker.exe")
+            val audioCaptureWorkerExecutable = resolvePath(AUDIO_CAPTURE_WORKER_PROPERTY, AUDIO_CAPTURE_WORKER_ENVIRONMENT_VARIABLE, "native-worker/build-llama/Debug/clear_dictate_audio_capture_worker.exe")
+            val audioDeviceEnumeratorExecutable = resolvePath(AUDIO_DEVICE_ENUMERATOR_PROPERTY, AUDIO_DEVICE_ENUMERATOR_ENVIRONMENT_VARIABLE, "native-worker/build-llama/Debug/clear_dictate_audio_device_enumerator.exe")
+            val workerLauncherExecutable = textWorkerExecutable.resolveSibling("clear_dictate_worker_launcher.exe")
+            val pythonExecutable = resolvePath(PYTHON_EXECUTABLE_PROPERTY, PYTHON_EXECUTABLE_ENVIRONMENT_VARIABLE, ".tooling/qwen-python/Scripts/python.exe")
+            val asrWorkerScript = resolvePath(ASR_WORKER_SCRIPT_PROPERTY, ASR_WORKER_SCRIPT_ENVIRONMENT_VARIABLE, "gpu-worker/qwen_asr_worker.py")
+            val asrModelLock = resolvePath(ASR_MODEL_LOCK_PROPERTY, ASR_MODEL_LOCK_ENVIRONMENT_VARIABLE, "gpu-worker/qwen3-asr-1.7b-lock.json")
+            val textModelPath = resolvePath(TEXT_MODEL_PROPERTY, TEXT_MODEL_ENVIRONMENT_VARIABLE, ".tooling/models/qwen3.5-9b/Qwen3.5-9B-Q6_K.gguf")
+            val asrModelDirectory = resolvePath(ASR_MODEL_DIRECTORY_PROPERTY, ASR_MODEL_DIRECTORY_ENVIRONMENT_VARIABLE, ".tooling/models/qwen3-asr-1.7b")
 
-            if (isRegularFile(workerExecutable) &&
-                isRegularFile(speechWorkerExecutable) &&
-                isRegularFile(workerLauncherExecutable) &&
-                isRegularFile(modelPath) &&
-                isDirectory(speechModelDirectory))
+            val requiredFiles = listOf(textWorkerExecutable, audioCaptureWorkerExecutable, workerLauncherExecutable, pythonExecutable, asrWorkerScript, asrModelLock, textModelPath)
+            if (requiredFiles.all(isRegularFile) && isDirectory(asrModelDirectory))
             {
                 DesktopRuntimeReadiness.Ready(
                     DesktopRuntimeConfiguration(
-                        workerExecutable = workerExecutable,
-                        speechWorkerExecutable = speechWorkerExecutable,
-                        audioDeviceEnumeratorExecutable = audioDeviceEnumeratorExecutable,
-                        workerLauncherExecutable = workerLauncherExecutable,
-                        modelPath = modelPath,
-                        speechModelDirectory = speechModelDirectory
+                        textWorkerExecutable,
+                        audioCaptureWorkerExecutable,
+                        audioDeviceEnumeratorExecutable,
+                        workerLauncherExecutable,
+                        pythonExecutable,
+                        asrWorkerScript,
+                        asrModelLock,
+                        textModelPath,
+                        asrModelDirectory
                     )
                 )
             }
@@ -105,35 +90,31 @@ class DesktopRuntimeConfigurationLocator(
 
     private fun resolvePath(systemPropertyName: String, environmentVariableName: String, repositoryRelativeDefault: String): Path
     {
-        val configuredPath = systemPropertyReader(systemPropertyName)
-            ?.takeIf(String::isNotBlank)
+        val configuredPath = systemPropertyReader(systemPropertyName)?.takeIf(String::isNotBlank)
             ?: environmentVariableReader(environmentVariableName)?.takeIf(String::isNotBlank)
-
-        return if (configuredPath != null)
-        {
-            Path.of(configuredPath)
-        }
-        else
-        {
-            repositoryRoot.resolve(repositoryRelativeDefault)
-        }.toAbsolutePath().normalize()
+        return (configuredPath?.let(Path::of) ?: repositoryRoot.resolve(repositoryRelativeDefault)).toAbsolutePath().normalize()
     }
 
     companion object
     {
-        const val WORKER_EXECUTABLE_PROPERTY = "clearDictate.workerExecutable"
+        const val TEXT_WORKER_PROPERTY = "clearDictate.textWorkerExecutable"
+        const val AUDIO_CAPTURE_WORKER_PROPERTY = "clearDictate.audioCaptureWorkerExecutable"
+        const val AUDIO_DEVICE_ENUMERATOR_PROPERTY = "clearDictate.audioDeviceEnumeratorExecutable"
+        const val PYTHON_EXECUTABLE_PROPERTY = "clearDictate.pythonExecutable"
+        const val ASR_WORKER_SCRIPT_PROPERTY = "clearDictate.asrWorkerScript"
+        const val ASR_MODEL_LOCK_PROPERTY = "clearDictate.asrModelLock"
         const val TEXT_MODEL_PROPERTY = "clearDictate.textModel"
-        const val SPEECH_WORKER_EXECUTABLE_PROPERTY = "clearDictate.speechWorkerExecutable"
-        const val AUDIO_DEVICE_ENUMERATOR_EXECUTABLE_PROPERTY = "clearDictate.audioDeviceEnumeratorExecutable"
-        const val SPEECH_MODEL_DIRECTORY_PROPERTY = "clearDictate.speechModelDirectory"
-        const val WORKER_EXECUTABLE_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_WORKER_EXECUTABLE"
+        const val ASR_MODEL_DIRECTORY_PROPERTY = "clearDictate.asrModelDirectory"
+        const val TEXT_WORKER_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_TEXT_WORKER_EXECUTABLE"
+        const val AUDIO_CAPTURE_WORKER_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_AUDIO_CAPTURE_WORKER_EXECUTABLE"
+        const val AUDIO_DEVICE_ENUMERATOR_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_AUDIO_DEVICE_ENUMERATOR_EXECUTABLE"
+        const val PYTHON_EXECUTABLE_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_PYTHON_EXECUTABLE"
+        const val ASR_WORKER_SCRIPT_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_ASR_WORKER_SCRIPT"
+        const val ASR_MODEL_LOCK_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_ASR_MODEL_LOCK"
         const val TEXT_MODEL_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_TEXT_MODEL"
-        const val SPEECH_WORKER_EXECUTABLE_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_SPEECH_WORKER_EXECUTABLE"
-        const val AUDIO_DEVICE_ENUMERATOR_EXECUTABLE_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_AUDIO_DEVICE_ENUMERATOR_EXECUTABLE"
-        const val SPEECH_MODEL_DIRECTORY_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_SPEECH_MODEL_DIRECTORY"
+        const val ASR_MODEL_DIRECTORY_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_ASR_MODEL_DIRECTORY"
 
-        private const val MISSING_RUNTIME_EXPLANATION =
-            "Recording and Polished mode need the local Debug workers and pinned models. Text-only Raw and Clean modes remain available."
+        private const val MISSING_RUNTIME_EXPLANATION = "Install the local Qwen3-ASR and Qwen3.5 runtime files to enable push-to-talk dictation."
         private const val REPOSITORY_SENTINEL_FILENAME = "settings.gradle.kts"
     }
 }

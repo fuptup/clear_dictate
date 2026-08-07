@@ -30,7 +30,8 @@ namespace
 
         Require(
             generationResult.status == clear_dictate::TextGenerationStatus::ContextLimitExceeded,
-            "A prompt that cannot reserve all 256 output tokens must be rejected without truncation.");
+            "A prompt that cannot reserve all 256 output tokens must be rejected without truncation. Status=" +
+                std::to_string(static_cast<int>(generationResult.status)) + ".");
         Require(generationResult.generatedText.empty(), "A rejected prompt must not expose partial generated text.");
         Require(generationResult.generatedTokenCount == 0, "A rejected prompt must report zero generated tokens.");
     }
@@ -82,7 +83,10 @@ namespace
             "You edit dictated text. Return only the corrected transcript without commentary or markup.",
             "Clean this transcript while preserving every identifier and number: send build AB12 to port 8080 tomorrow at 14:30");
 
-        Require(generationResult.status == clear_dictate::TextGenerationStatus::Completed, "The pinned text model must complete a real generation request.");
+        Require(
+            generationResult.status == clear_dictate::TextGenerationStatus::Completed,
+            "The pinned text model must complete a real generation request. Status=" + std::to_string(static_cast<int>(generationResult.status)) +
+                ", generated tokens=" + std::to_string(generationResult.generatedTokenCount) + ".");
         Require(!generationResult.generatedText.empty(), "The pinned text model must return non-empty text.");
         Require(
             generationResult.generatedTokenCount <= clear_dictate::TextGenerationLimits::MaximumGeneratedTokenCount,

@@ -22,6 +22,24 @@ The complete MIT licence text is retained at `third_party/llama.cpp/LICENSE`.
 The model is not committed to this repository or bundled in the current application package.
 Its license text and pinned provenance are retained under `third_party/qwen`.
 
+## Qwen3-ASR 1.7B model
+
+- Source: `Qwen/Qwen3-ASR-1.7B-hf`
+- Pinned revision: `bcd2b5b7f32b480ab5790554cfa8347f246a14f3`
+- Licence identifier: Apache-2.0
+
+The model is downloaded into the ignored local tooling directory. Runtime file lengths and digests are pinned in `gpu-worker/qwen3-asr-1.7b-lock.json`.
+
+## Qwen3.5 9B Q6_K model
+
+- Derived model source: `unsloth/Qwen3.5-9B-GGUF`
+- Pinned revision: `3885219b6810b007914f3a7950a8d1b469d598a5`
+- Selected file: `Qwen3.5-9B-Q6_K.gguf`
+- Original model: `Qwen/Qwen3.5-9B`
+- Licence identifier: Apache-2.0
+
+The GGUF file is not committed or bundled. Its exact provenance, byte count, and digest are pinned in `native-worker/dependencies/qwen-model-lock.cmake`.
+
 ## Moonshine Voice and Tiny Streaming English model
 
 - Source: `moonshine-ai/moonshine`
@@ -30,7 +48,7 @@ Its license text and pinned provenance are retained under `third_party/qwen`.
 - Licence for the English-language model: MIT
 - Copyright: 2025 Useful Sensors, Inc. (doing business as Moonshine AI)
 
-ClearDictate links Moonshine into Android development artifacts and a local Windows Debug integration-test executable. The published Android archive is not shipped unchanged: ClearDictate builds the exact pinned source with the documented memory-safety/status patch in `third_party/moonshine`. The Windows test clean-builds the exact pinned source separately.
+ClearDictate links Moonshine only into Android development artifacts. The published Android archive is not shipped unchanged: ClearDictate builds the exact pinned source with the documented memory-safety/status patch in `third_party/moonshine`.
 
 The linked native dependency tree includes:
 
@@ -46,10 +64,7 @@ The linked native dependency tree includes:
 The authoritative licence files used by this native build are retained under
 `third_party/moonshine/LICENSE` and `third_party/moonshine/licenses`. A future public binary still
 needs an in-application notice surface and a generated dependency inventory. The present Android
-output is a Debug development artifact, not a distributable release. The pinned Windows static
-library also merges text-to-speech code and embedded VCTK-derived voice clips. Their redistribution
-terms and attribution have not yet been resolved for ClearDictate, so no Windows binary containing
-that archive may be distributed.
+output is a Debug development artifact, not a distributable release.
 
 ## Java Native Access
 
@@ -65,4 +80,5 @@ The project uses Kotlin, Jetpack Compose, and AndroidX libraries under their pub
 
 ## Distribution status
 
-The current Windows and Android outputs are unsigned Debug development artifacts. No redistributable installer or store package is produced. Before distributing an application binary, generate a complete machine-readable dependency inventory and bundle every required upstream licence and notice.
+The current Windows and Android outputs are unsigned Debug development artifacts. No redistributable installer or store package is produced. Before distributing an
+application binary, generate a complete machine-readable dependency inventory and bundle every required upstream licence and notice.

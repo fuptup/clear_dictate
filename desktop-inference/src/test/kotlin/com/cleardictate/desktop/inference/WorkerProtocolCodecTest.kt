@@ -184,7 +184,7 @@ class WorkerProtocolCodecTest
     fun `accepts empty final transcript for a silent recording`()
     {
         val finalFrame = WorkerProtocolMessage(
-            WorkerMessageType.FINAL_TRANSCRIPT,
+            WorkerMessageType.RECORDING_COMPLETE,
             ClientSessionIdentifier("client-7"),
             OperationIdentifier("operation-19"),
             OperationPrivacy.STANDARD,
@@ -205,7 +205,7 @@ class WorkerProtocolCodecTest
         assertFailsWith<WorkerProtocolException> {
             codec.write(
                 WorkerProtocolMessage(
-                    WorkerMessageType.PARTIAL_TRANSCRIPT,
+                    WorkerMessageType.AUDIO_CHUNK,
                     ClientSessionIdentifier("client-7"),
                     OperationIdentifier("operation-19"),
                     OperationPrivacy.STANDARD,

@@ -1,11 +1,12 @@
 package com.cleardictate.desktop
 
+import com.cleardictate.desktop.inference.CapturedAudio
+import com.cleardictate.desktop.inference.QwenAsrWorkerClient
+import com.cleardictate.desktop.inference.QwenAsrWorkerConfiguration
+import com.cleardictate.desktop.inference.WindowsAudioCaptureWorkerClient
+import com.cleardictate.desktop.inference.WindowsAudioCaptureWorkerConfiguration
 import com.cleardictate.desktop.inference.WindowsCaptureDevice
 import com.cleardictate.desktop.inference.WindowsCaptureDeviceProvider
-import com.cleardictate.desktop.inference.WindowsSpeechRecording
-import com.cleardictate.desktop.inference.WindowsSpeechWorkerClient
-import com.cleardictate.desktop.inference.WindowsSpeechWorkerConfiguration
-import com.cleardictate.inference.CancellationAcknowledgement
 import com.cleardictate.inference.ClientSessionIdentifier
 import com.cleardictate.inference.InferenceOperationContext
 import com.cleardictate.inference.OperationIdentifier
@@ -17,35 +18,39 @@ import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
-interface DesktopSpeechWorker : AutoCloseable
+/**
+ * Defines the native capture operations used by the desktop recorder.
+ */
+interface DesktopAudioCaptureWorker : AutoCloseable
 {
-    suspend fun startRecording(operationContext: InferenceOperationContext, endpointIdentifier: String): WindowsSpeechRecording
-    suspend fun stopRecording(operationIdentifier: OperationIdentifier): String
-    suspend fun cancel(operationIdentifier: OperationIdentifier): CancellationAcknowledgement
-}
-
-fun interface DesktopSpeechWorkerFactory
-{
-    suspend fun start(configuration: DesktopRuntimeConfiguration): DesktopSpeechWorker
+    suspend fun startRecording(operationContext: InferenceOperationContext, endpointIdentifier: String)
+    suspend fun stopRecording(operationIdentifier: OperationIdentifier): CapturedAudio
+    suspend fun cancel(operationIdentifier: OperationIdentifier)
 }
 
 /**
- * Owns one lazily loaded desktop speech worker and serializes recording commands.
+ * Creates a native capture worker only when the first recording begins.
+ */
+fun interface DesktopAudioCaptureWorkerFactory
+{
+    suspend fun start(configuration: DesktopRuntimeConfiguration): DesktopAudioCaptureWorker
+}
+
+/**
+ * Owns one lazily started microphone worker and keeps raw audio in memory until release.
  */
 class DesktopSpeechRecorder(
     private val runtimeConfiguration: DesktopRuntimeConfiguration?,
-    private val workerFactory: DesktopSpeechWorkerFactory = WindowsDesktopSpeechWorkerFactory()
-) : AutoCloseable
+    private val workerFactory: DesktopAudioCaptureWorkerFactory = WindowsDesktopAudioCaptureWorkerFactory()
+) : DesktopAudioRecorder
 {
     private val operationMutex = Mutex()
     private val ownershipLock = Any()
     private val operationSequence = AtomicLong(0)
-    private val clientSessionIdentifier = ClientSessionIdentifier(
-        "desktop_speech_" + UUID.randomUUID().toString().replace("-", "")
-    )
+    private val clientSessionIdentifier = ClientSessionIdentifier("desktop_capture_" + UUID.randomUUID().toString().replace("-", ""))
 
     @Volatile
-    private var activeWorker: DesktopSpeechWorker? = null
+    private var activeWorker: DesktopAudioCaptureWorker? = null
 
     @Volatile
     private var activeOperationIdentifier: OperationIdentifier? = null
@@ -59,25 +64,19 @@ class DesktopSpeechRecorder(
         return WindowsCaptureDeviceProvider(configuration.audioDeviceEnumeratorExecutable).listActiveCaptureDevices()
     }
 
-    suspend fun startRecording(endpointIdentifier: String = ""): WindowsSpeechRecording
+    override suspend fun startRecording(endpointIdentifier: String)
     {
-        return operationMutex.withLock {
+        operationMutex.withLock {
             ensureOpen()
             check(activeOperationIdentifier == null) { "A desktop recording is already active." }
-            requireNotNull(runtimeConfiguration) { "Desktop speech recording is unavailable until the local worker and model are configured." }
+            requireNotNull(runtimeConfiguration) { "Desktop recording is unavailable until the local runtime is installed." }
 
-            val operationIdentifier = OperationIdentifier("desktop_speech_${operationSequence.incrementAndGet()}")
-            val operationContext = InferenceOperationContext(
-                clientSessionIdentifier = clientSessionIdentifier,
-                operationIdentifier = operationIdentifier,
-                privacy = OperationPrivacy.PRIVATE
-            )
-
+            val operationIdentifier = OperationIdentifier("desktop_capture_${operationSequence.incrementAndGet()}")
+            val operationContext = InferenceOperationContext(clientSessionIdentifier, operationIdentifier, OperationPrivacy.PRIVATE)
             try
             {
-                val recording = acquireWorker().startRecording(operationContext, endpointIdentifier)
+                acquireWorker().startRecording(operationContext, endpointIdentifier)
                 activeOperationIdentifier = operationIdentifier
-                recording
             }
             catch (throwable: Throwable)
             {
@@ -87,18 +86,15 @@ class DesktopSpeechRecorder(
         }
     }
 
-    suspend fun stopRecording(): String
+    override suspend fun stopRecording(): CapturedAudio
     {
         return operationMutex.withLock {
             ensureOpen()
             val operationIdentifier = requireNotNull(activeOperationIdentifier) { "No desktop recording is active." }
-            val worker = requireNotNull(activeWorker) { "The active desktop speech worker is unavailable." }
-
+            val worker = requireNotNull(activeWorker) { "The active desktop capture worker is unavailable." }
             try
             {
-                worker.stopRecording(operationIdentifier).also {
-                    activeOperationIdentifier = null
-                }
+                worker.stopRecording(operationIdentifier).also { activeOperationIdentifier = null }
             }
             catch (throwable: Throwable)
             {
@@ -109,13 +105,12 @@ class DesktopSpeechRecorder(
         }
     }
 
-    suspend fun cancelRecording()
+    override suspend fun cancelRecording()
     {
         operationMutex.withLock {
             ensureOpen()
             val operationIdentifier = requireNotNull(activeOperationIdentifier) { "No desktop recording is active." }
-            val worker = requireNotNull(activeWorker) { "The active desktop speech worker is unavailable." }
-
+            val worker = requireNotNull(activeWorker) { "The active desktop capture worker is unavailable." }
             try
             {
                 worker.cancel(operationIdentifier)
@@ -138,7 +133,6 @@ class DesktopSpeechRecorder(
             {
                 return
             }
-
             closed = true
             activeOperationIdentifier = null
             activeWorker.also { activeWorker = null }
@@ -146,7 +140,7 @@ class DesktopSpeechRecorder(
         workerToClose?.close()
     }
 
-    private suspend fun acquireWorker(): DesktopSpeechWorker
+    private suspend fun acquireWorker(): DesktopAudioCaptureWorker
     {
         synchronized(ownershipLock)
         {
@@ -173,11 +167,7 @@ class DesktopSpeechRecorder(
 
     private fun discardActiveWorker()
     {
-        val workerToClose = synchronized(ownershipLock)
-        {
-            activeWorker.also { activeWorker = null }
-        }
-        workerToClose?.close()
+        synchronized(ownershipLock) { activeWorker.also { activeWorker = null } }?.close()
     }
 
     private fun ensureOpen()
@@ -186,38 +176,97 @@ class DesktopSpeechRecorder(
     }
 }
 
-private class WindowsDesktopSpeechWorkerFactory : DesktopSpeechWorkerFactory
+/**
+ * Owns the persistent Qwen3-ASR process used after the user releases push-to-talk.
+ */
+class QwenDesktopSpeechTranscriber(private val runtimeConfiguration: DesktopRuntimeConfiguration?) : DesktopSpeechTranscriber
 {
-    override suspend fun start(configuration: DesktopRuntimeConfiguration): DesktopSpeechWorker
+    private val ownershipLock = Any()
+
+    @Volatile
+    private var activeClient: QwenAsrWorkerClient? = null
+
+    @Volatile
+    private var closed = false
+
+    override suspend fun transcribe(capturedAudio: CapturedAudio): String
     {
-        val client = WindowsSpeechWorkerClient.start(
-            WindowsSpeechWorkerConfiguration(
-                workerExecutable = configuration.speechWorkerExecutable,
-                workerLauncherExecutable = configuration.workerLauncherExecutable,
-                modelDirectory = configuration.speechModelDirectory
-            )
+        return try
+        {
+            acquireClient().transcribe(capturedAudio)
+        }
+        catch (throwable: Throwable)
+        {
+            synchronized(ownershipLock) { activeClient.also { activeClient = null } }?.close()
+            throw throwable
+        }
+    }
+
+    override fun close()
+    {
+        synchronized(ownershipLock)
+        {
+            if (closed)
+            {
+                return
+            }
+            closed = true
+            activeClient.also { activeClient = null }
+        }?.close()
+    }
+
+    private suspend fun acquireClient(): QwenAsrWorkerClient
+    {
+        synchronized(ownershipLock)
+        {
+            check(!closed) { "The Qwen speech transcriber is closed." }
+            activeClient?.let { return it }
+        }
+
+        val configuration = requireNotNull(runtimeConfiguration) { "Qwen3-ASR is unavailable until the local runtime is installed." }
+        val startedClient = QwenAsrWorkerClient.start(
+            QwenAsrWorkerConfiguration(configuration.pythonExecutable, configuration.asrWorkerScript, configuration.asrModelDirectory, configuration.asrModelLock)
         )
-        return WindowsDesktopSpeechWorker(client)
+        try
+        {
+            currentCoroutineContext().ensureActive()
+            return synchronized(ownershipLock)
+            {
+                check(!closed) { "The Qwen speech transcriber is closed." }
+                activeClient ?: startedClient.also { activeClient = it }
+            }
+        }
+        catch (throwable: Throwable)
+        {
+            startedClient.close()
+            throw throwable
+        }
     }
 }
 
-private class WindowsDesktopSpeechWorker(
-    private val client: WindowsSpeechWorkerClient
-) : DesktopSpeechWorker
+private class WindowsDesktopAudioCaptureWorkerFactory : DesktopAudioCaptureWorkerFactory
 {
-    override suspend fun startRecording(operationContext: InferenceOperationContext, endpointIdentifier: String): WindowsSpeechRecording
+    override suspend fun start(configuration: DesktopRuntimeConfiguration): DesktopAudioCaptureWorker
     {
-        return client.startRecording(operationContext, endpointIdentifier)
+        val client = WindowsAudioCaptureWorkerClient.start(
+            WindowsAudioCaptureWorkerConfiguration(configuration.audioCaptureWorkerExecutable, configuration.workerLauncherExecutable)
+        )
+        return WindowsDesktopAudioCaptureWorker(client)
+    }
+}
+
+private class WindowsDesktopAudioCaptureWorker(private val client: WindowsAudioCaptureWorkerClient) : DesktopAudioCaptureWorker
+{
+    override suspend fun startRecording(operationContext: InferenceOperationContext, endpointIdentifier: String)
+    {
+        client.startRecording(operationContext, endpointIdentifier)
     }
 
-    override suspend fun stopRecording(operationIdentifier: OperationIdentifier): String
-    {
-        return client.stopRecording(operationIdentifier)
-    }
+    override suspend fun stopRecording(operationIdentifier: OperationIdentifier): CapturedAudio = client.stopRecording(operationIdentifier)
 
-    override suspend fun cancel(operationIdentifier: OperationIdentifier): CancellationAcknowledgement
+    override suspend fun cancel(operationIdentifier: OperationIdentifier)
     {
-        return client.cancel(operationIdentifier)
+        client.cancel(operationIdentifier)
     }
 
     override fun close()

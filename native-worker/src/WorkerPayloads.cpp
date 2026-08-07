@@ -13,8 +13,6 @@ namespace clear_dictate
     {
         constexpr std::uint32_t ModelLoadPayloadMagic = 0x43444D4C;
         constexpr std::uint16_t ModelLoadPayloadVersion = 1;
-        constexpr std::uint32_t SpeechModelLoadPayloadMagic = 0x4344534C;
-        constexpr std::uint16_t SpeechModelLoadPayloadVersion = 1;
         constexpr std::uint32_t RecordingStartPayloadMagic = 0x43445253;
         constexpr std::uint16_t RecordingStartPayloadVersion = 1;
         constexpr std::size_t MaximumModelPathBytes = 4000;
@@ -146,21 +144,6 @@ Return only the edited transcript.)";
             if (utf8ModelPath.empty() ||
                 utf8ModelPath.size() > MaximumModelPathBytes ||
                 utf8ModelPath.find('\0') != std::string::npos)
-            {
-                throw WorkerPayloadException(WorkerPayloadFailure::InvalidPath);
-            }
-        }
-
-        void ValidateSpeechModelDirectory(const std::string& modelDirectory)
-        {
-            ValidateModelPath(modelDirectory);
-            if (std::any_of(
-                    modelDirectory.begin(),
-                    modelDirectory.end(),
-                    [](unsigned char pathByte)
-                    {
-                        return pathByte > 0x7F;
-                    }))
             {
                 throw WorkerPayloadException(WorkerPayloadFailure::InvalidPath);
             }
@@ -336,49 +319,6 @@ Return only the edited transcript.)";
         }
 
         return { utf8ModelPath, inferenceThreadCount };
-    }
-
-    std::vector<std::uint8_t> EncodeSpeechModelLoadRequest(const SpeechModelLoadRequest& request)
-    {
-        ValidateSpeechModelDirectory(request.modelDirectory);
-
-        std::vector<std::uint8_t> payload;
-        payload.reserve(4 + 2 + 4 + request.modelDirectory.size());
-        AppendUnsigned32(payload, SpeechModelLoadPayloadMagic);
-        AppendUnsigned16(payload, SpeechModelLoadPayloadVersion);
-        AppendUnsigned32(payload, static_cast<std::uint32_t>(request.modelDirectory.size()));
-        payload.insert(payload.end(), request.modelDirectory.begin(), request.modelDirectory.end());
-        return payload;
-    }
-
-    SpeechModelLoadRequest DecodeSpeechModelLoadRequest(const std::vector<std::uint8_t>& payload)
-    {
-        PayloadReader reader(payload);
-        if (reader.ReadUnsigned32() != SpeechModelLoadPayloadMagic)
-        {
-            throw WorkerPayloadException(WorkerPayloadFailure::InvalidMagic);
-        }
-
-        if (reader.ReadUnsigned16() != SpeechModelLoadPayloadVersion)
-        {
-            throw WorkerPayloadException(WorkerPayloadFailure::UnsupportedVersion);
-        }
-
-        const std::uint32_t pathByteCount = reader.ReadUnsigned32();
-        if (pathByteCount == 0 || pathByteCount > MaximumModelPathBytes)
-        {
-            throw WorkerPayloadException(WorkerPayloadFailure::InvalidLength);
-        }
-
-        const std::string modelDirectory = reader.ReadString(pathByteCount);
-        ValidateSpeechModelDirectory(modelDirectory);
-
-        if (!reader.IsAtEnd())
-        {
-            throw WorkerPayloadException(WorkerPayloadFailure::TrailingBytes);
-        }
-
-        return { modelDirectory };
     }
 
     std::vector<std::uint8_t> EncodeRecordingStartRequest(const RecordingStartRequest& request)

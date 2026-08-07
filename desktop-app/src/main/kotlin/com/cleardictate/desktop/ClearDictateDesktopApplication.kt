@@ -8,34 +8,27 @@ import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 
 /**
- * Starts the Windows dictation and text-pipeline developer preview.
+ * Starts the Windows push-to-talk developer preview and owns its local worker pipeline.
  */
 fun main() = application {
     val runtimeReadiness = remember { DesktopRuntimeConfigurationLocator().locate() }
     val runtimeConfiguration = (runtimeReadiness as? DesktopRuntimeReadiness.Ready)?.configuration
-    val transcriptProcessor = remember(runtimeConfiguration) {
-        DesktopTranscriptProcessor(runtimeConfiguration)
-    }
-    val speechRecorder = remember(runtimeConfiguration) {
-        DesktopSpeechRecorder(runtimeConfiguration)
+    val transcriptProcessor = remember(runtimeConfiguration) { DesktopTranscriptProcessor(runtimeConfiguration) }
+    val speechRecorder = remember(runtimeConfiguration) { DesktopSpeechRecorder(runtimeConfiguration) }
+    val speechTranscriber = remember(runtimeConfiguration) { QwenDesktopSpeechTranscriber(runtimeConfiguration) }
+    val dictationPipeline = remember(speechRecorder, speechTranscriber, transcriptProcessor) {
+        DesktopDictationPipeline(speechRecorder, speechTranscriber, transcriptProcessor)
     }
 
-    DisposableEffect(transcriptProcessor, speechRecorder) {
-        onDispose {
-            speechRecorder.close()
-            transcriptProcessor.close()
-        }
+    DisposableEffect(dictationPipeline) {
+        onDispose { dictationPipeline.close() }
     }
 
     Window(
         onCloseRequest = ::exitApplication,
         title = "ClearDictate — Developer Preview",
-        state = WindowState(width = 1120.dp, height = 820.dp)
+        state = WindowState(width = 820.dp, height = 680.dp)
     ) {
-        ClearDictateDesktopPreviewScreen(
-            runtimeReadiness = runtimeReadiness,
-            speechRecorder = speechRecorder,
-            transcriptProcessor = transcriptProcessor
-        )
+        ClearDictateDesktopPreviewScreen(runtimeReadiness, speechRecorder, dictationPipeline)
     }
 }

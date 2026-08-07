@@ -18,9 +18,8 @@ namespace clear_dictate
         StopRecording = 5,
         Cancel = 6,
         CancellationAcknowledged = 7,
-        AudioLevel = 8,
-        PartialTranscript = 9,
-        FinalTranscript = 10,
+        AudioChunk = 8,
+        RecordingComplete = 9,
         PolishTranscript = 11,
         PolishedTranscript = 12,
         Error = 13,
@@ -95,13 +94,13 @@ namespace clear_dictate
     };
 
     /**
-     * Strict version-4 big-endian codec shared with the Kotlin desktop supervisor.
+     * Strict version-5 big-endian codec shared with the Kotlin desktop supervisor.
      */
     class WorkerProtocolCodec final
     {
     public:
         static constexpr std::uint32_t Magic = 0x43444950;
-        static constexpr std::uint16_t ProtocolVersion = 4;
+        static constexpr std::uint16_t ProtocolVersion = 5;
         static constexpr std::size_t AbsoluteMaximumPayloadBytes = 64 * 1024;
 
         explicit WorkerProtocolCodec(std::size_t maximumPayloadBytes = AbsoluteMaximumPayloadBytes);

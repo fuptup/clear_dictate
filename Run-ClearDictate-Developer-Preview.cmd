@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-set "CLEAR_DICTATE_JAVA_HOME=C:\Program Files\Unity\Hub\Editor\6000.2.7f2\Editor\Data\PlaybackEngines\AndroidPlayer\OpenJDK"
+set "CLEAR_DICTATE_JAVA_HOME=C:\Program Files\Unity\Hub\Editor\6000.4.8f1\Editor\Data\PlaybackEngines\AndroidPlayer\OpenJDK"
 set "CLEAR_DICTATE_ANDROID_HOME=E:\VoiceToText\.tooling\android-sdk"
 
 if not exist "%CLEAR_DICTATE_JAVA_HOME%\bin\java.exe" (
@@ -18,8 +18,8 @@ if not exist "%~dp0native-worker\build-llama\Debug\clear_dictate_worker.exe" (
     exit /b 1
 )
 
-if not exist "%~dp0native-worker\build-llama\Debug\clear_dictate_speech_worker.exe" (
-    echo ClearDictate could not find the Debug native speech worker.
+if not exist "%~dp0native-worker\build-llama\Debug\clear_dictate_audio_capture_worker.exe" (
+    echo ClearDictate could not find the Debug native audio capture worker.
     echo Follow docs\WINDOWS_DEVELOPMENT.md to build it before retrying.
     pause
     exit /b 1
@@ -32,15 +32,22 @@ if not exist "%~dp0native-worker\build-llama\Debug\clear_dictate_worker_launcher
     exit /b 1
 )
 
-if not exist "%~dp0.tooling\models\qwen2.5-0.5b-instruct\qwen2.5-0.5b-instruct-q4_k_m.gguf" (
-    echo ClearDictate could not find the configured local Qwen model.
+if not exist "%~dp0.tooling\models\qwen3.5-9b\Qwen3.5-9B-Q6_K.gguf" (
+    echo ClearDictate could not find the configured local Qwen3.5 model.
     echo Follow docs\WINDOWS_DEVELOPMENT.md to install it before retrying.
     pause
     exit /b 1
 )
 
-if not exist "%~dp0.tooling\models\moonshine-medium-streaming-en\streaming_config.json" (
-    echo ClearDictate could not find the configured local Moonshine model.
+if not exist "%~dp0.tooling\models\qwen3-asr-1.7b\model.safetensors" (
+    echo ClearDictate could not find the configured local Qwen3-ASR model.
+    echo Follow docs\WINDOWS_DEVELOPMENT.md to install it before retrying.
+    pause
+    exit /b 1
+)
+
+if not exist "%~dp0.tooling\qwen-python\Scripts\python.exe" (
+    echo ClearDictate could not find the local Qwen3-ASR Python runtime.
     echo Follow docs\WINDOWS_DEVELOPMENT.md to install it before retrying.
     pause
     exit /b 1

@@ -24,9 +24,8 @@ enum class WorkerMessageType(val code: Int)
     STOP_RECORDING(5),
     CANCEL(6),
     CANCELLATION_ACKNOWLEDGED(7),
-    AUDIO_LEVEL(8),
-    PARTIAL_TRANSCRIPT(9),
-    FINAL_TRANSCRIPT(10),
+    AUDIO_CHUNK(8),
+    RECORDING_COMPLETE(9),
     POLISH_TRANSCRIPT(11),
     POLISHED_TRANSCRIPT(12),
     ERROR(13),
@@ -528,7 +527,8 @@ class WorkerProtocolCodec(
             WorkerMessageType.CANCEL,
             WorkerMessageType.CANCELLATION_ACKNOWLEDGED,
             WorkerMessageType.OPERATION_CANCELLED,
-            WorkerMessageType.RECORDING_STARTED ->
+            WorkerMessageType.RECORDING_STARTED,
+            WorkerMessageType.RECORDING_COMPLETE ->
             {
                 if (payloadSize != 0)
                 {
@@ -544,7 +544,6 @@ class WorkerProtocolCodec(
                 }
             }
 
-            WorkerMessageType.AUDIO_LEVEL,
             WorkerMessageType.ERROR,
             WorkerMessageType.CONTROL_ERROR ->
             {
@@ -562,7 +561,7 @@ class WorkerProtocolCodec(
                 }
             }
 
-            WorkerMessageType.PARTIAL_TRANSCRIPT ->
+            WorkerMessageType.AUDIO_CHUNK ->
             {
                 if (payloadSize !in 1..ABSOLUTE_MAXIMUM_PAYLOAD_BYTES)
                 {
@@ -570,12 +569,10 @@ class WorkerProtocolCodec(
                 }
             }
 
-            WorkerMessageType.FINAL_TRANSCRIPT,
             WorkerMessageType.POLISH_TRANSCRIPT,
             WorkerMessageType.POLISHED_TRANSCRIPT ->
             {
-                val minimumPayloadBytes = if (type == WorkerMessageType.FINAL_TRANSCRIPT) 0 else 1
-                if (payloadSize !in minimumPayloadBytes..ABSOLUTE_MAXIMUM_PAYLOAD_BYTES)
+                if (payloadSize !in 1..ABSOLUTE_MAXIMUM_PAYLOAD_BYTES)
                 {
                     throw WorkerProtocolException(WorkerProtocolFailure.INVALID_MESSAGE_PAYLOAD)
                 }
@@ -623,7 +620,7 @@ class WorkerProtocolCodec(
     companion object
     {
         const val MAGIC: Int = 0x43444950
-        const val PROTOCOL_VERSION: Int = 4
+        const val PROTOCOL_VERSION: Int = 5
         const val ABSOLUTE_MAXIMUM_PAYLOAD_BYTES: Int = 64 * 1024
         const val DEFAULT_MAXIMUM_PAYLOAD_BYTES: Int = ABSOLUTE_MAXIMUM_PAYLOAD_BYTES
         private const val FIXED_VALUE_PAYLOAD_BYTES: Int = 4

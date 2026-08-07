@@ -208,8 +208,7 @@ class WorkerProtocolStateMachine
             {
                 when (frame.type)
                 {
-                    WorkerMessageType.AUDIO_LEVEL,
-                    WorkerMessageType.PARTIAL_TRANSCRIPT -> return
+                    WorkerMessageType.AUDIO_CHUNK -> return
                     WorkerMessageType.ERROR -> completeActiveOperation()
                     else -> reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
                 }
@@ -219,9 +218,8 @@ class WorkerProtocolStateMachine
             {
                 when (frame.type)
                 {
-                    WorkerMessageType.AUDIO_LEVEL,
-                    WorkerMessageType.PARTIAL_TRANSCRIPT -> return
-                    WorkerMessageType.FINAL_TRANSCRIPT,
+                    WorkerMessageType.AUDIO_CHUNK -> return
+                    WorkerMessageType.RECORDING_COMPLETE,
                     WorkerMessageType.ERROR -> completeActiveOperation()
                     else -> reject(WorkerProtocolStateFailure.ILLEGAL_DIRECTION)
                 }
@@ -250,8 +248,7 @@ class WorkerProtocolStateMachine
                         phaseBeforeCancellation = WorkerOperationPhase.RECORDING
                     }
 
-                    WorkerMessageType.AUDIO_LEVEL,
-                    WorkerMessageType.PARTIAL_TRANSCRIPT ->
+                    WorkerMessageType.AUDIO_CHUNK ->
                     {
                         if (phaseBeforeCancellation != WorkerOperationPhase.RECORDING &&
                             phaseBeforeCancellation != WorkerOperationPhase.RECORDING_STOP_SENT)
@@ -267,7 +264,7 @@ class WorkerProtocolStateMachine
 
                     WorkerMessageType.OPERATION_CANCELLED,
                     WorkerMessageType.ERROR -> completeActiveOperation()
-                    WorkerMessageType.FINAL_TRANSCRIPT ->
+                    WorkerMessageType.RECORDING_COMPLETE ->
                     {
                         if (phaseBeforeCancellation != WorkerOperationPhase.RECORDING_STOP_SENT)
                         {

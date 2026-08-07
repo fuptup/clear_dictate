@@ -22,9 +22,12 @@ tasks.test {
     listOf(
         "clearDictate.workerExecutable",
         "clearDictate.textModel",
-        "clearDictate.speechWorkerExecutable",
-        "clearDictate.speechModelDirectory",
-        "clearDictate.allowLiveMicrophone"
+        "clearDictate.audioCaptureWorkerExecutable",
+        "clearDictate.asrModelDirectory",
+        "clearDictate.pythonExecutable",
+        "clearDictate.asrWorkerScript",
+        "clearDictate.asrModelLock",
+        "clearDictate.asrWaveFixture"
     ).forEach { propertyName ->
         providers.systemProperty(propertyName).orNull?.let { propertyValue ->
             systemProperty(propertyName, propertyValue)

@@ -6,146 +6,77 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
 /**
- * Verifies deterministic discovery of the native executables and pinned model files used by the desktop preview.
+ * Verifies deterministic discovery of the complete local Qwen runtime.
  */
 class DesktopRuntimeConfigurationLocatorTest
 {
     @Test
-    fun `explicit system properties take precedence over environment and repository defaults`()
+    fun `repository defaults identify Qwen capture transcription and polishing files`()
     {
-        val existingFiles = setOf(
-            Path.of("C:/explicit/worker.exe"),
-            Path.of("C:/explicit/clear_dictate_worker_launcher.exe"),
-            Path.of("C:/explicit/model.gguf"),
-            Path.of("C:/explicit/speech-worker.exe"),
-            Path.of("C:/explicit/audio-device-enumerator.exe")
-        )
-        val existingDirectories = setOf(Path.of("C:/explicit/speech-model"))
+        val root = Path.of("E:/VoiceToText")
+        val expected = expectedPaths(root)
         val locator = DesktopRuntimeConfigurationLocator(
-            currentDirectory = Path.of("E:/VoiceToText"),
-            systemPropertyReader = { propertyName ->
-                when (propertyName)
-                {
-                    DesktopRuntimeConfigurationLocator.WORKER_EXECUTABLE_PROPERTY -> "C:/explicit/worker.exe"
-                    DesktopRuntimeConfigurationLocator.TEXT_MODEL_PROPERTY -> "C:/explicit/model.gguf"
-                    DesktopRuntimeConfigurationLocator.SPEECH_WORKER_EXECUTABLE_PROPERTY -> "C:/explicit/speech-worker.exe"
-                    DesktopRuntimeConfigurationLocator.AUDIO_DEVICE_ENUMERATOR_EXECUTABLE_PROPERTY -> "C:/explicit/audio-device-enumerator.exe"
-                    DesktopRuntimeConfigurationLocator.SPEECH_MODEL_DIRECTORY_PROPERTY -> "C:/explicit/speech-model"
-                    else -> null
-                }
-            },
-            environmentVariableReader = { "C:/ignored/$it" },
-            isRegularFile = existingFiles::contains,
-            isDirectory = existingDirectories::contains
+            currentDirectory = root.resolve("desktop-app"),
+            systemPropertyReader = { null },
+            environmentVariableReader = { null },
+            isRegularFile = { path -> path.fileName.toString() != "settings.gradle.kts" || path.parent == root },
+            isDirectory = { true }
         )
 
-        val result = assertIs<DesktopRuntimeReadiness.Ready>(locator.locate())
+        val configuration = assertIs<DesktopRuntimeReadiness.Ready>(locator.locate()).configuration
 
-        assertEquals(Path.of("C:/explicit/worker.exe"), result.configuration.workerExecutable)
-        assertEquals(Path.of("C:/explicit/clear_dictate_worker_launcher.exe"), result.configuration.workerLauncherExecutable)
-        assertEquals(Path.of("C:/explicit/model.gguf"), result.configuration.modelPath)
-        assertEquals(Path.of("C:/explicit/speech-worker.exe"), result.configuration.speechWorkerExecutable)
-        assertEquals(Path.of("C:/explicit/audio-device-enumerator.exe"), result.configuration.audioDeviceEnumeratorExecutable)
-        assertEquals(Path.of("C:/explicit/speech-model"), result.configuration.speechModelDirectory)
+        assertEquals(expected.textWorker, configuration.textWorkerExecutable)
+        assertEquals(expected.audioCaptureWorker, configuration.audioCaptureWorkerExecutable)
+        assertEquals(expected.python, configuration.pythonExecutable)
+        assertEquals(expected.textModel, configuration.textModelPath)
+        assertEquals(expected.asrModelDirectory, configuration.asrModelDirectory)
     }
 
     @Test
-    fun `repository development paths are used when no overrides are present`()
+    fun `missing ASR model keeps the complete pipeline unavailable`()
     {
-        val repositoryRoot = Path.of("E:/VoiceToText")
-        val workerExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_worker.exe")
-        val workerLauncherExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_worker_launcher.exe")
-        val modelPath = repositoryRoot.resolve(".tooling/models/qwen2.5-0.5b-instruct/qwen2.5-0.5b-instruct-q4_k_m.gguf")
-        val speechWorkerExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_speech_worker.exe")
-        val audioDeviceEnumeratorExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_audio_device_enumerator.exe")
-        val speechModelDirectory = repositoryRoot.resolve(".tooling/models/moonshine-medium-streaming-en")
-        val repositorySentinel = repositoryRoot.resolve("settings.gradle.kts")
+        val root = Path.of("E:/VoiceToText")
+        val expected = expectedPaths(root)
         val locator = DesktopRuntimeConfigurationLocator(
-            currentDirectory = repositoryRoot,
+            currentDirectory = root,
             systemPropertyReader = { null },
             environmentVariableReader = { null },
-            isRegularFile = setOf(workerExecutable, workerLauncherExecutable, modelPath, speechWorkerExecutable, audioDeviceEnumeratorExecutable, repositorySentinel)::contains,
-            isDirectory = setOf(speechModelDirectory)::contains
-        )
-
-        val result = assertIs<DesktopRuntimeReadiness.Ready>(locator.locate())
-
-        assertEquals(workerExecutable, result.configuration.workerExecutable)
-        assertEquals(workerLauncherExecutable, result.configuration.workerLauncherExecutable)
-        assertEquals(modelPath, result.configuration.modelPath)
-        assertEquals(speechWorkerExecutable, result.configuration.speechWorkerExecutable)
-        assertEquals(audioDeviceEnumeratorExecutable, result.configuration.audioDeviceEnumeratorExecutable)
-        assertEquals(speechModelDirectory, result.configuration.speechModelDirectory)
-    }
-
-    @Test
-    fun `repository root is discovered above the desktop application working directory`()
-    {
-        val repositoryRoot = Path.of("E:/VoiceToText")
-        val workerExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_worker.exe")
-        val speechWorkerExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_speech_worker.exe")
-        val audioDeviceEnumeratorExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_audio_device_enumerator.exe")
-        val workerLauncherExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_worker_launcher.exe")
-        val modelPath = repositoryRoot.resolve(".tooling/models/qwen2.5-0.5b-instruct/qwen2.5-0.5b-instruct-q4_k_m.gguf")
-        val speechModelDirectory = repositoryRoot.resolve(".tooling/models/moonshine-medium-streaming-en")
-        val repositorySentinel = repositoryRoot.resolve("settings.gradle.kts")
-        val locator = DesktopRuntimeConfigurationLocator(
-            currentDirectory = repositoryRoot.resolve("desktop-app"),
-            systemPropertyReader = { null },
-            environmentVariableReader = { null },
-            isRegularFile = setOf(workerExecutable, speechWorkerExecutable, audioDeviceEnumeratorExecutable, workerLauncherExecutable, modelPath, repositorySentinel)::contains,
-            isDirectory = setOf(repositoryRoot, speechModelDirectory)::contains
-        )
-
-        val result = assertIs<DesktopRuntimeReadiness.Ready>(locator.locate())
-
-        assertEquals(workerExecutable, result.configuration.workerExecutable)
-        assertEquals(speechWorkerExecutable, result.configuration.speechWorkerExecutable)
-        assertEquals(audioDeviceEnumeratorExecutable, result.configuration.audioDeviceEnumeratorExecutable)
-        assertEquals(speechModelDirectory, result.configuration.speechModelDirectory)
-    }
-
-    @Test
-    fun `missing microphone enumerator does not disable default microphone recording`()
-    {
-        val repositoryRoot = Path.of("E:/VoiceToText")
-        val workerExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_worker.exe")
-        val speechWorkerExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_speech_worker.exe")
-        val workerLauncherExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_worker_launcher.exe")
-        val modelPath = repositoryRoot.resolve(".tooling/models/qwen2.5-0.5b-instruct/qwen2.5-0.5b-instruct-q4_k_m.gguf")
-        val speechModelDirectory = repositoryRoot.resolve(".tooling/models/moonshine-medium-streaming-en")
-        val repositorySentinel = repositoryRoot.resolve("settings.gradle.kts")
-        val locator = DesktopRuntimeConfigurationLocator(
-            currentDirectory = repositoryRoot,
-            systemPropertyReader = { null },
-            environmentVariableReader = { null },
-            isRegularFile = setOf(workerExecutable, speechWorkerExecutable, workerLauncherExecutable, modelPath, repositorySentinel)::contains,
-            isDirectory = setOf(speechModelDirectory)::contains
-        )
-
-        assertIs<DesktopRuntimeReadiness.Ready>(locator.locate())
-    }
-
-    @Test
-    fun `missing launcher produces a transcript-free readiness explanation`()
-    {
-        val repositoryRoot = Path.of("E:/VoiceToText")
-        val workerExecutable = repositoryRoot.resolve("native-worker/build-llama/Debug/clear_dictate_worker.exe")
-        val modelPath = repositoryRoot.resolve(".tooling/models/qwen2.5-0.5b-instruct/qwen2.5-0.5b-instruct-q4_k_m.gguf")
-        val repositorySentinel = repositoryRoot.resolve("settings.gradle.kts")
-        val locator = DesktopRuntimeConfigurationLocator(
-            currentDirectory = repositoryRoot,
-            systemPropertyReader = { null },
-            environmentVariableReader = { null },
-            isRegularFile = setOf(workerExecutable, modelPath, repositorySentinel)::contains,
+            isRegularFile = (expected.files + root.resolve("settings.gradle.kts"))::contains,
             isDirectory = { false }
         )
 
         val result = assertIs<DesktopRuntimeReadiness.Unavailable>(locator.locate())
 
-        assertEquals(
-            "Recording and Polished mode need the local Debug workers and pinned models. Text-only Raw and Clean modes remain available.",
-            result.explanation
+        assertEquals("Install the local Qwen3-ASR and Qwen3.5 runtime files to enable push-to-talk dictation.", result.explanation)
+    }
+
+    private fun expectedPaths(root: Path): ExpectedPaths
+    {
+        return ExpectedPaths(
+            textWorker = root.resolve("native-worker/build-llama/Debug/clear_dictate_worker.exe"),
+            audioCaptureWorker = root.resolve("native-worker/build-llama/Debug/clear_dictate_audio_capture_worker.exe"),
+            enumerator = root.resolve("native-worker/build-llama/Debug/clear_dictate_audio_device_enumerator.exe"),
+            launcher = root.resolve("native-worker/build-llama/Debug/clear_dictate_worker_launcher.exe"),
+            python = root.resolve(".tooling/qwen-python/Scripts/python.exe"),
+            asrScript = root.resolve("gpu-worker/qwen_asr_worker.py"),
+            asrLock = root.resolve("gpu-worker/qwen3-asr-1.7b-lock.json"),
+            textModel = root.resolve(".tooling/models/qwen3.5-9b/Qwen3.5-9B-Q6_K.gguf"),
+            asrModelDirectory = root.resolve(".tooling/models/qwen3-asr-1.7b")
         )
+    }
+
+    private data class ExpectedPaths(
+        val textWorker: Path,
+        val audioCaptureWorker: Path,
+        val enumerator: Path,
+        val launcher: Path,
+        val python: Path,
+        val asrScript: Path,
+        val asrLock: Path,
+        val textModel: Path,
+        val asrModelDirectory: Path
+    )
+    {
+        val files = setOf(textWorker, audioCaptureWorker, enumerator, launcher, python, asrScript, asrLock, textModel)
     }
 }

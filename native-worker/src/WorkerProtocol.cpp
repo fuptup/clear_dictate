@@ -66,13 +66,28 @@ namespace clear_dictate
 
         WorkerMessageType DecodeMessageType(std::uint8_t code)
         {
-            if (code < static_cast<std::uint8_t>(WorkerMessageType::Hello) ||
-                code > static_cast<std::uint8_t>(WorkerMessageType::RecordingStarted))
+            switch (static_cast<WorkerMessageType>(code))
             {
-                throw WorkerProtocolException(WorkerProtocolFailure::UnknownMessageType);
+                case WorkerMessageType::Hello:
+                case WorkerMessageType::Ready:
+                case WorkerMessageType::LoadModels:
+                case WorkerMessageType::StartRecording:
+                case WorkerMessageType::StopRecording:
+                case WorkerMessageType::Cancel:
+                case WorkerMessageType::CancellationAcknowledged:
+                case WorkerMessageType::AudioChunk:
+                case WorkerMessageType::RecordingComplete:
+                case WorkerMessageType::PolishTranscript:
+                case WorkerMessageType::PolishedTranscript:
+                case WorkerMessageType::Error:
+                case WorkerMessageType::Shutdown:
+                case WorkerMessageType::ModelsLoaded:
+                case WorkerMessageType::ControlError:
+                case WorkerMessageType::OperationCancelled:
+                case WorkerMessageType::RecordingStarted:
+                    return static_cast<WorkerMessageType>(code);
             }
-
-            return static_cast<WorkerMessageType>(code);
+            throw WorkerProtocolException(WorkerProtocolFailure::UnknownMessageType);
         }
 
         bool IsOpaqueIdentifier(const std::string& value) noexcept
@@ -178,6 +193,7 @@ namespace clear_dictate
                 case WorkerMessageType::CancellationAcknowledged:
                 case WorkerMessageType::OperationCancelled:
                 case WorkerMessageType::RecordingStarted:
+                case WorkerMessageType::RecordingComplete:
                     if (!payload.empty())
                     {
                         throw WorkerProtocolException(WorkerProtocolFailure::InvalidMessagePayload);
@@ -191,7 +207,6 @@ namespace clear_dictate
                     }
                     return;
 
-                case WorkerMessageType::AudioLevel:
                 case WorkerMessageType::Error:
                 case WorkerMessageType::ControlError:
                     if (payload.size() != FixedValuePayloadBytes)
@@ -207,17 +222,10 @@ namespace clear_dictate
                     }
                     return;
 
-                case WorkerMessageType::PartialTranscript:
+                case WorkerMessageType::AudioChunk:
                     if (payload.empty())
                     {
                         throw WorkerProtocolException(WorkerProtocolFailure::InvalidMessagePayload);
-                    }
-                    return;
-
-                case WorkerMessageType::FinalTranscript:
-                    if (!IsValidUtf8(payload))
-                    {
-                        throw WorkerProtocolException(WorkerProtocolFailure::InvalidUtf8);
                     }
                     return;
 

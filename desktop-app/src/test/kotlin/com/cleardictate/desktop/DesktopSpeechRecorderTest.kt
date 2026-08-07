@@ -1,52 +1,43 @@
 package com.cleardictate.desktop
 
-import com.cleardictate.desktop.inference.WindowsSpeechRecording
-import com.cleardictate.domain.StreamingTranscriptSnapshot
-import com.cleardictate.inference.CancellationAcknowledgement
+import com.cleardictate.desktop.inference.CapturedAudio
 import com.cleardictate.inference.InferenceOperationContext
 import com.cleardictate.inference.OperationIdentifier
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Path
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
+/**
+ * Verifies that the desktop recorder owns capture operations without invoking recognition.
+ */
 class DesktopSpeechRecorderTest
 {
     @Test
-    fun `start and stop use one lazily started worker and clear the active operation`() = runTest {
-        val workerFactory = RecordingSpeechWorkerFactory()
+    fun `release returns captured audio and reuses one worker`() = runTest {
+        val workerFactory = RecordingCaptureWorkerFactory()
         val recorder = DesktopSpeechRecorder(readyConfiguration(), workerFactory)
 
-        val firstRecording = recorder.startRecording()
-        val firstFinalTranscript = recorder.stopRecording()
-        val secondRecording = recorder.startRecording()
+        recorder.startRecording("")
+        val firstOperation = workerFactory.worker.startedOperationIdentifier
+        val capturedAudio = recorder.stopRecording()
+        recorder.startRecording("")
+        val secondOperation = workerFactory.worker.startedOperationIdentifier
 
-        assertEquals("recognized speech", firstFinalTranscript)
-        assertTrue(firstRecording.operationIdentifier != secondRecording.operationIdentifier)
+        assertContentEquals(floatArrayOf(0.25F, -0.5F), capturedAudio.samples)
+        assertNotEquals(firstOperation, secondOperation)
         assertEquals(1, workerFactory.createdWorkerCount)
+        recorder.cancelRecording()
         recorder.close()
         assertTrue(workerFactory.worker.closed)
     }
 
     @Test
-    fun `cancel waits for worker acknowledgement before another recording can start`() = runTest {
-        val workerFactory = RecordingSpeechWorkerFactory()
-        val recorder = DesktopSpeechRecorder(readyConfiguration(), workerFactory)
-
-        val cancelledRecording = recorder.startRecording()
-        recorder.cancelRecording()
-        val replacementRecording = recorder.startRecording()
-
-        assertEquals(cancelledRecording.operationIdentifier, workerFactory.worker.cancelledOperationIdentifier)
-        assertTrue(cancelledRecording.operationIdentifier != replacementRecording.operationIdentifier)
-        recorder.close()
-    }
-
-    @Test
-    fun `selected microphone endpoint is passed unchanged to the speech worker`() = runTest {
-        val workerFactory = RecordingSpeechWorkerFactory()
+    fun `selected microphone endpoint is passed unchanged`() = runTest {
+        val workerFactory = RecordingCaptureWorkerFactory()
         val recorder = DesktopSpeechRecorder(readyConfiguration(), workerFactory)
 
         recorder.startRecording("{0.0.1.00000000}.selected-endpoint")
@@ -59,51 +50,49 @@ class DesktopSpeechRecorderTest
     private fun readyConfiguration(): DesktopRuntimeConfiguration
     {
         return DesktopRuntimeConfiguration(
-            workerExecutable = Path.of("C:/ClearDictate/clear_dictate_worker.exe"),
-            speechWorkerExecutable = Path.of("C:/ClearDictate/clear_dictate_speech_worker.exe"),
+            textWorkerExecutable = Path.of("C:/ClearDictate/clear_dictate_worker.exe"),
+            audioCaptureWorkerExecutable = Path.of("C:/ClearDictate/clear_dictate_audio_capture_worker.exe"),
             audioDeviceEnumeratorExecutable = Path.of("C:/ClearDictate/clear_dictate_audio_device_enumerator.exe"),
             workerLauncherExecutable = Path.of("C:/ClearDictate/clear_dictate_worker_launcher.exe"),
-            modelPath = Path.of("C:/ClearDictate/qwen.gguf"),
-            speechModelDirectory = Path.of("C:/ClearDictate/moonshine")
+            pythonExecutable = Path.of("C:/ClearDictate/python.exe"),
+            asrWorkerScript = Path.of("C:/ClearDictate/qwen_asr_worker.py"),
+            asrModelLock = Path.of("C:/ClearDictate/qwen3-asr-lock.json"),
+            textModelPath = Path.of("C:/ClearDictate/qwen3.5.gguf"),
+            asrModelDirectory = Path.of("C:/ClearDictate/qwen3-asr")
         )
     }
 
-    private class RecordingSpeechWorkerFactory : DesktopSpeechWorkerFactory
+    private class RecordingCaptureWorkerFactory : DesktopAudioCaptureWorkerFactory
     {
-        val worker = RecordingSpeechWorker()
+        val worker = RecordingCaptureWorker()
         var createdWorkerCount = 0
 
-        override suspend fun start(configuration: DesktopRuntimeConfiguration): DesktopSpeechWorker
+        override suspend fun start(configuration: DesktopRuntimeConfiguration): DesktopAudioCaptureWorker
         {
             createdWorkerCount += 1
             return worker
         }
     }
 
-    private class RecordingSpeechWorker : DesktopSpeechWorker
+    private class RecordingCaptureWorker : DesktopAudioCaptureWorker
     {
         var startedEndpointIdentifier: String? = null
-        var cancelledOperationIdentifier: OperationIdentifier? = null
+        var startedOperationIdentifier: OperationIdentifier? = null
         var closed = false
 
-        override suspend fun startRecording(operationContext: InferenceOperationContext, endpointIdentifier: String): WindowsSpeechRecording
+        override suspend fun startRecording(operationContext: InferenceOperationContext, endpointIdentifier: String)
         {
             startedEndpointIdentifier = endpointIdentifier
-            return WindowsSpeechRecording(
-                operationIdentifier = operationContext.operationIdentifier,
-                transcript = MutableStateFlow(StreamingTranscriptSnapshot.EMPTY)
-            )
+            startedOperationIdentifier = operationContext.operationIdentifier
         }
 
-        override suspend fun stopRecording(operationIdentifier: OperationIdentifier): String
+        override suspend fun stopRecording(operationIdentifier: OperationIdentifier): CapturedAudio
         {
-            return "recognized speech"
+            return CapturedAudio(16_000, floatArrayOf(0.25F, -0.5F))
         }
 
-        override suspend fun cancel(operationIdentifier: OperationIdentifier): CancellationAcknowledgement
+        override suspend fun cancel(operationIdentifier: OperationIdentifier)
         {
-            cancelledOperationIdentifier = operationIdentifier
-            return CancellationAcknowledgement(operationIdentifier)
         }
 
         override fun close()

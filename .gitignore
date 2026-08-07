@@ -2,6 +2,7 @@
 .gradle/
 **/build/
 .tooling/
+__pycache__/
 
 # Android local machine configuration
 local.properties
@@ -13,6 +14,7 @@ local.properties
 **/.cxx/
 native-worker/build/
 native-worker/build-*/
+artifacts/visual-verification/
 
 # Generated application packages and installers
 *.apk

@@ -79,18 +79,18 @@ class WorkerProtocolStateMachineTest
         stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.START_RECORDING))
 
         assertFailsWith<WorkerProtocolStateException> {
-            stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.PARTIAL_TRANSCRIPT))
+            stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.AUDIO_CHUNK))
         }
 
         stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.RECORDING_STARTED))
-        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.PARTIAL_TRANSCRIPT))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.AUDIO_CHUNK))
 
         assertFailsWith<WorkerProtocolStateException> {
-            stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.FINAL_TRANSCRIPT))
+            stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.RECORDING_COMPLETE))
         }
 
         stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.STOP_RECORDING))
-        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.FINAL_TRANSCRIPT))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.RECORDING_COMPLETE))
 
         assertEquals(WorkerLifecycleState.IDLE, stateMachine.state)
     }
@@ -109,7 +109,7 @@ class WorkerProtocolStateMachineTest
         stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.CANCELLATION_ACKNOWLEDGED))
 
         assertFailsWith<WorkerProtocolStateException> {
-            stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.PARTIAL_TRANSCRIPT))
+            stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.AUDIO_CHUNK))
         }
 
         stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.OPERATION_CANCELLED))
@@ -134,12 +134,12 @@ class WorkerProtocolStateMachineTest
         stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.START_RECORDING))
         stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.CANCEL))
         stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.RECORDING_STARTED))
-        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.AUDIO_LEVEL))
-        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.PARTIAL_TRANSCRIPT))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.AUDIO_CHUNK))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.AUDIO_CHUNK))
         stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.CANCELLATION_ACKNOWLEDGED))
 
         assertFailsWith<WorkerProtocolStateException> {
-            stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.PARTIAL_TRANSCRIPT))
+            stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.AUDIO_CHUNK))
         }
 
         stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.OPERATION_CANCELLED))
@@ -153,9 +153,9 @@ class WorkerProtocolStateMachineTest
         stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.START_RECORDING))
         stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.RECORDING_STARTED))
         stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.STOP_RECORDING))
-        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.AUDIO_LEVEL))
-        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.PARTIAL_TRANSCRIPT))
-        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.FINAL_TRANSCRIPT))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.AUDIO_CHUNK))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.AUDIO_CHUNK))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.RECORDING_COMPLETE))
 
         assertEquals(WorkerLifecycleState.IDLE, stateMachine.state)
     }
@@ -178,8 +178,8 @@ class WorkerProtocolStateMachineTest
         stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.START_RECORDING))
         stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.RECORDING_STARTED))
         stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.CANCEL))
-        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.AUDIO_LEVEL))
-        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.PARTIAL_TRANSCRIPT))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.AUDIO_CHUNK))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.AUDIO_CHUNK))
         stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.CANCELLATION_ACKNOWLEDGED))
         stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.OPERATION_CANCELLED))
 
@@ -194,8 +194,8 @@ class WorkerProtocolStateMachineTest
         stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.RECORDING_STARTED))
         stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.STOP_RECORDING))
         stateMachine.acceptHostFrame(operationFrame(WorkerMessageType.CANCEL))
-        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.PARTIAL_TRANSCRIPT))
-        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.FINAL_TRANSCRIPT))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.AUDIO_CHUNK))
+        stateMachine.acceptWorkerFrame(operationFrame(WorkerMessageType.RECORDING_COMPLETE))
 
         assertEquals(WorkerLifecycleState.IDLE, stateMachine.state)
     }
