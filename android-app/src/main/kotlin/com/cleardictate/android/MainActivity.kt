@@ -61,6 +61,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cleardictate.inference.OperationPrivacy
+import com.cleardictate.inference.remote.PhonePairingPayload
 import com.cleardictate.inference.service.ClientRecordingState
 import com.cleardictate.inference.service.InferenceClientState
 import com.cleardictate.inference.service.InferenceConnectionState
@@ -69,6 +70,9 @@ import com.cleardictate.inference.service.PcDictationClient
 import com.cleardictate.inference.service.PcDictationEndpoint
 import com.cleardictate.inference.service.PcEndpointPreferences
 import com.cleardictate.inference.service.SpeechModelState
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -127,6 +131,13 @@ private fun ClearDictateScreen(inferenceServiceClient: InferenceServiceClient)
     val permissions = remember(context) { RecordingPermissionState(context) }
     val endpointPreferences = remember(context) { PcEndpointPreferences(context) }
     val transport = remember { PcDictationClient() }
+    val pairingScanner = remember(context) {
+        val options = GmsBarcodeScannerOptions.Builder()
+            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+            .enableAutoZoom()
+            .build()
+        GmsBarcodeScanning.getClient(context, options)
+    }
     val savedEndpoint = remember { endpointPreferences.load() }
     var baseUrl by rememberSaveable { mutableStateOf(savedEndpoint?.baseUrl.orEmpty()) }
     var authorizationToken by remember { mutableStateOf(savedEndpoint?.authorizationToken.orEmpty()) }
@@ -177,18 +188,13 @@ private fun ClearDictateScreen(inferenceServiceClient: InferenceServiceClient)
         }
     }
 
-    val connect: () -> Unit = {
+    val connectEndpoint: (PcDictationEndpoint) -> Unit = { endpoint ->
         focusManager.clearFocus()
         manualConnectionAttempted = true
         connectionCheckRunning = true
         connectionMessage = "Connecting…"
         coroutineScope.launch {
-            val endpoint = runCatching { PcDictationEndpoint(baseUrl.trim(), authorizationToken.trim()) }.getOrNull()
-            if (endpoint == null)
-            {
-                connectionMessage = "Enter a valid PC address and token."
-            }
-            else if (runCatching { transport.checkHealth(endpoint) }.getOrDefault(false))
+            if (runCatching { transport.checkHealth(endpoint) }.getOrDefault(false))
             {
                 endpointPreferences.save(endpoint.baseUrl, endpoint.authorizationToken)
                 pairedEndpointExists = true
@@ -208,9 +214,48 @@ private fun ClearDictateScreen(inferenceServiceClient: InferenceServiceClient)
             connectionCheckRunning = false
         }
     }
+    val connect: () -> Unit = {
+        val endpoint = runCatching { PcDictationEndpoint(baseUrl.trim(), authorizationToken.trim()) }.getOrNull()
+        if (endpoint == null)
+        {
+            connectionMessage = "Enter a valid PC address and token."
+        }
+        else
+        {
+            connectEndpoint(endpoint)
+        }
+    }
+    val scanPairing: () -> Unit = {
+        connectionMessage = "Opening QR scanner…"
+        pairingScanner.startScan()
+            .addOnSuccessListener { barcode ->
+                val payload = runCatching { PhonePairingPayload.decode(barcode.rawValue.orEmpty()) }.getOrNull()
+                if (payload == null)
+                {
+                    connectionMessage = "That is not a valid ClearDictate pairing code."
+                }
+                else
+                {
+                    val endpoint = runCatching { PcDictationEndpoint(payload.endpointUrl, payload.authorizationToken) }.getOrNull()
+                    if (endpoint == null)
+                    {
+                        connectionMessage = "The pairing code contains an invalid PC address."
+                    }
+                    else
+                    {
+                        baseUrl = payload.endpointUrl
+                        authorizationToken = payload.authorizationToken
+                        connectEndpoint(endpoint)
+                    }
+                }
+            }
+            .addOnCanceledListener { connectionMessage = "Pairing scan cancelled." }
+            .addOnFailureListener { connectionMessage = "Could not open the QR scanner." }
+    }
 
     val actions = ScreenActions(
         connect = connect,
+        scanPairing = scanPairing,
         requestPermissions = { permissionLauncher.launch(permissions.requiredPermissions()) },
         openPermissionSettings = {
             context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
@@ -270,6 +315,7 @@ private data class ScreenState(
  */
 private data class ScreenActions(
     val connect: () -> Unit,
+    val scanPairing: () -> Unit,
     val requestPermissions: () -> Unit,
     val openPermissionSettings: () -> Unit,
     val enableKeyboard: () -> Unit,
@@ -301,7 +347,7 @@ private fun ScreenContent(
         ) {
             Text("ClearDictate", style = MaterialTheme.typography.headlineLarge)
             Text("Speak on this phone. Your completed recording is transcribed and polished by your PC.")
-            PairingCard(baseUrl, authorizationToken, state, onBaseUrlChanged, onAuthorizationTokenChanged, actions.connect)
+            PairingCard(baseUrl, authorizationToken, state, onBaseUrlChanged, onAuthorizationTokenChanged, actions.connect, actions.scanPairing)
             SetupCard(state, actions)
             RecordingCard(state, actions)
             if (state.clientState.failureMessage != null)
@@ -323,7 +369,8 @@ private fun PairingCard(
     state: ScreenState,
     onBaseUrlChanged: (String) -> Unit,
     onAuthorizationTokenChanged: (String) -> Unit,
-    onConnect: () -> Unit
+    onConnect: () -> Unit,
+    onScanPairing: () -> Unit
 )
 {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -346,8 +393,13 @@ private fun PairingCard(
                 label = { Text("Pairing token") },
                 visualTransformation = PasswordVisualTransformation()
             )
-            Button(onClick = onConnect, enabled = !state.connectionCheckRunning && baseUrl.isNotBlank() && authorizationToken.isNotBlank()) {
-                Text(if (state.connectionCheckRunning) "Connecting…" else "Connect")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onScanPairing, enabled = !state.connectionCheckRunning) {
+                    Text("Scan QR")
+                }
+                OutlinedButton(onClick = onConnect, enabled = !state.connectionCheckRunning && baseUrl.isNotBlank() && authorizationToken.isNotBlank()) {
+                    Text(if (state.connectionCheckRunning) "Connecting…" else "Connect manually")
+                }
             }
             Text(state.connectionMessage, style = MaterialTheme.typography.bodySmall)
             Text("Development build: use only on a trusted private Wi-Fi network.", style = MaterialTheme.typography.bodySmall)

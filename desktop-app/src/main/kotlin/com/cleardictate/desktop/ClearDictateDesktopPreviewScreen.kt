@@ -1,6 +1,7 @@
 package com.cleardictate.desktop
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -239,9 +241,9 @@ fun ClearDictateDesktopPreviewScreen(
                 PhoneSetupDialog(
                     configuration = phoneAccessConfiguration,
                     serverStatus = phoneServerStatus,
-                    onCopy = {
+                    onCopy = { pairingText ->
                         scope.launch {
-                            clipboard.setClipEntry(ClipEntry(StringSelection(phoneAccessConfiguration.pairingText)))
+                            clipboard.setClipEntry(ClipEntry(StringSelection(pairingText)))
                             status = "Phone setup copied"
                         }
                     },
@@ -256,20 +258,50 @@ fun ClearDictateDesktopPreviewScreen(
  * Exposes developer pairing details without adding permanent instructional text to the compact dictation surface.
  */
 @Composable
-private fun PhoneSetupDialog(configuration: DesktopPhoneAccessConfiguration, serverStatus: String, onCopy: () -> Unit, onDismiss: () -> Unit)
+private fun PhoneSetupDialog(configuration: DesktopPhoneAccessConfiguration, serverStatus: String, onCopy: (String) -> Unit, onDismiss: () -> Unit)
 {
-    val endpoints = configuration.endpointUrls.ifEmpty { listOf("No private IPv4 address found") }
+    var selectedEndpointIndex by remember(configuration.endpointUrls) { mutableIntStateOf(0) }
+    val selectedEndpoint = configuration.endpointUrls.getOrNull(selectedEndpointIndex)
+    val pairingPayload = selectedEndpoint?.let(configuration::pairingPayload)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Phone connection") },
         text = {
-            SelectionContainer {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Status: $serverStatus")
-                    Text(endpoints.joinToString(separator = "\n"))
-                    Text("Token: ${configuration.authorizationToken}")
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Status: $serverStatus", modifier = Modifier.fillMaxWidth())
+                if (pairingPayload == null)
+                {
+                    Text("No private IPv4 address found", modifier = Modifier.fillMaxWidth())
+                }
+                else
+                {
+                    val qrCode = remember(pairingPayload) { DesktopPhonePairingQrCode.render(pairingPayload.encode()) }
+                    Image(qrCode, "QR code for pairing this phone with ClearDictate", modifier = Modifier.size(220.dp))
+                    SelectionContainer {
+                        Column {
+                            Text(pairingPayload.endpointUrl)
+                            Text("Token: ${configuration.authorizationToken}")
+                        }
+                    }
+                    if (configuration.endpointUrls.size > 1)
+                    {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = {
+                                selectedEndpointIndex = (selectedEndpointIndex - 1 + configuration.endpointUrls.size) % configuration.endpointUrls.size
+                            }) {
+                                Text("Previous address")
+                            }
+                            TextButton(onClick = {
+                                selectedEndpointIndex = (selectedEndpointIndex + 1) % configuration.endpointUrls.size
+                            }) {
+                                Text("Next address")
+                            }
+                        }
+                    }
+                }
+                SelectionContainer {
                     Text(
-                        "Developer transport only: audio is authenticated but not yet encrypted. Use a trusted private network.",
+                        "Scan in the Android app. Audio is authenticated but not encrypted, so use a trusted private network.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error
                     )
@@ -277,7 +309,7 @@ private fun PhoneSetupDialog(configuration: DesktopPhoneAccessConfiguration, ser
             }
         },
         confirmButton = {
-            TextButton(onClick = onCopy) {
+            TextButton(onClick = { pairingPayload?.let { payload -> onCopy(payload.encode()) } }, enabled = pairingPayload != null) {
                 Text("Copy details")
             }
         },

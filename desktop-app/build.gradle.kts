@@ -16,6 +16,7 @@ dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
     implementation(libs.kotlin.coroutines.swing)
+    implementation(libs.zxing.core)
 
     testImplementation(kotlin("test"))
     testImplementation(libs.kotlin.coroutines.test)

@@ -1,5 +1,6 @@
 package com.cleardictate.desktop
 
+import com.cleardictate.inference.remote.PhonePairingPayload
 import java.net.Inet4Address
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
@@ -18,8 +19,14 @@ data class DesktopPhoneAccessConfiguration(
 {
     val bindAddress = InetSocketAddress("0.0.0.0", port)
 
-    val pairingText: String
-        get() = endpointUrls.joinToString(separator = "\n") + "\nToken: $authorizationToken"
+    /**
+     * Creates the exact payload shown in the QR code after confirming the address belongs to this host configuration.
+     */
+    fun pairingPayload(endpointUrl: String): PhonePairingPayload
+    {
+        require(endpointUrl in endpointUrls) { "The pairing endpoint is not advertised by this PC." }
+        return PhonePairingPayload(endpointUrl, authorizationToken)
+    }
 
     companion object
     {

@@ -7,7 +7,7 @@ Current implemented capabilities, with verification boundaries listed below:
 
 - deterministic Raw and Clean transcript processing;
 - protected-value validation and fail-closed Polished fallback;
-- an Android standalone recorder and system Input Method Editor with PC pairing, foreground microphone capture, live input level, processing feedback, review/insert, and sensitive-field blocking;
+- an Android standalone recorder and system Input Method Editor with QR or manual PC pairing, explicit PC reconnect, foreground microphone capture, live input level, processing feedback, review/insert, and sensitive-field blocking;
 - a bounded, versioned Kotlin/C++ worker protocol;
 - a persistent CUDA Windows text worker using Qwen3.5 9B Q6_K through pinned llama.cpp;
 - cryptographic model verification before same-handle loading;

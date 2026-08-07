@@ -376,6 +376,13 @@ class ClearDictateInputMethodService : android.inputmethodservice.InputMethodSer
                 recordingActive = recordingActive
             )
 
+            if (clientState.connectionState == InferenceConnectionState.CONNECTED && clientState.speechModelState == SpeechModelState.FAILED)
+            {
+                OutlinedButton(onClick = inferenceServiceClient::retrySpeechModelPreparation) {
+                    Text("Retry PC")
+                }
+            }
+
             if (recordingActive)
             {
                 OutlinedButton(onClick = inferenceServiceClient::cancelDictation) {

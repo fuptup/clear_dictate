@@ -84,9 +84,10 @@ Wait for **Ready**, select a microphone, hold **Hold to talk**, speak, and relea
 
 ## Developer phone endpoint
 
-After both models reach **Ready**, ClearDictate listens on port `8765` for the versioned completed-audio protocol. Open **Phone** to view the active
-private-network addresses and persistent bearer token or copy both together. The service accepts authenticated 16 kHz mono PCM16 recordings at
+After both models reach **Ready**, ClearDictate listens on port `8765` for the versioned completed-audio protocol. Open **Phone**, choose the address on the phone's
+Wi-Fi network when several are available, and scan its QR code from the Android application. The address and persistent bearer token remain selectable as a manual
+fallback. The service accepts authenticated 16 kHz mono PCM16 recordings at
 `/v1/dictation`, runs the same serialized Qwen3-ASR and Qwen3.5 pipeline used by desktop capture, and returns only the polished UTF-8 transcript.
 
-The Android Debug recorder and keyboard use this endpoint after the address and token are entered in the phone application. The transport is authenticated but not
-encrypted, so use it only on a trusted private network. Certificate-based pairing remains required before production use.
+The Android Debug recorder and keyboard use this endpoint after QR or manual pairing. The transport is authenticated but not encrypted, so use it only on a trusted
+private network. Certificate-based pairing remains required before production use.
