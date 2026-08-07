@@ -1,6 +1,9 @@
 package com.cleardictate.desktop
 
 import com.cleardictate.desktop.inference.CapturedAudio
+import com.cleardictate.inference.remote.RemotePcmAudio
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Captures one push-to-talk utterance without performing recognition while the control is held.
@@ -44,6 +47,8 @@ class DesktopDictationPipeline(
     private val transcriptRewriter: DesktopTranscriptRewriter
 ) : AutoCloseable
 {
+    private val inferenceMutex = Mutex()
+
     /**
      * Loads both persistent inference workers before dictation is enabled.
      */
@@ -60,17 +65,28 @@ class DesktopDictationPipeline(
 
     suspend fun finishDictation(): DesktopDictationResult
     {
-        val capturedAudio = audioRecorder.stopRecording()
+        return processCapturedAudio(audioRecorder.stopRecording())
+    }
+
+    /**
+     * Converts one completed phone recording and runs it through the same serialized GPU pipeline as desktop capture.
+     */
+    suspend fun processRemoteDictation(remoteAudio: RemotePcmAudio): DesktopDictationResult
+    {
+        val normalizedSamples = FloatArray(remoteAudio.samples.size)
         try
         {
-            val rawTranscript = speechTranscriber.transcribe(capturedAudio)
-            val polishedTranscript = transcriptRewriter.rewrite(rawTranscript)
-            return DesktopDictationResult(rawTranscript = rawTranscript, polishedTranscript = polishedTranscript)
+            for (sampleIndex in remoteAudio.samples.indices)
+            {
+                normalizedSamples[sampleIndex] = remoteAudio.samples[sampleIndex] / 32_768.0F
+            }
         }
         finally
         {
-            capturedAudio.samples.fill(0.0F)
+            remoteAudio.samples.fill(0)
         }
+
+        return processCapturedAudio(CapturedAudio(remoteAudio.sampleRateHertz, normalizedSamples))
     }
 
     suspend fun cancelDictation()
@@ -83,5 +99,24 @@ class DesktopDictationPipeline(
         speechTranscriber.close()
         transcriptRewriter.close()
         audioRecorder.close()
+    }
+
+    /**
+     * Serializes access to both persistent model workers and erases normalized audio on every terminal path.
+     */
+    private suspend fun processCapturedAudio(capturedAudio: CapturedAudio): DesktopDictationResult
+    {
+        return inferenceMutex.withLock {
+            try
+            {
+                val rawTranscript = speechTranscriber.transcribe(capturedAudio)
+                val polishedTranscript = transcriptRewriter.rewrite(rawTranscript)
+                DesktopDictationResult(rawTranscript = rawTranscript, polishedTranscript = polishedTranscript)
+            }
+            finally
+            {
+                capturedAudio.samples.fill(0.0F)
+            }
+        }
     }
 }

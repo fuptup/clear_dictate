@@ -6,6 +6,7 @@ plugins {
 android {
     namespace = "com.cleardictate.inference.service"
     compileSdk = 36
+    buildToolsVersion = "36.0.0"
 
     defaultConfig {
         minSdk = 28
@@ -37,4 +38,5 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation(libs.junit4)
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }

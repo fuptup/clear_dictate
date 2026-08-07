@@ -19,9 +19,22 @@ fun main() = application {
     val dictationPipeline = remember(speechRecorder, speechTranscriber, transcriptProcessor) {
         DesktopDictationPipeline(speechRecorder, speechTranscriber, transcriptProcessor)
     }
+    val phoneAccessConfiguration = remember { DesktopPhoneAccessConfiguration.loadOrCreate() }
+    val phoneServer = remember(dictationPipeline, phoneAccessConfiguration) {
+        DesktopRemoteDictationServer(
+            bindAddress = phoneAccessConfiguration.bindAddress,
+            authorizationToken = phoneAccessConfiguration.authorizationToken,
+            dictationProcessor = DesktopRemoteDictationProcessor { audio ->
+                dictationPipeline.processRemoteDictation(audio).polishedTranscript
+            }
+        )
+    }
 
-    DisposableEffect(dictationPipeline) {
-        onDispose { dictationPipeline.close() }
+    DisposableEffect(dictationPipeline, phoneServer) {
+        onDispose {
+            phoneServer.close()
+            dictationPipeline.close()
+        }
     }
 
     Window(
@@ -29,6 +42,6 @@ fun main() = application {
         title = "ClearDictate",
         state = WindowState(width = 600.dp, height = 440.dp)
     ) {
-        ClearDictateDesktopPreviewScreen(runtimeReadiness, speechRecorder, dictationPipeline)
+        ClearDictateDesktopPreviewScreen(runtimeReadiness, speechRecorder, dictationPipeline, phoneAccessConfiguration, phoneServer)
     }
 }

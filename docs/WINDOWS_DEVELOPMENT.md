@@ -81,3 +81,9 @@ Double-click `Run-ClearDictate-Developer-Preview.cmd` or run:
 ```
 
 Wait for **Ready**, select a microphone, hold **Hold to talk**, speak, and release. ClearDictate loads both persistent model workers during startup so the first dictation does not also pay their loading cost.
+
+## Developer phone endpoint
+
+After both models reach **Ready**, ClearDictate listens on port `8765` for the versioned completed-audio protocol. Open **Phone** to view the active private-network addresses and persistent bearer token or copy both together. The service accepts authenticated 16 kHz mono PCM16 recordings at `/v1/dictation`, runs the same serialized Qwen3-ASR and Qwen3.5 pipeline used by desktop capture, and returns only the polished UTF-8 transcript.
+
+This first transport layer is authenticated but not encrypted. Use it only on a trusted private network. Certificate-based pairing and Android keyboard integration remain required before production use.

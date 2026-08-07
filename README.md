@@ -13,7 +13,8 @@ Current implemented capabilities, with verification boundaries listed below:
 - cryptographic model verification before same-handle loading;
 - a synchronous, drained cancellation contract in the Windows worker and asynchronous cancellation fencing, native drain, and process watchdogs on Android;
 - a real Kotlin-to-worker integration test through the semantic-safety pipeline;
-- a Windows push-to-talk preview with compact microphone selection, release-triggered Qwen3-ASR 1.7B recognition, automatic Qwen3.5 polishing, editable polished output, and clipboard copying.
+- a Windows push-to-talk preview with compact microphone selection, release-triggered Qwen3-ASR 1.7B recognition, automatic Qwen3.5 polishing, editable polished output, and clipboard copying;
+- a bounded PCM16 phone protocol, authenticated Windows developer endpoint, and Android transport client for sending completed recordings to the PC GPU pipeline.
 
 Important current limitations:
 
@@ -23,7 +24,9 @@ Important current limitations:
 - the locally patched Moonshine Android library needs a long-duration device soak before the Android slice can be called production-ready;
 - the locally patched llama.cpp Android library and Qwen polishing path have build and host-side test coverage but have not yet run on a physical Android device;
 - the Windows executable is a Debug development artifact and depends on Microsoft Debug runtimes; it is not a distributable installer;
-- measured tests on the target Motorola Edge+ phones have not yet been performed.
+- measured tests on the target Motorola Edge+ phones have not yet been performed;
+- the Android recorder and input method still use the on-device inference service; the PC transport client is proven independently but is not yet wired into their recording lifecycle;
+- the current developer LAN endpoint uses authenticated cleartext HTTP and must be used only on a trusted private network until certificate pairing is implemented.
 
 See [Windows development instructions](docs/WINDOWS_DEVELOPMENT.md) and [Android development instructions](docs/ANDROID_DEVELOPMENT.md) for the exact local workflows.
 

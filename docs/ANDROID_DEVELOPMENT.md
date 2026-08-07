@@ -4,6 +4,8 @@ ClearDictate currently builds an Android Debug application containing the standa
 system input method, private inference service, a locally patched Moonshine speech engine, and a
 locally patched llama.cpp text engine for Qwen polishing.
 
+The inference service also contains the first PC transport client. It encodes one completed 16 kHz mono PCM16 recording with the shared bounded protocol, authenticates to the paired Windows endpoint, returns only the polished transcript, and erases its audio buffer after upload. This client is covered by real HTTP request tests but is not yet connected to the standalone recorder or input method; those surfaces continue to use the on-device inference service in this increment.
+
 ## Moonshine native dependency
 
 Moonshine Voice is pinned to commit `cc1695646a560f2eec7f7c058f3c4d580f039e4b`.

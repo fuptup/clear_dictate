@@ -7,6 +7,7 @@ plugins {
 android {
     namespace = "com.cleardictate.android"
     compileSdk = 36
+    buildToolsVersion = "36.0.0"
 
     defaultConfig {
         applicationId = "com.cleardictate.app"

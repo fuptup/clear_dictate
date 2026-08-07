@@ -5,6 +5,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,6 +14,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
@@ -25,6 +28,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -56,7 +60,9 @@ import java.awt.datatransfer.StringSelection
 fun ClearDictateDesktopPreviewScreen(
     runtimeReadiness: DesktopRuntimeReadiness,
     speechRecorder: DesktopSpeechRecorder,
-    dictationPipeline: DesktopDictationPipeline
+    dictationPipeline: DesktopDictationPipeline,
+    phoneAccessConfiguration: DesktopPhoneAccessConfiguration,
+    phoneServer: DesktopRemoteDictationServer
 )
 {
     MaterialTheme {
@@ -74,8 +80,10 @@ fun ClearDictateDesktopPreviewScreen(
             var rawTranscript by remember { mutableStateOf("") }
             var polishedTranscript by remember { mutableStateOf("") }
             var status by remember { mutableStateOf(if (ready) "Preparing AI…" else (runtimeReadiness as DesktopRuntimeReadiness.Unavailable).explanation) }
+            var phoneServerStatus by remember { mutableStateOf("Waiting for AI") }
+            var showPhoneSetup by remember { mutableStateOf(false) }
 
-            LaunchedEffect(ready, speechRecorder, dictationPipeline)
+            LaunchedEffect(ready, speechRecorder, dictationPipeline, phoneServer)
             {
                 if (ready)
                 {
@@ -86,6 +94,15 @@ fun ClearDictateDesktopPreviewScreen(
                         dictationPipeline.prepareModels()
                         modelsReady = true
                         status = "Ready"
+                        phoneServerStatus = try
+                        {
+                            phoneServer.start()
+                            "Ready"
+                        }
+                        catch (_: Exception)
+                        {
+                            "Unavailable: could not open port ${phoneAccessConfiguration.port}"
+                        }
                     }
                     catch (cancellation: CancellationException)
                     {
@@ -109,6 +126,14 @@ fun ClearDictateDesktopPreviewScreen(
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("ClearDictate", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.weight(1.0F))
+                    OutlinedButton(
+                        onClick = { showPhoneSetup = true },
+                        modifier = Modifier.width(74.dp).height(40.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp)
+                    ) {
+                        Text("Phone")
+                    }
+                    Spacer(Modifier.width(8.dp))
                     MicrophoneDropdown(
                         captureDevices,
                         selectedEndpointIdentifier,
@@ -208,8 +233,60 @@ fun ClearDictateDesktopPreviewScreen(
                     }
                 }
             }
+
+            if (showPhoneSetup)
+            {
+                PhoneSetupDialog(
+                    configuration = phoneAccessConfiguration,
+                    serverStatus = phoneServerStatus,
+                    onCopy = {
+                        scope.launch {
+                            clipboard.setClipEntry(ClipEntry(StringSelection(phoneAccessConfiguration.pairingText)))
+                            status = "Phone setup copied"
+                        }
+                    },
+                    onDismiss = { showPhoneSetup = false }
+                )
+            }
         }
     }
+}
+
+/**
+ * Exposes developer pairing details without adding permanent instructional text to the compact dictation surface.
+ */
+@Composable
+private fun PhoneSetupDialog(configuration: DesktopPhoneAccessConfiguration, serverStatus: String, onCopy: () -> Unit, onDismiss: () -> Unit)
+{
+    val endpoints = configuration.endpointUrls.ifEmpty { listOf("No private IPv4 address found") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Phone connection") },
+        text = {
+            SelectionContainer {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Status: $serverStatus")
+                    Text(endpoints.joinToString(separator = "\n"))
+                    Text("Token: ${configuration.authorizationToken}")
+                    Text(
+                        "Developer transport only: audio is authenticated but not yet encrypted. Use a trusted private network.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onCopy) {
+                Text("Copy details")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
 }
 
 /**
