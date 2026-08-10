@@ -6,10 +6,12 @@ The Windows preview is an offline push-to-talk application. Holding the control 
 it stops capture, sends the completed in-memory recording to Qwen3-ASR 1.7B on CUDA, then sends the raw transcript to Qwen3.5 9B Q6_K for local polishing. Only the
 polished text is selected for copying or editing.
 
-Recognition never runs while the button is held. Audio is not written to disk and is overwritten after transcription. The native capture worker, Python ASR worker,
-and llama.cpp text worker communicate through private pipes. Process isolation is a crash and ownership boundary, not a hostile-code sandbox.
+Recognition never runs while the button is held. After a successful result, ClearDictate stores the audio as a mono PCM16 WAV BLOB together with both transcripts,
+UTC capture datetime, and queue/ASR/rewrite/total durations in `%LOCALAPPDATA%\ClearDictate\dictation-history.sqlite`; the in-memory capture samples are then
+overwritten. The native capture worker, Python ASR worker, and llama.cpp text worker communicate through private pipes. Process isolation is a crash and ownership
+boundary, not a hostile-code sandbox.
 
-The system-wide shortcut, focused-application insertion, history, installer, and device-compatibility matrix remain separate product work.
+The system-wide shortcut, focused-application insertion, history browsing/export, installer, and device-compatibility matrix remain separate product work.
 
 ## Locked inputs
 
@@ -70,7 +72,8 @@ $env:GRADLE_OPTS='-DclearDictate.workerExecutable=E:/VoiceToText/native-worker/b
 .\gradlew.bat :desktop-inference:realWorkerIntegrationTest --rerun-tasks
 ```
 
-The ASR fixture check prints the recognized public fixture text. The desktop application never prints or saves microphone transcripts.
+The ASR fixture check prints the recognized public fixture text. The desktop application never prints microphone transcripts; successful dictations are retained in the
+local SQLite history database described above.
 
 ## Run the preview
 

@@ -22,8 +22,13 @@ rejection, editor changes, cancellation, and keyboard lifecycle changes. Reusabl
 buffers are overwritten with zeroes as they leave the recognition path and again at session
 teardown.
 
-ClearDictate does not currently implement transcript history on Android. When history is added, it
-must remain local, user-controlled, and disabled for private editor sessions.
+Each successful desktop or Android dictation is retained locally on the Windows server in
+`%LOCALAPPDATA%\ClearDictate\dictation-history.sqlite`. Each record contains the complete mono
+PCM16 WAV audio, the Qwen3-ASR transcript, the Qwen3.5 polished text, UTC capture datetime, and
+queue, recognition, rewriting, and total PC-pipeline durations. The database is not uploaded or
+shared with Android clients. This retention is intended for local review and preparing explicit
+fine-tuning data; it applies to every successful dictation because the PC pipeline does not receive
+the Android editor's sensitivity classification.
 
 The current Android and Windows outputs are Debug development artifacts. Device validation is still
 required for operating-system microphone restrictions, audio-route changes, permission revocation,

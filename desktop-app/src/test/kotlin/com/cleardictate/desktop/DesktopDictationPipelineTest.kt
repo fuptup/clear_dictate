@@ -82,6 +82,9 @@ class DesktopDictationPipelineTest
                 override fun close()
                 {
                 }
+            },
+            dictationHistory = DesktopDictationHistory { _, capturedAudio, result ->
+                events += "store:${capturedAudio.samples.size}:${result.polishedTranscript}"
             }
         )
 
@@ -104,7 +107,8 @@ class DesktopDictationPipelineTest
                 "start:headset-endpoint",
                 "stop",
                 "transcribe",
-                "rewrite:um send the report tomorrow"
+                "rewrite:um send the report tomorrow",
+                "store:2:Send the report tomorrow."
             ),
             events
         )
@@ -135,7 +139,8 @@ class DesktopDictationPipelineTest
                 override suspend fun prepare() = Unit
                 override suspend fun rewrite(rawTranscript: String) = "polished"
                 override fun close() = Unit
-            }
+            },
+            dictationHistory = DesktopDictationHistory { _, _, _ -> }
         )
 
         kotlinx.coroutines.test.runTest {

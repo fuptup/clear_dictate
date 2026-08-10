@@ -4,6 +4,7 @@ import com.cleardictate.desktop.inference.CapturedAudio
 import com.cleardictate.inference.remote.RemotePcmAudio
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.time.Instant
 
 /**
  * Captures one push-to-talk utterance without performing recognition while the control is held.
@@ -52,12 +53,21 @@ data class DesktopDictationResult(
 )
 
 /**
+ * Persists each successful completed dictation locally for review and future model-training preparation.
+ */
+fun interface DesktopDictationHistory
+{
+    suspend fun record(recordedAt: Instant, capturedAudio: CapturedAudio, result: DesktopDictationResult)
+}
+
+/**
  * Owns the release-triggered sequence: stop capture, transcribe, rewrite, then scrub audio.
  */
 class DesktopDictationPipeline(
     private val audioRecorder: DesktopAudioRecorder,
     private val speechTranscriber: DesktopSpeechTranscriber,
-    private val transcriptRewriter: DesktopTranscriptRewriter
+    private val transcriptRewriter: DesktopTranscriptRewriter,
+    private val dictationHistory: DesktopDictationHistory
 ) : AutoCloseable
 {
     private val inferenceMutex = Mutex()
@@ -130,6 +140,7 @@ class DesktopDictationPipeline(
      */
     private suspend fun processCapturedAudio(capturedAudio: CapturedAudio): DesktopDictationResult
     {
+        val recordedAt = Instant.now()
         val requestStartedNanoseconds = System.nanoTime()
         return inferenceMutex.withLock {
             try
@@ -139,7 +150,7 @@ class DesktopDictationPipeline(
                 val recognitionCompletedNanoseconds = System.nanoTime()
                 val polishedTranscript = transcriptRewriter.rewrite(rawTranscript)
                 val completedNanoseconds = System.nanoTime()
-                DesktopDictationResult(
+                val result = DesktopDictationResult(
                     rawTranscript = rawTranscript,
                     polishedTranscript = polishedTranscript,
                     timing = DesktopDictationTiming(
@@ -149,6 +160,8 @@ class DesktopDictationPipeline(
                         totalMilliseconds = elapsedMilliseconds(requestStartedNanoseconds, completedNanoseconds)
                     )
                 )
+                dictationHistory.record(recordedAt, capturedAudio, result)
+                result
             }
             finally
             {

@@ -74,6 +74,14 @@ output is a Debug development artifact, not a distributable release.
 
 Java Native Access is dual-licensed under the GNU Lesser General Public License 2.1-or-later or Apache License 2.0. ClearDictate elects the Apache License 2.0 option.
 
+## SQLite JDBC
+
+- Component: `org.xerial:sqlite-jdbc`
+- Version: `3.53.2.1`
+- Licences: Apache-2.0 and BSD-2-Clause
+
+SQLite JDBC provides the local Windows SQLite driver and bundles platform-native SQLite libraries in its runtime JAR.
+
 ## Kotlin, Jetpack Compose, and AndroidX
 
 The project uses Kotlin, Jetpack Compose, and AndroidX libraries under their published Apache License 2.0 terms. Exact resolved versions are declared in `gradle/libs.versions.toml` and the Android Compose Bill of Materials.

@@ -17,6 +17,7 @@ dependencies {
     implementation(compose.material3)
     implementation(libs.kotlin.coroutines.swing)
     implementation(libs.zxing.core)
+    implementation(libs.sqlite.jdbc)
 
     testImplementation(kotlin("test"))
     testImplementation(libs.kotlin.coroutines.test)

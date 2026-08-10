@@ -16,8 +16,9 @@ fun main() = application {
     val transcriptProcessor = remember(runtimeConfiguration) { DesktopTranscriptProcessor(runtimeConfiguration) }
     val speechRecorder = remember(runtimeConfiguration) { DesktopSpeechRecorder(runtimeConfiguration) }
     val speechTranscriber = remember(runtimeConfiguration) { QwenDesktopSpeechTranscriber(runtimeConfiguration) }
-    val dictationPipeline = remember(speechRecorder, speechTranscriber, transcriptProcessor) {
-        DesktopDictationPipeline(speechRecorder, speechTranscriber, transcriptProcessor)
+    val dictationHistory = remember { SqliteDesktopDictationHistory.openDefault() }
+    val dictationPipeline = remember(speechRecorder, speechTranscriber, transcriptProcessor, dictationHistory) {
+        DesktopDictationPipeline(speechRecorder, speechTranscriber, transcriptProcessor, dictationHistory)
     }
     val phoneAccessConfiguration = remember { DesktopPhoneAccessConfiguration.loadOrCreate() }
     val phoneServer = remember(dictationPipeline, phoneAccessConfiguration) {

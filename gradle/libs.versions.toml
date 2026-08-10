@@ -13,6 +13,7 @@ kotlinCoroutines = "1.10.2"
 workManager = "2.11.2"
 googleCodeScanner = "16.1.0"
 zxing = "3.5.4"
+sqliteJdbc = "3.53.2.1"
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivity" }
@@ -32,6 +33,7 @@ kotlin-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-te
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "workManager" }
 google-code-scanner = { module = "com.google.android.gms:play-services-code-scanner", version.ref = "googleCodeScanner" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
+sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqliteJdbc" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "androidGradlePlugin" }

@@ -15,6 +15,7 @@ Current implemented capabilities, with verification boundaries listed below:
 - a synchronous, drained cancellation contract in the Windows worker and asynchronous cancellation fencing on Android;
 - a real Kotlin-to-worker integration test through the semantic-safety pipeline;
 - a Windows push-to-talk preview with compact microphone selection, release-triggered Qwen3-ASR 1.7B recognition, automatic Qwen3.5 polishing, editable polished output, and clipboard copying;
+- a local SQLite dictation history that retains completed audio as WAV, both model outputs, UTC capture time, and each PC pipeline stage duration;
 - a bounded PCM16 phone protocol, authenticated Windows developer endpoint, and Android transport client for sending completed recordings to the PC GPU pipeline.
 
 Important current limitations:
