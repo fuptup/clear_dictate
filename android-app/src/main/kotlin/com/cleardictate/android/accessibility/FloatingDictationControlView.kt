@@ -8,6 +8,7 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.ProgressBar
+import com.cleardictate.android.R
 import com.cleardictate.inference.service.R as InferenceServiceResources
 
 /**
@@ -19,6 +20,38 @@ internal enum class FloatingDictationVisualState
     READY,
     RECORDING,
     PROCESSING
+}
+
+/**
+ * Renders the transient action that removes the most recent unchanged insertion.
+ */
+internal class FloatingUndoControlView(context: Context) : FrameLayout(context)
+{
+    init
+    {
+        isClickable = true
+        isFocusable = false
+        elevation = densityIndependentPixels(10).toFloat()
+        setPadding(densityIndependentPixels(10), densityIndependentPixels(10), densityIndependentPixels(10), densityIndependentPixels(10))
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(0xFF374151.toInt())
+            setStroke(densityIndependentPixels(2), 0x66FFFFFF)
+        }
+        addView(
+            ImageView(context).apply {
+                setImageResource(R.drawable.ic_cleardictate_undo)
+                setColorFilter(Color.WHITE)
+            },
+            LayoutParams(densityIndependentPixels(28), densityIndependentPixels(28), Gravity.CENTER)
+        )
+        contentDescription = "Remove last dictation"
+    }
+
+    private fun densityIndependentPixels(value: Int): Int
+    {
+        return (value * resources.displayMetrics.density).toInt()
+    }
 }
 
 /**

@@ -128,6 +128,11 @@ Completed text is fenced to the editor that was focused when recording began. Id
 mistaken for a different field; the fence still requires the same window, application, widget class, and view ID. Editors without a view ID must retain overlapping bounds.
 When an otherwise supported editor such as WhatsApp omits cursor and selection offsets from its accessibility node, ClearDictate appends to the existing value rather than
 replacing any existing text or rejecting the completed transcript.
+Accessibility hint text such as WhatsApp's **Message** placeholder is excluded from the editable value and is never inserted as content.
+
+After successful insertion, a smaller undo icon appears beside the microphone. ClearDictate retains only the field identity, inserted range, and a SHA-256 digest of the
+inserted segment. The icon removes that segment only while the same field still contains it unchanged, preserving all text that existed before insertion and any later text
+outside the inserted range. The undo record and icon are cleared after use or when focus moves to another editor.
 
 Check in this order:
 

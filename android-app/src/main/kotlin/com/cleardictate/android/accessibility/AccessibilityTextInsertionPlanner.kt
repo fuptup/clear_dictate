@@ -57,11 +57,16 @@ internal data class AccessibilityEditableText(
 /**
  * Returns the complete replacement required by AccessibilityNodeInfo.ACTION_SET_TEXT without retaining editor content.
  */
-internal data class AccessibilityTextReplacement(val text: String, val cursorPosition: Int)
+internal data class AccessibilityTextReplacement(
+    val text: String,
+    val cursorPosition: Int,
+    val insertedTextStart: Int,
+    val insertedTextEnd: Int
+)
 {
     override fun toString(): String
     {
-        return "AccessibilityTextReplacement(text=<redacted>, cursorPosition=$cursorPosition)"
+        return "AccessibilityTextReplacement(text=<redacted>, cursorPosition=$cursorPosition, insertedTextStart=$insertedTextStart, insertedTextEnd=$insertedTextEnd)"
     }
 }
 
@@ -119,9 +124,13 @@ internal class AccessibilityTextInsertionPlanner
 
         val prefix = currentField.text.substring(0, selectionStart)
         val suffix = currentField.text.substring(selectionEnd)
+        val insertedTextStart = prefix.length
+        val insertedTextEnd = insertedTextStart + decision.textToInsert.length
         return AccessibilityTextReplacement(
             text = prefix + decision.textToInsert + suffix,
-            cursorPosition = prefix.length + decision.textToInsert.length
+            cursorPosition = insertedTextEnd,
+            insertedTextStart = insertedTextStart,
+            insertedTextEnd = insertedTextEnd
         )
     }
 }

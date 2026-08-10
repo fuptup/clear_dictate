@@ -37,11 +37,14 @@ class ClearDictateAccessibilityService : AccessibilityService()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val securityInspector = AccessibilityEditorSecurityInspector()
     private val insertionPlanner = AccessibilityTextInsertionPlanner()
+    private val insertionUndoPlanner = AccessibilityInsertionUndoPlanner()
     private lateinit var inferenceServiceClient: InferenceServiceClient
     private lateinit var floatingControl: FloatingDictationControlView
+    private lateinit var floatingUndoControl: FloatingUndoControlView
     private lateinit var windowManager: WindowManager
     private var latestClientState = InferenceClientState()
     private var recordingField: AccessibilityFieldIdentity? = null
+    private var lastInsertionUndo: AccessibilityInsertionUndoRecord? = null
     private var recordingTouchActive = false
     private var lastHandledOperationIdentifier: String? = null
     private var closed = false
@@ -50,7 +53,7 @@ class ClearDictateAccessibilityService : AccessibilityService()
     {
         super.onServiceConnected()
         inferenceServiceClient = InferenceServiceClient(this)
-        createFloatingControl()
+        createFloatingControls()
         serviceScope.launch {
             inferenceServiceClient.state.collectLatest(::handleClientState)
         }
@@ -66,6 +69,12 @@ class ClearDictateAccessibilityService : AccessibilityService()
         {
             cancelRecording()
             showMessage("The target field changed, so dictation was cancelled.")
+        }
+        val undoRecord = lastInsertionUndo
+        if (event?.eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED && eventEditor != null && undoRecord != null &&
+            !undoRecord.fieldIdentity.representsSameEditor(createIdentity(eventEditor)))
+        {
+            clearUndoAvailability()
         }
 
         if (!latestClientState.recordingState.isActive() || recordingField == null)
@@ -88,7 +97,7 @@ class ClearDictateAccessibilityService : AccessibilityService()
     /**
      * Adds one non-focusable accessibility overlay so touches outside the microphone continue to reach the active app and keyboard.
      */
-    private fun createFloatingControl()
+    private fun createFloatingControls()
     {
         windowManager = getSystemService(WindowManager::class.java)
         floatingControl = FloatingDictationControlView(this).apply {
@@ -108,6 +117,24 @@ class ClearDictateAccessibilityService : AccessibilityService()
             title = "ClearDictate floating microphone"
         }
         windowManager.addView(floatingControl, layoutParameters)
+
+        floatingUndoControl = FloatingUndoControlView(this).apply {
+            visibility = View.GONE
+            setOnClickListener { undoLastInsertion() }
+        }
+        val undoSize = densityIndependentPixels(52)
+        val undoLayoutParameters = WindowManager.LayoutParams(
+            undoSize,
+            undoSize,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            x = densityIndependentPixels(84)
+            title = "ClearDictate remove last dictation"
+        }
+        windowManager.addView(floatingUndoControl, undoLayoutParameters)
     }
 
     private fun handleControlTouch(event: MotionEvent): Boolean
@@ -220,7 +247,7 @@ class ClearDictateAccessibilityService : AccessibilityService()
                 recordingField = originalField,
                 currentField = AccessibilityEditableText(
                     identity = createIdentity(currentEditor),
-                    text = currentEditor.text?.toString().orEmpty(),
+                    text = editableText(currentEditor),
                     selectionStart = currentEditor.textSelectionStart,
                     selectionEnd = currentEditor.textSelectionEnd,
                     isSensitive = false
@@ -229,7 +256,19 @@ class ClearDictateAccessibilityService : AccessibilityService()
             )
         }
 
-        val inserted = replacement != null && performTextReplacement(currentEditor, replacement)
+        val inserted = if (replacement != null && currentEditor != null)
+        {
+            val actionSucceeded = performTextReplacement(currentEditor, replacement)
+            if (actionSucceeded)
+            {
+                lastInsertionUndo = insertionUndoPlanner.capture(createIdentity(currentEditor), replacement)
+            }
+            actionSucceeded
+        }
+        else
+        {
+            false
+        }
         showMessage(
             when
             {
@@ -247,23 +286,62 @@ class ClearDictateAccessibilityService : AccessibilityService()
      */
     private fun performTextReplacement(node: AccessibilityNodeInfo?, replacement: AccessibilityTextReplacement): Boolean
     {
+        return performCompleteTextReplacement(node, replacement.text, replacement.cursorPosition)
+    }
+
+    /**
+     * Applies one complete field value through the only direct replacement action exposed to an accessibility service.
+     */
+    private fun performCompleteTextReplacement(node: AccessibilityNodeInfo?, text: String, cursorPosition: Int): Boolean
+    {
         if (node == null)
         {
             return false
         }
         val textArguments = Bundle().apply {
-            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, replacement.text)
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
         }
         if (!node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, textArguments))
         {
             return false
         }
         val selectionArguments = Bundle().apply {
-            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, replacement.cursorPosition)
-            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, replacement.cursorPosition)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, cursorPosition)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, cursorPosition)
         }
         node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectionArguments)
         return true
+    }
+
+    /**
+     * Removes the last insertion only when the same field still contains the unchanged hashed segment.
+     */
+    private fun undoLastInsertion()
+    {
+        val record = lastInsertionUndo
+        val currentEditor = findFocusedEditor()
+        val safety = currentEditor?.let(::inspectSafety)
+        val replacement = if (record == null || currentEditor == null || safety?.dictationAllowed != true)
+        {
+            null
+        }
+        else
+        {
+            insertionUndoPlanner.plan(
+                record,
+                AccessibilityEditableText(
+                    identity = createIdentity(currentEditor),
+                    text = editableText(currentEditor),
+                    selectionStart = currentEditor.textSelectionStart,
+                    selectionEnd = currentEditor.textSelectionEnd,
+                    isSensitive = false
+                )
+            )
+        }
+        val removed = replacement != null && performCompleteTextReplacement(currentEditor, replacement.text, replacement.cursorPosition)
+        showMessage(if (removed) "Last dictation removed." else "The last dictation changed, so nothing was removed.")
+        clearUndoAvailability()
+        refreshControlPresentation(currentEditor)
     }
 
     /**
@@ -325,6 +403,9 @@ class ClearDictateAccessibilityService : AccessibilityService()
         }
         floatingControl.update(visualState, latestClientState.normalizedAudioLevel)
         floatingControl.visibility = if (recordingActive || focusedEditor != null) View.VISIBLE else View.GONE
+        val undoRecord = lastInsertionUndo
+        floatingUndoControl.visibility = if (!recordingActive && focusedEditor != null && undoRecord != null &&
+            undoRecord.fieldIdentity.representsSameEditor(createIdentity(focusedEditor))) View.VISIBLE else View.GONE
     }
 
     private fun cancelRecording()
@@ -335,6 +416,15 @@ class ClearDictateAccessibilityService : AccessibilityService()
         {
             inferenceServiceClient.cancelDictation()
             inferenceServiceClient.clearCompletedTranscript()
+        }
+    }
+
+    private fun clearUndoAvailability()
+    {
+        lastInsertionUndo = null
+        if (::floatingUndoControl.isInitialized)
+        {
+            floatingUndoControl.visibility = View.GONE
         }
     }
 
@@ -354,6 +444,10 @@ class ClearDictateAccessibilityService : AccessibilityService()
         {
             windowManager.removeView(floatingControl)
         }
+        if (::floatingUndoControl.isInitialized)
+        {
+            windowManager.removeView(floatingUndoControl)
+        }
         serviceScope.cancel()
     }
 
@@ -365,6 +459,11 @@ class ClearDictateAccessibilityService : AccessibilityService()
     private fun showMessage(message: String)
     {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun editableText(node: AccessibilityNodeInfo): String
+    {
+        return if (node.isShowingHintText) "" else node.text?.toString().orEmpty()
     }
 
     companion object

@@ -17,7 +17,7 @@ class AccessibilityTextInsertionPlannerTest
     {
         val replacement = planner.plan(identity, AccessibilityEditableText(identity, "Hello world", 5, 5, false), "clear dictate")
 
-        assertEquals(AccessibilityTextReplacement("Hello clear dictate world", 19), replacement)
+        assertEquals(AccessibilityTextReplacement("Hello clear dictate world", 19, 5, 19), replacement)
     }
 
     @Test
@@ -25,7 +25,7 @@ class AccessibilityTextInsertionPlannerTest
     {
         val replacement = planner.plan(identity, AccessibilityEditableText(identity, "Hello old world", 6, 9, false), "new")
 
-        assertEquals(AccessibilityTextReplacement("Hello new world", 9), replacement)
+        assertEquals(AccessibilityTextReplacement("Hello new world", 9, 6, 9), replacement)
     }
 
     @Test
@@ -35,7 +35,7 @@ class AccessibilityTextInsertionPlannerTest
 
         val replacement = planner.plan(identity, AccessibilityEditableText(resizedIdentity, "", 0, 0, false), "clear dictate")
 
-        assertEquals(AccessibilityTextReplacement("clear dictate", 13), replacement)
+        assertEquals(AccessibilityTextReplacement("clear dictate", 13, 0, 13), replacement)
     }
 
     @Test
@@ -46,7 +46,7 @@ class AccessibilityTextInsertionPlannerTest
         val separateField = unidentifiedField.copy(top = 200, bottom = 280)
 
         assertEquals(
-            AccessibilityTextReplacement("clear dictate", 13),
+            AccessibilityTextReplacement("clear dictate", 13, 0, 13),
             planner.plan(unidentifiedField, AccessibilityEditableText(overlappingField, "", 0, 0, false), "clear dictate")
         )
         assertNull(planner.plan(unidentifiedField, AccessibilityEditableText(separateField, "", 0, 0, false), "clear dictate"))
@@ -66,6 +66,6 @@ class AccessibilityTextInsertionPlannerTest
     {
         val replacement = planner.plan(identity, AccessibilityEditableText(identity, "Existing", -1, -1, false), "dictated text")
 
-        assertEquals(AccessibilityTextReplacement("Existing dictated text", 22), replacement)
+        assertEquals(AccessibilityTextReplacement("Existing dictated text", 22, 8, 22), replacement)
     }
 }
