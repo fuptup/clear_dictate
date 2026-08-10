@@ -126,6 +126,8 @@ control into the same unavailable state used for connection and model failures, 
 
 Completed text is fenced to the editor that was focused when recording began. Identified Android fields may resize while the PC processes the utterance without being
 mistaken for a different field; the fence still requires the same window, application, widget class, and view ID. Editors without a view ID must retain overlapping bounds.
+When an otherwise supported editor such as WhatsApp omits cursor and selection offsets from its accessibility node, ClearDictate appends to the existing value rather than
+replacing any existing text or rejecting the completed transcript.
 
 Check in this order:
 

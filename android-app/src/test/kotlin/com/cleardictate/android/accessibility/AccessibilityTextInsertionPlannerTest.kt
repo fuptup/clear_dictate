@@ -53,12 +53,19 @@ class AccessibilityTextInsertionPlannerTest
     }
 
     @Test
-    fun `rejects changed sensitive and invalid editors`()
+    fun `rejects changed and sensitive editors`()
     {
         val changedIdentity = identity.copy(viewIdentifier = "subject")
 
         assertNull(planner.plan(identity, AccessibilityEditableText(changedIdentity, "", 0, 0, false), "text"))
         assertNull(planner.plan(identity, AccessibilityEditableText(identity, "secret", 6, 6, true), "text"))
-        assertNull(planner.plan(identity, AccessibilityEditableText(identity, "short", 9, 9, false), "text"))
+    }
+
+    @Test
+    fun `appends without replacing text when the editor omits selection offsets`()
+    {
+        val replacement = planner.plan(identity, AccessibilityEditableText(identity, "Existing", -1, -1, false), "dictated text")
+
+        assertEquals(AccessibilityTextReplacement("Existing dictated text", 22), replacement)
     }
 }

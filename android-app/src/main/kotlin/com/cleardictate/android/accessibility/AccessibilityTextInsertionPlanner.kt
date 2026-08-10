@@ -82,11 +82,20 @@ internal class AccessibilityTextInsertionPlanner
             return null
         }
 
-        val selectionStart = minOf(currentField.selectionStart, currentField.selectionEnd)
-        val selectionEnd = maxOf(currentField.selectionStart, currentField.selectionEnd)
-        if (selectionStart < 0 || selectionEnd > currentField.text.length)
+        val selectionIsValid = currentField.selectionStart >= 0 && currentField.selectionEnd >= 0 &&
+            currentField.selectionStart <= currentField.text.length && currentField.selectionEnd <= currentField.text.length
+        val selectionStart: Int
+        val selectionEnd: Int
+        if (selectionIsValid)
         {
-            return null
+            selectionStart = minOf(currentField.selectionStart, currentField.selectionEnd)
+            selectionEnd = maxOf(currentField.selectionStart, currentField.selectionEnd)
+        }
+        else
+        {
+            // Some editable accessibility nodes, including WhatsApp's composer, omit selection offsets. Appending preserves all existing text without guessing a cursor.
+            selectionStart = currentField.text.length
+            selectionEnd = currentField.text.length
         }
 
         val sessionIdentifier = EditorSessionIdentifier("accessibility-focused-editor")
