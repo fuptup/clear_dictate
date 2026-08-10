@@ -246,10 +246,7 @@ class InferenceServiceClient(
             val service = IClearDictateInferenceService.Stub.asInterface(binder)
             remoteService = service
             mutableState.update { currentState ->
-                currentState.copy(
-                    connectionState = InferenceConnectionState.CONNECTED,
-                    failureMessage = null
-                )
+                currentState.afterServiceConnected()
             }
 
             try
@@ -628,6 +625,29 @@ class InferenceServiceClient(
             }
         }
     }
+}
+
+/**
+ * Returns the idle client state that is safe to expose after Android reconnects the inference Binder.
+ *
+ * A service disconnection abandons the active operation. Android can later reconnect the same long-lived client, so retaining ERROR would leave the UI unavailable even
+ * after the replacement service has reported its model readiness.
+ */
+internal fun InferenceClientState.afterServiceConnected(): InferenceClientState
+{
+    return copy(
+        connectionState = InferenceConnectionState.CONNECTED,
+        recordingState = ClientRecordingState.IDLE,
+        normalizedAudioLevel = 0.0f,
+        partialRawTranscript = "",
+        finalRawTranscript = "",
+        cleanTranscript = "",
+        polishedTranscript = null,
+        selectedTranscript = "",
+        usedDeterministicFallback = false,
+        completedOperationIdentifier = null,
+        failureMessage = null
+    )
 }
 
 private fun parseSpeechModelState(code: Int): SpeechModelState

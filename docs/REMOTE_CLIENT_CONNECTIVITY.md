@@ -114,8 +114,12 @@ request and restored Wi-Fi afterward.
 
 ## Reconnection and recovery
 
-The floating microphone is grey while ClearDictate cannot reach the paired PC. The message **ClearDictate is reconnecting to the paired PC** means the Android inference
-service has no authenticated route to the server.
+The floating microphone is grey while the Android inference client is disconnected, the PC model is not ready, or a recording error is awaiting recovery. The message
+**ClearDictate is reconnecting to the paired PC** describes this combined unavailable state; it does not by itself prove that the Tailscale route has failed.
+
+The accessibility service and the main ClearDictate screen are separate clients of the Android inference process. If that process restarts, Android reconnects both clients.
+On reconnection each client now clears any abandoned recording error, returns to idle, and waits for the inference process to replay current PC model readiness. This lets
+the long-lived floating microphone recover without toggling the accessibility service or reopening ClearDictate.
 
 Check in this order:
 
@@ -127,6 +131,9 @@ Check in this order:
 5. Confirm Tailscale has unrestricted battery use and is not suspended by Motorola or another manufacturer's battery manager.
 6. Reopen ClearDictate. Its service should recheck the saved endpoint and update the overlay state.
 7. If connectivity still fails, run the unauthenticated and authenticated health checks separately to distinguish routing from credential failure.
+
+If the main ClearDictate screen can record but the floating microphone alone remains grey, verify that the accessibility service is enabled. A build older than the
+2026-08-10 Binder-reconnection fix can retain a stale recording error after the inference process restarts and must be updated.
 
 On 2026-08-10, the development phone remained grey after moving outdoors and returning to Wi-Fi. The PC listener, saved endpoint, and token were correct. The Tailscale
 Android VPN engine was stale; opening Tailscale restored the route and ClearDictate returned `200 OK`. Tailscale was then added to the phone's device-idle whitelist.
