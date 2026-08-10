@@ -124,6 +124,9 @@ the long-lived floating microphone recover without toggling the accessibility se
 A failed or accidentally too-short dictation now returns the floating microphone to idle while retaining the failure message for diagnosis. It no longer changes the
 control into the same unavailable state used for connection and model failures, so the next press can retry immediately.
 
+Completed text is fenced to the editor that was focused when recording began. Identified Android fields may resize while the PC processes the utterance without being
+mistaken for a different field; the fence still requires the same window, application, widget class, and view ID. Editors without a view ID must retain overlapping bounds.
+
 Check in this order:
 
 1. Confirm the Windows PC is powered on and the ClearDictate preview is running.

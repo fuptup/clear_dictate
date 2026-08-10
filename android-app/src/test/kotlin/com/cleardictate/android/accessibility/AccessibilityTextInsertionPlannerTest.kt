@@ -29,6 +29,30 @@ class AccessibilityTextInsertionPlannerTest
     }
 
     @Test
+    fun `accepts the same identified editor after its bounds change`()
+    {
+        val resizedIdentity = identity.copy(top = 10, bottom = 180)
+
+        val replacement = planner.plan(identity, AccessibilityEditableText(resizedIdentity, "", 0, 0, false), "clear dictate")
+
+        assertEquals(AccessibilityTextReplacement("clear dictate", 13), replacement)
+    }
+
+    @Test
+    fun `uses overlapping bounds to distinguish editors without view identifiers`()
+    {
+        val unidentifiedField = identity.copy(viewIdentifier = "")
+        val overlappingField = unidentifiedField.copy(top = 15, bottom = 180)
+        val separateField = unidentifiedField.copy(top = 200, bottom = 280)
+
+        assertEquals(
+            AccessibilityTextReplacement("clear dictate", 13),
+            planner.plan(unidentifiedField, AccessibilityEditableText(overlappingField, "", 0, 0, false), "clear dictate")
+        )
+        assertNull(planner.plan(unidentifiedField, AccessibilityEditableText(separateField, "", 0, 0, false), "clear dictate"))
+    }
+
+    @Test
     fun `rejects changed sensitive and invalid editors`()
     {
         val changedIdentity = identity.copy(viewIdentifier = "subject")

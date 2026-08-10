@@ -17,6 +17,25 @@ internal data class AccessibilityFieldIdentity(
     val right: Int,
     val bottom: Int
 )
+{
+    /**
+     * Matches the stable editor properties while allowing the same identified view to resize during remote processing.
+     *
+     * Android view IDs are preferred when present. Unidentified editors retain a conservative geometry check so two same-class fields cannot be confused.
+     */
+    fun representsSameEditor(other: AccessibilityFieldIdentity): Boolean
+    {
+        if (windowIdentifier != other.windowIdentifier || packageName != other.packageName || className != other.className)
+        {
+            return false
+        }
+        if (viewIdentifier.isNotEmpty() || other.viewIdentifier.isNotEmpty())
+        {
+            return viewIdentifier == other.viewIdentifier
+        }
+        return left < other.right && right > other.left && top < other.bottom && bottom > other.top
+    }
+}
 
 /**
  * Holds the current text only for the duration of one insertion calculation and redacts diagnostics.
@@ -58,7 +77,7 @@ internal class AccessibilityTextInsertionPlanner
      */
     fun plan(recordingField: AccessibilityFieldIdentity, currentField: AccessibilityEditableText, transcript: String): AccessibilityTextReplacement?
     {
-        if (recordingField != currentField.identity || currentField.isSensitive || transcript.isBlank())
+        if (!recordingField.representsSameEditor(currentField.identity) || currentField.isSensitive || transcript.isBlank())
         {
             return null
         }
