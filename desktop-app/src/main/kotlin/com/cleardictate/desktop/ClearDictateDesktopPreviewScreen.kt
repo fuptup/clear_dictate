@@ -73,6 +73,7 @@ fun ClearDictateDesktopPreviewScreen(
             val clipboard = LocalClipboard.current
             val ready = runtimeReadiness is DesktopRuntimeReadiness.Ready
             val microphoneActivity by speechRecorder.microphoneActivity.collectAsState()
+            val latestPhoneTiming by phoneServer.lastSuccessfulTiming.collectAsState()
             var captureDevices by remember { mutableStateOf<List<WindowsCaptureDevice>>(emptyList()) }
             var selectedEndpointIdentifier by remember { mutableStateOf("") }
             var modelsReady by remember(ready) { mutableStateOf(false) }
@@ -180,7 +181,7 @@ fun ClearDictateDesktopPreviewScreen(
                                     val result = dictationPipeline.finishDictation()
                                     rawTranscript = result.rawTranscript
                                     polishedTranscript = result.polishedTranscript
-                                    status = "Ready"
+                                    status = "Ready \u2022 ${formatLatency(result.timing)}"
                                 }
                                 catch (_: Exception)
                                 {
@@ -241,6 +242,7 @@ fun ClearDictateDesktopPreviewScreen(
                 PhoneSetupDialog(
                     configuration = phoneAccessConfiguration,
                     serverStatus = phoneServerStatus,
+                    lastTiming = latestPhoneTiming,
                     onCopy = { pairingText ->
                         scope.launch {
                             clipboard.setClipEntry(ClipEntry(StringSelection(pairingText)))
@@ -258,7 +260,13 @@ fun ClearDictateDesktopPreviewScreen(
  * Exposes developer pairing details without adding permanent instructional text to the compact dictation surface.
  */
 @Composable
-private fun PhoneSetupDialog(configuration: DesktopPhoneAccessConfiguration, serverStatus: String, onCopy: (String) -> Unit, onDismiss: () -> Unit)
+private fun PhoneSetupDialog(
+    configuration: DesktopPhoneAccessConfiguration,
+    serverStatus: String,
+    lastTiming: DesktopDictationTiming?,
+    onCopy: (String) -> Unit,
+    onDismiss: () -> Unit
+)
 {
     var selectedEndpointIndex by remember(configuration.endpointUrls) { mutableIntStateOf(0) }
     val selectedEndpoint = configuration.endpointUrls.getOrNull(selectedEndpointIndex)
@@ -269,6 +277,9 @@ private fun PhoneSetupDialog(configuration: DesktopPhoneAccessConfiguration, ser
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Status: $serverStatus", modifier = Modifier.fillMaxWidth())
+                lastTiming?.let { timing ->
+                    Text("Last phone dictation: ${formatLatency(timing)}", modifier = Modifier.fillMaxWidth())
+                }
                 if (pairingPayload == null)
                 {
                     Text("No private IPv4 address found", modifier = Modifier.fillMaxWidth())
@@ -319,6 +330,14 @@ private fun PhoneSetupDialog(configuration: DesktopPhoneAccessConfiguration, ser
             }
         }
     )
+}
+
+/**
+ * Keeps latency visible in the compact desktop UI without exposing any transcript content.
+ */
+private fun formatLatency(timing: DesktopDictationTiming): String
+{
+    return "${timing.totalMilliseconds} ms total (${timing.recognitionMilliseconds} ms ASR, ${timing.rewritingMilliseconds} ms rewrite)"
 }
 
 /**

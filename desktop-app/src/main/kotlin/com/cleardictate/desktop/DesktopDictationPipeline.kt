@@ -21,6 +21,7 @@ interface DesktopAudioRecorder : AutoCloseable
 interface DesktopSpeechTranscriber : AutoCloseable
 {
     suspend fun prepare()
+    suspend fun warmUp() = Unit
     suspend fun transcribe(capturedAudio: CapturedAudio): String
 }
 
@@ -30,12 +31,24 @@ interface DesktopSpeechTranscriber : AutoCloseable
 interface DesktopTranscriptRewriter : AutoCloseable
 {
     suspend fun prepare()
+    suspend fun warmUp() = Unit
     suspend fun rewrite(rawTranscript: String): String
 }
 
+/**
+ * Records only monotonic durations so latency can be diagnosed without retaining dictated text or audio.
+ */
+data class DesktopDictationTiming(
+    val queueMilliseconds: Long,
+    val recognitionMilliseconds: Long,
+    val rewritingMilliseconds: Long,
+    val totalMilliseconds: Long
+)
+
 data class DesktopDictationResult(
     val rawTranscript: String,
-    val polishedTranscript: String
+    val polishedTranscript: String,
+    val timing: DesktopDictationTiming
 )
 
 /**
@@ -50,12 +63,14 @@ class DesktopDictationPipeline(
     private val inferenceMutex = Mutex()
 
     /**
-     * Loads both persistent inference workers before dictation is enabled.
+     * Loads and exercises both persistent GPU workers before dictation is enabled, moving one-time CUDA compilation and allocation outside the user's first release.
      */
     suspend fun prepareModels()
     {
         speechTranscriber.prepare()
         transcriptRewriter.prepare()
+        speechTranscriber.warmUp()
+        transcriptRewriter.warmUp()
     }
 
     suspend fun startRecording(endpointIdentifier: String)
@@ -106,17 +121,40 @@ class DesktopDictationPipeline(
      */
     private suspend fun processCapturedAudio(capturedAudio: CapturedAudio): DesktopDictationResult
     {
+        val requestStartedNanoseconds = System.nanoTime()
         return inferenceMutex.withLock {
             try
             {
+                val processingStartedNanoseconds = System.nanoTime()
                 val rawTranscript = speechTranscriber.transcribe(capturedAudio)
+                val recognitionCompletedNanoseconds = System.nanoTime()
                 val polishedTranscript = transcriptRewriter.rewrite(rawTranscript)
-                DesktopDictationResult(rawTranscript = rawTranscript, polishedTranscript = polishedTranscript)
+                val completedNanoseconds = System.nanoTime()
+                DesktopDictationResult(
+                    rawTranscript = rawTranscript,
+                    polishedTranscript = polishedTranscript,
+                    timing = DesktopDictationTiming(
+                        queueMilliseconds = elapsedMilliseconds(requestStartedNanoseconds, processingStartedNanoseconds),
+                        recognitionMilliseconds = elapsedMilliseconds(processingStartedNanoseconds, recognitionCompletedNanoseconds),
+                        rewritingMilliseconds = elapsedMilliseconds(recognitionCompletedNanoseconds, completedNanoseconds),
+                        totalMilliseconds = elapsedMilliseconds(requestStartedNanoseconds, completedNanoseconds)
+                    )
+                )
             }
             finally
             {
                 capturedAudio.samples.fill(0.0F)
             }
         }
+    }
+
+    private fun elapsedMilliseconds(startNanoseconds: Long, endNanoseconds: Long): Long
+    {
+        return (endNanoseconds - startNanoseconds) / NANOSECONDS_PER_MILLISECOND
+    }
+
+    private companion object
+    {
+        const val NANOSECONDS_PER_MILLISECOND = 1_000_000L
     }
 }

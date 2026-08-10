@@ -99,6 +99,44 @@ class QwenAsrWorkerClient private constructor(
         }
     }
 
+    /**
+     * Exercises ASR prefill and one decode step with synthetic worker-owned audio, avoiding a first-dictation CUDA penalty without retaining speech data.
+     */
+    suspend fun warmUp()
+    {
+        requestMutex.withLock {
+            ensureOpen()
+            try
+            {
+                withContext(Dispatchers.IO)
+                {
+                    writeFrame(REQUEST_WARM_UP, ByteArray(0))
+                    val response = readFrameWithTimeout(configuration.transcriptionTimeoutMilliseconds, "QWEN_ASR_WARM_UP_TIMEOUT")
+                    try
+                    {
+                        if (response.type != RESPONSE_WARMED || response.payload.isNotEmpty())
+                        {
+                            throw LocalInferenceException(InferenceFailureCategory.PROTOCOL_FAILURE, "UNEXPECTED_QWEN_ASR_WARM_UP_RESPONSE")
+                        }
+                    }
+                    finally
+                    {
+                        response.payload.fill(0)
+                    }
+                }
+            }
+            catch (failure: LocalInferenceException)
+            {
+                throw failure
+            }
+            catch (_: Exception)
+            {
+                close()
+                throw LocalInferenceException(InferenceFailureCategory.PROCESS_DIED, "QWEN_ASR_WARM_UP_STOPPED")
+            }
+        }
+    }
+
     @Synchronized
     override fun close()
     {
@@ -192,9 +230,11 @@ class QwenAsrWorkerClient private constructor(
         private const val PROTOCOL_VERSION = 1
         private const val REQUEST_TRANSCRIBE = 1
         private const val REQUEST_SHUTDOWN = 2
+        private const val REQUEST_WARM_UP = 3
         private const val RESPONSE_READY = 1
         private const val RESPONSE_TRANSCRIPT = 2
         private const val RESPONSE_ERROR = 3
+        private const val RESPONSE_WARMED = 4
         private const val MAXIMUM_RESPONSE_BYTES = 64 * 1024
 
         /**

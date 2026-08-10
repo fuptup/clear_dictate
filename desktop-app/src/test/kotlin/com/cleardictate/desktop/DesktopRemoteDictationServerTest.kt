@@ -28,7 +28,7 @@ class DesktopRemoteDictationServerTest
             dictationProcessor = DesktopRemoteDictationProcessor { audio ->
                 ownedSamples = audio.samples
                 receivedSamples = audio.samples.copyOf()
-                "Send the report tomorrow."
+                result("Send the report tomorrow.")
             }
         )
 
@@ -38,6 +38,7 @@ class DesktopRemoteDictationServerTest
 
             assertEquals(200, response.statusCode())
             assertEquals("Send the report tomorrow.", response.body())
+            assertEquals(18, requireNotNull(server.lastSuccessfulTiming.value).totalMilliseconds)
         }
 
         assertContentEquals(shortArrayOf(0, 12_345, -23_456), receivedSamples)
@@ -53,7 +54,7 @@ class DesktopRemoteDictationServerTest
             authorizationToken = "test-token",
             dictationProcessor = DesktopRemoteDictationProcessor {
                 processingAttempted = true
-                "unexpected"
+                result("unexpected")
             }
         )
 
@@ -75,7 +76,7 @@ class DesktopRemoteDictationServerTest
             authorizationToken = "test-token",
             dictationProcessor = DesktopRemoteDictationProcessor {
                 processingAttempted = true
-                "unexpected"
+                result("unexpected")
             }
         )
 
@@ -105,5 +106,14 @@ class DesktopRemoteDictationServerTest
             .POST(HttpRequest.BodyPublishers.ofByteArray(RemoteDictationProtocol.encodeAudio(audio)))
         token?.let { requestBuilder.header("Authorization", "Bearer $it") }
         return HttpClient.newHttpClient().send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString())
+    }
+
+    private fun result(transcript: String): DesktopDictationResult
+    {
+        return DesktopDictationResult(
+            rawTranscript = transcript,
+            polishedTranscript = transcript,
+            timing = DesktopDictationTiming(queueMilliseconds = 0, recognitionMilliseconds = 11, rewritingMilliseconds = 7, totalMilliseconds = 18)
+        )
     }
 }

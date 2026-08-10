@@ -17,13 +17,17 @@ PROTOCOL_MAGIC = 0x43445141
 PROTOCOL_VERSION = 1
 REQUEST_TRANSCRIBE = 1
 REQUEST_SHUTDOWN = 2
+REQUEST_WARM_UP = 3
 RESPONSE_READY = 1
 RESPONSE_TRANSCRIPT = 2
 RESPONSE_ERROR = 3
+RESPONSE_WARMED = 4
 MAXIMUM_REQUEST_BYTES = 100 * 1024 * 1024
 CAPTURED_AUDIO_MAGIC = 0x43444155
 CAPTURED_AUDIO_VERSION = 1
 FLOAT32_SAMPLE_FORMAT = 1
+WARM_UP_SAMPLE_RATE = 16_000
+WARM_UP_SAMPLE_COUNT = WARM_UP_SAMPLE_RATE
 
 
 def read_exact(input_stream, byte_count: int) -> bytes:
@@ -87,6 +91,17 @@ class QwenAsrEngine:
         generated_ids = output_ids[:, inputs["input_ids"].shape[1]:]
         return self.processor.decode(generated_ids, return_format="transcription_only")[0]
 
+    def warm_up(self) -> None:
+        """Executes ASR prefill and exactly one decode step without producing or retaining a transcript."""
+        samples = numpy.zeros(WARM_UP_SAMPLE_COUNT, dtype=numpy.float32)
+        inputs = self.processor.apply_transcription_request(
+            audio=samples,
+            language="English",
+            processor_kwargs={"audio_kwargs": {"sampling_rate": WARM_UP_SAMPLE_RATE}},
+        ).to(self.model.device, self.model.dtype)
+        with torch.inference_mode():
+            self.model.generate(**inputs, max_new_tokens=1, do_sample=False)
+
 
 def verify_model(model_directory: Path, lock_path: Path) -> None:
     """Rejects missing or changed model files before Transformers parses them."""
@@ -116,6 +131,10 @@ def run_worker(model_directory: Path, lock_path: Path) -> int:
         try:
             if message_type == REQUEST_SHUTDOWN:
                 return 0
+            if message_type == REQUEST_WARM_UP:
+                engine.warm_up()
+                write_frame(output_stream, RESPONSE_WARMED)
+                continue
             if message_type != REQUEST_TRANSCRIBE:
                 raise ValueError("Unknown private request type.")
             samples, sample_rate = decode_captured_audio(payload)

@@ -46,6 +46,11 @@ class DesktopDictationPipelineTest
                     events += "prepare-speech"
                 }
 
+                override suspend fun warmUp()
+                {
+                    events += "warm-speech"
+                }
+
                 override suspend fun transcribe(capturedAudio: CapturedAudio): String
                 {
                     events += "transcribe"
@@ -61,6 +66,11 @@ class DesktopDictationPipelineTest
                 override suspend fun prepare()
                 {
                     events += "prepare-rewrite"
+                }
+
+                override suspend fun warmUp()
+                {
+                    events += "warm-rewrite"
                 }
 
                 override suspend fun rewrite(rawTranscript: String): String
@@ -88,6 +98,8 @@ class DesktopDictationPipelineTest
             listOf(
                 "prepare-speech",
                 "prepare-rewrite",
+                "warm-speech",
+                "warm-rewrite",
                 "start:headset-endpoint",
                 "stop",
                 "transcribe",

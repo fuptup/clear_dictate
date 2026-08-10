@@ -212,6 +212,14 @@ class QwenDesktopSpeechTranscriber(private val runtimeConfiguration: DesktopRunt
         acquireClient()
     }
 
+    /**
+     * Exercises the CUDA recognition path during startup, so the first real utterance does not pay deferred kernel setup.
+     */
+    override suspend fun warmUp()
+    {
+        acquireClient().warmUp()
+    }
+
     override suspend fun transcribe(capturedAudio: CapturedAudio): String
     {
         return try
@@ -265,6 +273,7 @@ class QwenDesktopSpeechTranscriber(private val runtimeConfiguration: DesktopRunt
             throw throwable
         }
     }
+
 }
 
 private class WindowsDesktopAudioCaptureWorkerFactory : DesktopAudioCaptureWorkerFactory

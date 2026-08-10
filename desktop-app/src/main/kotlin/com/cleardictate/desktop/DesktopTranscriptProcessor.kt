@@ -106,6 +106,14 @@ class DesktopTranscriptProcessor(
     }
 
     /**
+     * Exercises the complete trusted rewriting path during startup, so the first real transcript avoids deferred GPU allocation and compilation.
+     */
+    override suspend fun warmUp()
+    {
+        rewrite(WARM_UP_TRANSCRIPT)
+    }
+
+    /**
      * Runs the complete deterministic-cleaning and local-polishing path selected by push-to-talk.
      */
     override suspend fun rewrite(rawTranscript: String): String
@@ -206,6 +214,11 @@ class DesktopTranscriptProcessor(
         {
             error("Raw and Clean processing must not request model cancellation.")
         }
+    }
+
+    private companion object
+    {
+        const val WARM_UP_TRANSCRIPT = "Um, send build AB12 to port 8080 tomorrow at 14:30, not 14:45."
     }
 }
 

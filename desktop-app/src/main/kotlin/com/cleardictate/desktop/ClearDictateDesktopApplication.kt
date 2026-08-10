@@ -25,7 +25,7 @@ fun main() = application {
             bindAddress = phoneAccessConfiguration.bindAddress,
             authorizationToken = phoneAccessConfiguration.authorizationToken,
             dictationProcessor = DesktopRemoteDictationProcessor { audio ->
-                dictationPipeline.processRemoteDictation(audio).polishedTranscript
+                dictationPipeline.processRemoteDictation(audio)
             }
         )
     }

@@ -6,6 +6,9 @@ import com.cleardictate.inference.remote.RemotePcmAudio
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -17,7 +20,7 @@ import java.util.concurrent.Executors
  */
 fun interface DesktopRemoteDictationProcessor
 {
-    suspend fun process(audio: RemotePcmAudio): String
+    suspend fun process(audio: RemotePcmAudio): DesktopDictationResult
 }
 
 /**
@@ -32,6 +35,7 @@ class DesktopRemoteDictationServer(
 {
     private val expectedAuthorization = "Bearer $authorizationToken".toByteArray(StandardCharsets.UTF_8)
     private val ownershipLock = Any()
+    private val mutableLastSuccessfulTiming = MutableStateFlow<DesktopDictationTiming?>(null)
     private var activeServer: HttpServer? = null
     private var activeExecutor: ExecutorService? = null
 
@@ -42,6 +46,11 @@ class DesktopRemoteDictationServer(
 
     val localAddress: InetSocketAddress?
         get() = synchronized(ownershipLock) { activeServer?.address }
+
+    /**
+     * Exposes only timing for the most recent successful phone request; it deliberately retains neither audio nor text.
+     */
+    val lastSuccessfulTiming: StateFlow<DesktopDictationTiming?> = mutableLastSuccessfulTiming.asStateFlow()
 
     /**
      * Binds both endpoints once. Two daemon threads allow health checks while the serialized GPU operation is running.
@@ -158,8 +167,9 @@ class DesktopRemoteDictationServer(
 
             try
             {
-                val polishedTranscript = runBlocking { dictationProcessor.process(audio) }
-                sendText(exchange, 200, polishedTranscript)
+                val result = runBlocking { dictationProcessor.process(audio) }
+                mutableLastSuccessfulTiming.value = result.timing
+                sendText(exchange, 200, result.polishedTranscript)
             }
             catch (_: Exception)
             {
