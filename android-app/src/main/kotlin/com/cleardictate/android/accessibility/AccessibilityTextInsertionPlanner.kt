@@ -133,4 +133,41 @@ internal class AccessibilityTextInsertionPlanner
             insertedTextEnd = insertedTextEnd
         )
     }
+
+    /**
+     * Applies the shared boundary-spacing policy after native paste reveals the editor's real cursor through its text-change event.
+     */
+    fun normalizePastedRange(currentField: AccessibilityEditableText, insertedTextStart: Int, insertedTextEnd: Int): AccessibilityTextReplacement?
+    {
+        if (currentField.isSensitive || insertedTextStart < 0 || insertedTextEnd <= insertedTextStart || insertedTextEnd > currentField.text.length)
+        {
+            return null
+        }
+        val insertedText = currentField.text.substring(insertedTextStart, insertedTextEnd)
+        val sessionIdentifier = EditorSessionIdentifier("accessibility-focused-editor")
+        val decision = insertionPolicy.decide(
+            editorContext = EditorContext(
+                editorSessionIdentifier = sessionIdentifier,
+                textBeforeCursor = currentField.text.substring(0, insertedTextStart).takeLast(1),
+                textAfterCursor = currentField.text.substring(insertedTextEnd).take(1),
+                hasSelection = false,
+                replaceSelectionEnabled = true,
+                isSensitive = false,
+                isPrivate = true
+            ),
+            transcript = insertedText,
+            recordingEditorSessionIdentifier = sessionIdentifier
+        )
+        if (!decision.insertionAllowed)
+        {
+            return null
+        }
+        val normalizedEnd = insertedTextStart + decision.textToInsert.length
+        return AccessibilityTextReplacement(
+            text = currentField.text.replaceRange(insertedTextStart, insertedTextEnd, decision.textToInsert),
+            cursorPosition = normalizedEnd,
+            insertedTextStart = insertedTextStart,
+            insertedTextEnd = normalizedEnd
+        )
+    }
 }

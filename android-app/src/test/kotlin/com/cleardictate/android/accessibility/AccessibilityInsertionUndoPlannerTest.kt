@@ -36,4 +36,27 @@ class AccessibilityInsertionUndoPlannerTest
         assertNull(planner.plan(record, changedText))
         assertNull(planner.plan(record, changedField))
     }
+
+    @Test
+    fun `captures a verified native paste without retaining its text`()
+    {
+        val pendingPaste = assertNotNull(planner.expectPaste(identity, "dictated"))
+        val currentField = AccessibilityEditableText(identity, "Prior dictated", -1, -1, false)
+
+        val record = planner.capturePaste(pendingPaste, currentField, 6, 8, 0)
+
+        assertNotNull(record)
+        assertEquals(6, record.insertedTextStart)
+        assertEquals(8, record.insertedTextLength)
+        assertEquals(AccessibilityUndoReplacement("Prior ", 6), planner.plan(record, currentField))
+    }
+
+    @Test
+    fun `rejects a paste event that replaced text or does not match the expected transcript`()
+    {
+        val pendingPaste = assertNotNull(planner.expectPaste(identity, "dictated"))
+
+        assertNull(planner.capturePaste(pendingPaste, AccessibilityEditableText(identity, "Prior dictated", -1, -1, false), 6, 8, 2))
+        assertNull(planner.capturePaste(pendingPaste, AccessibilityEditableText(identity, "Prior modified", -1, -1, false), 6, 8, 0))
+    }
 }

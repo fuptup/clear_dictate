@@ -68,4 +68,24 @@ class AccessibilityTextInsertionPlannerTest
 
         assertEquals(AccessibilityTextReplacement("Existing dictated text", 22, 8, 22), replacement)
     }
+
+    @Test
+    fun `normalizes spacing around the range revealed by native paste`()
+    {
+        val currentField = AccessibilityEditableText(identity, "Existingdictated text", -1, -1, false)
+
+        val replacement = planner.normalizePastedRange(currentField, 8, 21)
+
+        assertEquals(AccessibilityTextReplacement("Existing dictated text", 22, 8, 22), replacement)
+    }
+
+    @Test
+    fun `does not add boundary spacing in an empty editor`()
+    {
+        val currentField = AccessibilityEditableText(identity, "dictated text", -1, -1, false)
+
+        val replacement = planner.normalizePastedRange(currentField, 0, 13)
+
+        assertEquals(AccessibilityTextReplacement("dictated text", 13, 0, 13), replacement)
+    }
 }

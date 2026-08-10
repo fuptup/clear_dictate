@@ -126,10 +126,14 @@ control into the same unavailable state used for connection and model failures, 
 
 Completed text is fenced to the editor that was focused when recording began. Identified Android fields may resize while the PC processes the utterance without being
 mistaken for a different field; the fence still requires the same window, application, widget class, and view ID. Editors without a view ID must retain overlapping bounds.
-When an otherwise supported editor such as WhatsApp omits cursor and selection offsets from its accessibility node, ClearDictate appends to the existing value rather than
-replacing any existing text or rejecting the completed transcript.
-Accessibility hint text such as WhatsApp's **Message** placeholder is excluded from the editable value even when the app fails to mark it as a visible hint, provided the
-reported value exactly matches the hint and the app also exposes no cursor. Ordinary draft text and text with a valid cursor remain unchanged.
+When an editor exposes its cursor, ClearDictate uses Android's direct set-text action with explicit selection and spacing. Some editors, including the verified WhatsApp
+composer, hide cursor and hint metadata but expose Android's native paste action. ClearDictate uses native paste for those editors so Android inserts at the real cursor and
+does not mistake a visual placeholder such as **Message** for draft text. Because Android's paste action accepts no text argument, ClearDictate marks the transcript as
+sensitive, places it on the system clipboard only for the synchronous paste action, and immediately restores the preceding clipboard. This path requires text-change event
+access to verify the actual inserted range and apply boundary spacing.
+
+On the verified Motorola/WhatsApp combination, native paste inserted dictated text into an empty composer without the visual **Message** placeholder becoming content, and
+the adjacent undo control removed only that dictated insertion.
 
 After successful insertion, a smaller undo icon appears beside the microphone. ClearDictate retains only the field identity, inserted range, and a SHA-256 digest of the
 inserted segment. The icon removes that segment only while the same field still contains it unchanged, preserving all text that existed before insertion and any later text
@@ -164,6 +168,8 @@ Android VPN engine was stale; opening Tailscale restored the route and ClearDict
 - Obsolete broad Windows Firewall rules from an earlier packaged ClearDictate build were observed on the development PC. Removing them and installing the scoped
   Tailscale-only replacement still requires an administrator-approved cleanup. The current server mitigates this by binding only to the Tailscale interface.
 - Captive portals and competing VPNs can interrupt Tailscale. Always authenticate to a trusted captive portal before reconnecting the VPN.
+- Cursor-hidden editors require a brief clipboard round trip for native paste. Android, the focused app, the active keyboard, or vendor clipboard-history features may be
+  able to observe that transient value despite the sensitive marker; the previous clipboard is restored immediately after the paste action.
 
 ## Documentation maintenance checklist
 

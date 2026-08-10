@@ -19,6 +19,21 @@ internal data class AccessibilityInsertionUndoRecord(
 }
 
 /**
+ * Retains only the identity, UTF-16 length, and one-way digest needed to recognize the text-change event caused by a native paste.
+ */
+internal data class AccessibilityPendingPaste(
+    val fieldIdentity: AccessibilityFieldIdentity,
+    val insertedTextLength: Int,
+    val insertedTextDigest: ByteArray
+)
+{
+    override fun toString(): String
+    {
+        return "AccessibilityPendingPaste(fieldIdentity=$fieldIdentity, insertedTextLength=$insertedTextLength, insertedText=<redacted>)"
+    }
+}
+
+/**
  * Contains the complete field value and restored cursor required by Android's set-text action.
  */
 internal data class AccessibilityUndoReplacement(val text: String, val cursorPosition: Int)
@@ -34,6 +49,44 @@ internal data class AccessibilityUndoReplacement(val text: String, val cursorPos
  */
 internal class AccessibilityInsertionUndoPlanner
 {
+    fun expectPaste(fieldIdentity: AccessibilityFieldIdentity, insertedText: String): AccessibilityPendingPaste?
+    {
+        if (insertedText.isEmpty())
+        {
+            return null
+        }
+        return AccessibilityPendingPaste(fieldIdentity, insertedText.length, digest(insertedText))
+    }
+
+    /**
+     * Converts the matching text-change event into an undo record without retaining the pasted transcript or any surrounding editor content.
+     */
+    fun capturePaste(
+        pendingPaste: AccessibilityPendingPaste,
+        currentField: AccessibilityEditableText,
+        insertedTextStart: Int,
+        addedTextLength: Int,
+        removedTextLength: Int
+    ): AccessibilityInsertionUndoRecord?
+    {
+        if (!pendingPaste.fieldIdentity.representsSameEditor(currentField.identity) || currentField.isSensitive || removedTextLength != 0 ||
+            addedTextLength != pendingPaste.insertedTextLength)
+        {
+            return null
+        }
+        val insertedTextEnd = insertedTextStart + addedTextLength
+        if (insertedTextStart < 0 || insertedTextEnd > currentField.text.length)
+        {
+            return null
+        }
+        val insertedText = currentField.text.substring(insertedTextStart, insertedTextEnd)
+        if (!pendingPaste.insertedTextDigest.contentEquals(digest(insertedText)))
+        {
+            return null
+        }
+        return AccessibilityInsertionUndoRecord(currentField.identity, insertedTextStart, addedTextLength, digest(insertedText))
+    }
+
     fun capture(fieldIdentity: AccessibilityFieldIdentity, replacement: AccessibilityTextReplacement): AccessibilityInsertionUndoRecord?
     {
         if (replacement.insertedTextStart < 0 || replacement.insertedTextEnd <= replacement.insertedTextStart || replacement.insertedTextEnd > replacement.text.length)

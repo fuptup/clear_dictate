@@ -2,11 +2,16 @@ package com.cleardictate.android.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Bundle
+import android.os.PersistableBundle
+import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -45,6 +50,7 @@ class ClearDictateAccessibilityService : AccessibilityService()
     private var latestClientState = InferenceClientState()
     private var recordingField: AccessibilityFieldIdentity? = null
     private var lastInsertionUndo: AccessibilityInsertionUndoRecord? = null
+    private var pendingPaste: AccessibilityPendingPaste? = null
     private var recordingTouchActive = false
     private var lastHandledOperationIdentifier: String? = null
     private var closed = false
@@ -64,6 +70,10 @@ class ClearDictateAccessibilityService : AccessibilityService()
     override fun onAccessibilityEvent(event: AccessibilityEvent?)
     {
         val eventEditor = event?.source?.takeIf(::isSupportedEditor)
+        if (event?.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED && eventEditor != null)
+        {
+            captureNativePaste(eventEditor, event)
+        }
         val originalField = recordingField
         if (event?.eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED && eventEditor != null && originalField != null && createIdentity(eventEditor) != originalField)
         {
@@ -237,37 +247,14 @@ class ClearDictateAccessibilityService : AccessibilityService()
         val originalField = recordingField
         val currentEditor = findFocusedEditor()
         val currentEditorSafety = currentEditor?.let(::inspectSafety)
-        val replacement = if (originalField == null || currentEditor == null || currentEditorSafety?.dictationAllowed != true || clientState.usedDeterministicFallback)
-        {
-            null
-        }
-        else
-        {
-            insertionPlanner.plan(
-                recordingField = originalField,
-                currentField = AccessibilityEditableText(
-                    identity = createIdentity(currentEditor),
-                    text = editableText(currentEditor),
-                    selectionStart = currentEditor.textSelectionStart,
-                    selectionEnd = currentEditor.textSelectionEnd,
-                    isSensitive = false
-                ),
-                transcript = clientState.selectedTranscript
-            )
-        }
-
-        val inserted = if (replacement != null && currentEditor != null)
-        {
-            val actionSucceeded = performTextReplacement(currentEditor, replacement)
-            if (actionSucceeded)
-            {
-                lastInsertionUndo = insertionUndoPlanner.capture(createIdentity(currentEditor), replacement)
-            }
-            actionSucceeded
-        }
-        else
+        val inserted = if (originalField == null || currentEditor == null || currentEditorSafety?.dictationAllowed != true || clientState.usedDeterministicFallback)
         {
             false
+        }
+        else
+        {
+            clearUndoAvailability()
+            insertTranscript(currentEditor, originalField, clientState.selectedTranscript)
         }
         showMessage(
             when
@@ -279,6 +266,127 @@ class ClearDictateAccessibilityService : AccessibilityService()
         )
         recordingField = null
         inferenceServiceClient.clearCompletedTranscript()
+    }
+
+    /**
+     * Uses native paste when an editor hides its cursor, then relies on its text-change event to capture the true inserted range. Editors exposing a cursor retain the
+     * direct set-text path so selection replacement and spacing remain deterministic without touching the clipboard.
+     */
+    private fun insertTranscript(node: AccessibilityNodeInfo, originalField: AccessibilityFieldIdentity, transcript: String): Boolean
+    {
+        val selectionAvailable = node.textSelectionStart >= 0 && node.textSelectionEnd >= 0
+        if (!selectionAvailable && supportsAction(node, AccessibilityNodeInfo.ACTION_PASTE))
+        {
+            return performNativePaste(node, originalField, transcript)
+        }
+        val replacement = insertionPlanner.plan(
+            recordingField = originalField,
+            currentField = AccessibilityEditableText(
+                identity = createIdentity(node),
+                text = editableText(node),
+                selectionStart = node.textSelectionStart,
+                selectionEnd = node.textSelectionEnd,
+                isSensitive = false
+            ),
+            transcript = transcript
+        ) ?: return false
+        val actionSucceeded = performTextReplacement(node, replacement)
+        if (actionSucceeded)
+        {
+            lastInsertionUndo = insertionUndoPlanner.capture(createIdentity(node), replacement)
+        }
+        return actionSucceeded
+    }
+
+    /**
+     * Temporarily places privacy-marked text on Android's clipboard because ACTION_PASTE has no direct text argument, and restores the prior clipboard immediately.
+     */
+    private fun performNativePaste(node: AccessibilityNodeInfo, originalField: AccessibilityFieldIdentity, transcript: String): Boolean
+    {
+        val currentIdentity = createIdentity(node)
+        if (!originalField.representsSameEditor(currentIdentity))
+        {
+            return false
+        }
+        val expectedPaste = insertionUndoPlanner.expectPaste(currentIdentity, transcript) ?: return false
+        val clipboard = getSystemService(ClipboardManager::class.java)
+        val hadPrimaryClip = clipboard.hasPrimaryClip()
+        val previousClip = if (hadPrimaryClip) clipboard.primaryClip ?: return false else null
+        val privateClip = ClipData.newPlainText("ClearDictate private dictation", transcript).apply {
+            description.extras = PersistableBundle().apply {
+                putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+            }
+        }
+        pendingPaste = expectedPaste
+        var pasteSucceeded = false
+        try
+        {
+            clipboard.setPrimaryClip(privateClip)
+            pasteSucceeded = node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+        }
+        catch (_: SecurityException)
+        {
+            pasteSucceeded = false
+        }
+        finally
+        {
+            val clipboardRestored = runCatching {
+                if (previousClip != null)
+                {
+                    clipboard.setPrimaryClip(previousClip)
+                }
+                else
+                {
+                    clipboard.clearPrimaryClip()
+                }
+            }.isSuccess
+            if (!clipboardRestored)
+            {
+                Log.w(SERVICE_LOG_TAG, "Android did not restore the clipboard after native paste.")
+            }
+        }
+        if (!pasteSucceeded)
+        {
+            pendingPaste = null
+        }
+        return pasteSucceeded
+    }
+
+    /**
+     * Verifies the event produced by native paste, applies shared boundary spacing if needed, and exposes privacy-safe undo for the exact inserted range.
+     */
+    private fun captureNativePaste(node: AccessibilityNodeInfo, event: AccessibilityEvent)
+    {
+        val expectedPaste = pendingPaste ?: return
+        val currentField = AccessibilityEditableText(
+            identity = createIdentity(node),
+            text = editableText(node),
+            selectionStart = node.textSelectionStart,
+            selectionEnd = node.textSelectionEnd,
+            isSensitive = !inspectSafety(node).dictationAllowed
+        )
+        val rawRecord = insertionUndoPlanner.capturePaste(
+            pendingPaste = expectedPaste,
+            currentField = currentField,
+            insertedTextStart = event.fromIndex,
+            addedTextLength = event.addedCount,
+            removedTextLength = event.removedCount
+        )
+        pendingPaste = null
+        if (rawRecord == null)
+        {
+            return
+        }
+        val insertedTextEnd = rawRecord.insertedTextStart + rawRecord.insertedTextLength
+        val normalizedReplacement = insertionPlanner.normalizePastedRange(currentField, rawRecord.insertedTextStart, insertedTextEnd)
+        lastInsertionUndo = if (normalizedReplacement != null && normalizedReplacement.text != currentField.text && performTextReplacement(node, normalizedReplacement))
+        {
+            insertionUndoPlanner.capture(currentField.identity, normalizedReplacement)
+        }
+        else
+        {
+            rawRecord
+        }
     }
 
     /**
@@ -412,6 +520,7 @@ class ClearDictateAccessibilityService : AccessibilityService()
     {
         recordingTouchActive = false
         recordingField = null
+        pendingPaste = null
         if (::inferenceServiceClient.isInitialized)
         {
             inferenceServiceClient.cancelDictation()
@@ -463,9 +572,11 @@ class ClearDictateAccessibilityService : AccessibilityService()
 
     private fun editableText(node: AccessibilityNodeInfo): String
     {
+        val reportedText = node.text?.toString().orEmpty()
+        val hintText = node.hintText?.toString()
         return resolveAccessibilityEditableText(
-            reportedText = node.text?.toString().orEmpty(),
-            hintText = node.hintText?.toString(),
+            reportedText = reportedText,
+            hintText = hintText,
             isShowingHintText = node.isShowingHintText,
             selectionStart = node.textSelectionStart,
             selectionEnd = node.textSelectionEnd
@@ -474,6 +585,8 @@ class ClearDictateAccessibilityService : AccessibilityService()
 
     companion object
     {
+        private const val SERVICE_LOG_TAG = "ClearDictateAccess"
+
         /**
          * Lets the setup screen reflect the system-owned service toggle without reading secure settings directly.
          */
@@ -487,6 +600,11 @@ class ClearDictateAccessibilityService : AccessibilityService()
                     actualComponent == expectedComponent
                 }
         }
+    }
+
+    private fun supportsAction(node: AccessibilityNodeInfo, actionIdentifier: Int): Boolean
+    {
+        return node.actionList.any { action -> action.id == actionIdentifier }
     }
 }
 
