@@ -45,6 +45,20 @@
                 android:resource="@xml/method" />
         </service>
 
+        <service
+            android:name=".accessibility.ClearDictateAccessibilityService"
+            android:exported="true"
+            android:label="@string/floating_dictation_service_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/floating_dictation_accessibility_service" />
+        </service>
+
     </application>
 
 </manifest>

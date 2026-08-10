@@ -1,0 +1,407 @@
+package com.cleardictate.android.accessibility
+
+import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.ComponentName
+import android.content.Context
+import android.graphics.PixelFormat
+import android.graphics.Rect
+import android.os.Bundle
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityManager
+import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
+import android.widget.Toast
+import com.cleardictate.inference.OperationPrivacy
+import com.cleardictate.inference.service.ClientRecordingState
+import com.cleardictate.inference.service.InferenceClientState
+import com.cleardictate.inference.service.InferenceConnectionState
+import com.cleardictate.inference.service.InferenceServiceClient
+import com.cleardictate.inference.service.SpeechModelState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+
+/**
+ * Keeps the user's chosen keyboard active while offering hold-to-talk dictation over any supported editable field.
+ */
+class ClearDictateAccessibilityService : AccessibilityService()
+{
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val securityInspector = AccessibilityEditorSecurityInspector()
+    private val insertionPlanner = AccessibilityTextInsertionPlanner()
+    private lateinit var inferenceServiceClient: InferenceServiceClient
+    private lateinit var floatingControl: FloatingDictationControlView
+    private lateinit var windowManager: WindowManager
+    private var latestClientState = InferenceClientState()
+    private var recordingField: AccessibilityFieldIdentity? = null
+    private var recordingTouchActive = false
+    private var lastHandledOperationIdentifier: String? = null
+    private var closed = false
+
+    override fun onServiceConnected()
+    {
+        super.onServiceConnected()
+        inferenceServiceClient = InferenceServiceClient(this)
+        createFloatingControl()
+        serviceScope.launch {
+            inferenceServiceClient.state.collectLatest(::handleClientState)
+        }
+        inferenceServiceClient.bind()
+        refreshControlPresentation()
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?)
+    {
+        val eventEditor = event?.source?.takeIf(::isSupportedEditor)
+        val originalField = recordingField
+        if (event?.eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED && eventEditor != null && originalField != null && createIdentity(eventEditor) != originalField)
+        {
+            cancelRecording()
+            showMessage("The target field changed, so dictation was cancelled.")
+        }
+
+        if (!latestClientState.recordingState.isActive() || recordingField == null)
+        {
+            refreshControlPresentation(eventEditor ?: findFocusedEditor())
+        }
+    }
+
+    override fun onInterrupt()
+    {
+        cancelRecording()
+    }
+
+    override fun onDestroy()
+    {
+        closeService()
+        super.onDestroy()
+    }
+
+    /**
+     * Adds one non-focusable accessibility overlay so touches outside the microphone continue to reach the active app and keyboard.
+     */
+    private fun createFloatingControl()
+    {
+        windowManager = getSystemService(WindowManager::class.java)
+        floatingControl = FloatingDictationControlView(this).apply {
+            visibility = View.GONE
+            setOnTouchListener { _, event -> handleControlTouch(event) }
+        }
+        val size = densityIndependentPixels(68)
+        val layoutParameters = WindowManager.LayoutParams(
+            size,
+            size,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            x = densityIndependentPixels(10)
+            title = "ClearDictate floating microphone"
+        }
+        windowManager.addView(floatingControl, layoutParameters)
+    }
+
+    private fun handleControlTouch(event: MotionEvent): Boolean
+    {
+        return when (event.actionMasked)
+        {
+            MotionEvent.ACTION_DOWN ->
+            {
+                recordingTouchActive = beginRecording()
+                recordingTouchActive
+            }
+            MotionEvent.ACTION_UP ->
+            {
+                if (recordingTouchActive)
+                {
+                    recordingTouchActive = false
+                    floatingControl.performClick()
+                    inferenceServiceClient.stopDictation()
+                    true
+                }
+                else
+                {
+                    false
+                }
+            }
+            MotionEvent.ACTION_CANCEL ->
+            {
+                if (recordingTouchActive)
+                {
+                    cancelRecording()
+                    true
+                }
+                else
+                {
+                    false
+                }
+            }
+            else -> recordingTouchActive
+        }
+    }
+
+    /**
+     * Captures an identity-only fence before microphone activation so completed text cannot drift to a different editor.
+     */
+    private fun beginRecording(): Boolean
+    {
+        if (!latestClientState.isReadyForDictation())
+        {
+            if (latestClientState.speechModelState == SpeechModelState.FAILED)
+            {
+                inferenceServiceClient.retrySpeechModelPreparation()
+            }
+            showMessage("ClearDictate is reconnecting to the paired PC.")
+            return false
+        }
+
+        val focusedEditor = findFocusedEditor()
+        if (focusedEditor == null)
+        {
+            showMessage("Focus a supported text field first.")
+            return false
+        }
+        if (!inspectSafety(focusedEditor).dictationAllowed)
+        {
+            showMessage("ClearDictate is disabled for this sensitive field.")
+            return false
+        }
+
+        recordingField = createIdentity(focusedEditor)
+        lastHandledOperationIdentifier = null
+        if (!inferenceServiceClient.startDictation(OperationPrivacy.PRIVATE))
+        {
+            recordingField = null
+            showMessage(latestClientState.failureMessage ?: "ClearDictate could not start recording.")
+            return false
+        }
+        return true
+    }
+
+    /**
+     * Updates the visible control and consumes each completed operation exactly once.
+     */
+    private fun handleClientState(clientState: InferenceClientState)
+    {
+        latestClientState = clientState
+        val completedOperationIdentifier = clientState.completedOperationIdentifier
+        if (completedOperationIdentifier != null && completedOperationIdentifier != lastHandledOperationIdentifier)
+        {
+            lastHandledOperationIdentifier = completedOperationIdentifier
+            insertCompletedTranscript(clientState)
+        }
+        refreshControlPresentation()
+    }
+
+    /**
+     * Revalidates sensitivity and field identity before transiently reading the text needed for Android's complete-value replacement action.
+     */
+    private fun insertCompletedTranscript(clientState: InferenceClientState)
+    {
+        val originalField = recordingField
+        val currentEditor = findFocusedEditor()
+        val currentEditorSafety = currentEditor?.let(::inspectSafety)
+        val replacement = if (originalField == null || currentEditor == null || currentEditorSafety?.dictationAllowed != true || clientState.usedDeterministicFallback)
+        {
+            null
+        }
+        else
+        {
+            insertionPlanner.plan(
+                recordingField = originalField,
+                currentField = AccessibilityEditableText(
+                    identity = createIdentity(currentEditor),
+                    text = currentEditor.text?.toString().orEmpty(),
+                    selectionStart = currentEditor.textSelectionStart,
+                    selectionEnd = currentEditor.textSelectionEnd,
+                    isSensitive = false
+                ),
+                transcript = clientState.selectedTranscript
+            )
+        }
+
+        val inserted = replacement != null && performTextReplacement(currentEditor, replacement)
+        showMessage(
+            when
+            {
+                inserted -> "Dictation inserted."
+                clientState.usedDeterministicFallback -> "PC polishing failed, so the transcript was not inserted."
+                else -> "The text field changed or does not support direct insertion."
+            }
+        )
+        recordingField = null
+        inferenceServiceClient.clearCompletedTranscript()
+    }
+
+    /**
+     * Applies the planned complete value and then restores the cursor immediately after the inserted transcript.
+     */
+    private fun performTextReplacement(node: AccessibilityNodeInfo?, replacement: AccessibilityTextReplacement): Boolean
+    {
+        if (node == null)
+        {
+            return false
+        }
+        val textArguments = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, replacement.text)
+        }
+        if (!node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, textArguments))
+        {
+            return false
+        }
+        val selectionArguments = Bundle().apply {
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, replacement.cursorPosition)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, replacement.cursorPosition)
+        }
+        node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectionArguments)
+        return true
+    }
+
+    /**
+     * Searches application windows rather than the overlay or input-method windows and accepts only editors exposing direct set-text support.
+     */
+    private fun findFocusedEditor(): AccessibilityNodeInfo?
+    {
+        val applicationWindowEditor = windows.asSequence()
+            .filter { window -> window.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+            .mapNotNull { window -> window.root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) }
+            .firstOrNull(::isSupportedEditor)
+        return applicationWindowEditor ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf(::isSupportedEditor)
+    }
+
+    private fun isSupportedEditor(node: AccessibilityNodeInfo): Boolean
+    {
+        return node.isEditable && node.isEnabled && node.isVisibleToUser &&
+            node.actionList.any { action -> action.id == AccessibilityNodeInfo.ACTION_SET_TEXT }
+    }
+
+    private fun inspectSafety(node: AccessibilityNodeInfo) = securityInspector.inspect(
+        AccessibilityEditorSecurityMetadata(
+            inputType = node.inputType,
+            isPassword = node.isPassword,
+            hintText = node.hintText?.toString(),
+            viewIdentifier = node.viewIdResourceName
+        )
+    )
+
+    private fun createIdentity(node: AccessibilityNodeInfo): AccessibilityFieldIdentity
+    {
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        return AccessibilityFieldIdentity(
+            windowIdentifier = node.windowId,
+            packageName = node.packageName?.toString().orEmpty(),
+            className = node.className?.toString().orEmpty(),
+            viewIdentifier = node.viewIdResourceName.orEmpty(),
+            left = bounds.left,
+            top = bounds.top,
+            right = bounds.right,
+            bottom = bounds.bottom
+        )
+    }
+
+    /**
+     * Shows the control only beside supported fields and greys it out for sensitive or unavailable contexts.
+     */
+    private fun refreshControlPresentation(focusedEditor: AccessibilityNodeInfo? = findFocusedEditor())
+    {
+        val recordingActive = latestClientState.recordingState.isActive()
+        val visualState = if (!recordingActive && focusedEditor != null && !inspectSafety(focusedEditor).dictationAllowed)
+        {
+            FloatingDictationVisualState.UNAVAILABLE
+        }
+        else
+        {
+            latestClientState.visualState()
+        }
+        floatingControl.update(visualState, latestClientState.normalizedAudioLevel)
+        floatingControl.visibility = if (recordingActive || focusedEditor != null) View.VISIBLE else View.GONE
+    }
+
+    private fun cancelRecording()
+    {
+        recordingTouchActive = false
+        recordingField = null
+        if (::inferenceServiceClient.isInitialized)
+        {
+            inferenceServiceClient.cancelDictation()
+            inferenceServiceClient.clearCompletedTranscript()
+        }
+    }
+
+    private fun closeService()
+    {
+        if (closed)
+        {
+            return
+        }
+        closed = true
+        cancelRecording()
+        if (::inferenceServiceClient.isInitialized)
+        {
+            inferenceServiceClient.close()
+        }
+        if (::floatingControl.isInitialized)
+        {
+            windowManager.removeView(floatingControl)
+        }
+        serviceScope.cancel()
+    }
+
+    private fun densityIndependentPixels(value: Int): Int
+    {
+        return (value * resources.displayMetrics.density).toInt()
+    }
+
+    private fun showMessage(message: String)
+    {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    companion object
+    {
+        /**
+         * Lets the setup screen reflect the system-owned service toggle without reading secure settings directly.
+         */
+        fun isEnabled(context: Context): Boolean
+        {
+            val expectedComponent = ComponentName(context, ClearDictateAccessibilityService::class.java)
+            return context.getSystemService(AccessibilityManager::class.java)
+                .getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+                .any { serviceInfo ->
+                    val actualComponent = ComponentName(serviceInfo.resolveInfo.serviceInfo.packageName, serviceInfo.resolveInfo.serviceInfo.name)
+                    actualComponent == expectedComponent
+                }
+        }
+    }
+}
+
+private fun InferenceClientState.isReadyForDictation(): Boolean
+{
+    return connectionState == InferenceConnectionState.CONNECTED && speechModelState == SpeechModelState.READY && recordingState == ClientRecordingState.IDLE
+}
+
+private fun InferenceClientState.visualState(): FloatingDictationVisualState
+{
+    return when (recordingState)
+    {
+        ClientRecordingState.PREPARING, ClientRecordingState.LISTENING, ClientRecordingState.SPEECH_DETECTED -> FloatingDictationVisualState.RECORDING
+        ClientRecordingState.FINALIZING -> FloatingDictationVisualState.PROCESSING
+        ClientRecordingState.IDLE -> if (isReadyForDictation()) FloatingDictationVisualState.READY else FloatingDictationVisualState.UNAVAILABLE
+        ClientRecordingState.ERROR -> FloatingDictationVisualState.UNAVAILABLE
+    }
+}
+
+private fun ClientRecordingState.isActive(): Boolean
+{
+    return this == ClientRecordingState.PREPARING || this == ClientRecordingState.LISTENING || this == ClientRecordingState.SPEECH_DETECTED || this == ClientRecordingState.FINALIZING
+}

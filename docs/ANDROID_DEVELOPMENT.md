@@ -1,11 +1,13 @@
 # Android development
 
-ClearDictate's Android Debug application contains a standalone recorder, a system input method, and an isolated foreground microphone service. The phone does not
-download or run speech or text models. It retains one QR-scanned or manually entered PC address and bearer token in application-private storage.
+ClearDictate's Android Debug application contains a standalone recorder, a floating accessibility microphone, an optional system input method, and an isolated
+foreground microphone service. The phone does not download or run speech or text models. It retains one QR-scanned or manually entered PC address and bearer token in
+application-private storage.
 
-Recording uses 16 kHz mono PCM16 audio. While the control is held, the keyboard shows live microphone energy. Release stops capture, uploads the completed in-memory
-recording to the paired Windows application, and shows an indeterminate processing indicator. The PC returns only the polished transcript. Cancellation closes an
-in-flight request and all owned audio arrays are overwritten after terminal handling.
+Recording uses 16 kHz mono PCM16 audio. While either control is held, ClearDictate shows live microphone energy. Release stops capture, uploads the completed in-memory
+recording to the paired Windows application, and shows an indeterminate processing indicator. The PC returns only the polished transcript. The floating control inserts
+that text into the same supported non-sensitive editor while leaving the selected keyboard unchanged. Cancellation closes an in-flight request and all owned audio arrays
+are overwritten after terminal handling.
 
 ## Build
 
@@ -44,17 +46,24 @@ Use `-Headless` for deterministic UI automation without host audio. The helper r
 3. Connect the Android phone and PC to the same trusted private network.
 4. Install and open the Debug APK, select **Scan QR**, and scan the code shown on the PC. ClearDictate verifies and saves the pairing automatically.
 5. If Google Play services cannot provide the scanner, enter the displayed address and token and select **Connect manually**.
-6. Grant recording permissions. Test the standalone recorder before enabling and selecting the ClearDictate keyboard.
-7. In the keyboard, hold **Hold to talk**, speak, and release. Review the PC-polished transcript and select **Insert**. If the PC was offline when the keyboard opened,
-   select **Retry PC** after the PC is ready.
+6. Grant recording permissions and test the standalone recorder.
+7. Select **Enable floating microphone**, open **ClearDictate floating dictation** in Android Accessibility settings, and explicitly enable it.
+8. Keep the preferred keyboard selected. Focus a supported text field in any application, hold the floating microphone, speak, and release. The button turns red while
+   recording, shows a processing spinner after release, and inserts the PC-polished text when the same field remains focused.
+9. The ClearDictate keyboard remains optional. It provides explicit transcript review before insertion and a **Retry PC** action when the PC was initially offline.
 
 No USB connection is required for dictation. Android Debug Bridge over USB is useful only for installation, logs, and diagnostics.
 
 ## Required physical validation
 
-Before calling the keyboard production-ready, validate Android 14, 15, and 16 devices with the input method displayed over other applications. Exercise microphone
-routing, notification permission revocation, screen lock, process death, editor changes, cancellation during upload, long recordings, poor Wi-Fi, and PC shutdown.
-Measure cold and warm end-to-end latency and confirm that sensitive fields remain blocked.
+Before calling Android input production-ready, validate Android 14, 15, and 16 devices with Gboard and other installed keyboards over multiple applications. Exercise
+the floating accessibility control and optional input method across standard Android, Compose, browser, and custom editors; microphone routing; notification permission
+revocation; screen lock; process death; editor changes; cancellation during upload; long recordings; poor Wi-Fi; and PC shutdown. Measure cold and warm end-to-end
+latency and confirm that password, personal identification number, payment-card, and one-time-code fields remain blocked.
+
+The accessibility service is explicitly user-enabled. It queries only focused editable nodes, retains only a field identity while recording, and reads current editor text
+transiently when Android requires a complete `ACTION_SET_TEXT` replacement. It does not capture screenshots or send editor contents or application identity to the PC.
+Unsupported custom editors and fields that change before the PC response are rejected without insertion.
 
 The current bearer-token transport is authenticated but not encrypted. Do not use it on public or untrusted networks. A production release requires encrypted,
 certificate-authenticated pairing.

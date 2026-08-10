@@ -60,6 +60,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.cleardictate.android.accessibility.ClearDictateAccessibilityService
 import com.cleardictate.inference.OperationPrivacy
 import com.cleardictate.inference.remote.PhonePairingPayload
 import com.cleardictate.inference.service.ClientRecordingState
@@ -148,6 +149,7 @@ private fun ClearDictateScreen(inferenceServiceClient: InferenceServiceClient)
     var connectionCheckRunning by remember { mutableStateOf(false) }
     var manualConnectionAttempted by remember { mutableStateOf(false) }
     var editableTranscript by remember { mutableStateOf("") }
+    var floatingControlEnabled by remember { mutableStateOf(ClearDictateAccessibilityService.isEnabled(context)) }
     val recordingActive = clientState.recordingState.isActive()
     val recordingDuration = rememberRecordingDuration(clientState.recordingState.isCapturing())
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -160,6 +162,7 @@ private fun ClearDictateScreen(inferenceServiceClient: InferenceServiceClient)
             if (event == Lifecycle.Event.ON_RESUME)
             {
                 permissions.refresh()
+                floatingControlEnabled = ClearDictateAccessibilityService.isEnabled(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -260,6 +263,7 @@ private fun ClearDictateScreen(inferenceServiceClient: InferenceServiceClient)
         openPermissionSettings = {
             context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
         },
+        enableFloatingControl = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
         enableKeyboard = { context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) },
         selectKeyboard = { context.getSystemService(InputMethodManager::class.java).showInputMethodPicker() },
         recordOrStop = {
@@ -282,7 +286,16 @@ private fun ClearDictateScreen(inferenceServiceClient: InferenceServiceClient)
     )
 
     ScreenContent(
-        state = ScreenState(clientState, permissions.microphonePermissionGranted, permissions.notificationPermissionGranted, connectionCheckRunning, connectionMessage, recordingActive, recordingDuration),
+        state = ScreenState(
+            clientState,
+            permissions.microphonePermissionGranted,
+            permissions.notificationPermissionGranted,
+            floatingControlEnabled,
+            connectionCheckRunning,
+            connectionMessage,
+            recordingActive,
+            recordingDuration
+        ),
         baseUrl = baseUrl,
         authorizationToken = authorizationToken,
         editableTranscript = editableTranscript,
@@ -299,6 +312,7 @@ private data class ScreenState(
     val clientState: InferenceClientState,
     val microphonePermissionGranted: Boolean,
     val notificationPermissionGranted: Boolean,
+    val floatingControlEnabled: Boolean,
     val connectionCheckRunning: Boolean,
     val connectionMessage: String,
     val recordingActive: Boolean,
@@ -318,6 +332,7 @@ private data class ScreenActions(
     val scanPairing: () -> Unit,
     val requestPermissions: () -> Unit,
     val openPermissionSettings: () -> Unit,
+    val enableFloatingControl: () -> Unit,
     val enableKeyboard: () -> Unit,
     val selectKeyboard: () -> Unit,
     val recordOrStop: () -> Unit,
@@ -425,6 +440,12 @@ private fun SetupCard(state: ScreenState, actions: ScreenActions)
                     OutlinedButton(onClick = actions.openPermissionSettings) { Text("Settings") }
                 }
             }
+            Text("Floating microphone: ${if (state.floatingControlEnabled) "Enabled" else "Disabled"}")
+            Text("Use the floating microphone alongside your current keyboard in supported text fields.", style = MaterialTheme.typography.bodySmall)
+            Button(onClick = actions.enableFloatingControl) {
+                Text(if (state.floatingControlEnabled) "Accessibility settings" else "Enable floating microphone")
+            }
+            Text("Optional ClearDictate keyboard", style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = actions.enableKeyboard) { Text("Enable keyboard") }
                 OutlinedButton(onClick = actions.selectKeyboard) { Text("Select keyboard") }

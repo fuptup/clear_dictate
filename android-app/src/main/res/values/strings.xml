@@ -3,4 +3,6 @@
     <string name="application_name">ClearDictate</string>
     <string name="input_method_name">ClearDictate Dictation</string>
     <string name="input_method_subtype_english">English dictation</string>
+    <string name="floating_dictation_service_name">ClearDictate floating dictation</string>
+    <string name="floating_dictation_accessibility_description">Shows a floating hold-to-talk microphone beside editable fields and inserts PC-polished text without replacing your keyboard.</string>
 </resources>

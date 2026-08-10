@@ -7,7 +7,8 @@ Current implemented capabilities, with verification boundaries listed below:
 
 - deterministic Raw and Clean transcript processing;
 - protected-value validation and fail-closed Polished fallback;
-- an Android standalone recorder and system Input Method Editor with QR or manual PC pairing, explicit PC reconnect, foreground microphone capture, live input level, processing feedback, review/insert, and sensitive-field blocking;
+- an Android standalone recorder, optional system Input Method Editor, and floating accessibility microphone that works beside the selected keyboard;
+- QR or manual PC pairing, explicit PC reconnect, foreground microphone capture, live input level, processing feedback, focused-field insertion, and sensitive-field blocking;
 - a bounded, versioned Kotlin/C++ worker protocol;
 - a persistent CUDA Windows text worker using Qwen3.5 9B Q6_K through pinned llama.cpp;
 - cryptographic model verification before same-handle loading;
@@ -18,7 +19,7 @@ Current implemented capabilities, with verification boundaries listed below:
 
 Important current limitations:
 
-- the Windows push-to-talk path is connected through isolated local workers, but the final system-wide overlay, global shortcut, and target-application insertion are not implemented yet;
+- the Windows push-to-talk path is connected through isolated local workers, but a Windows system-wide overlay, global shortcut, and target-application insertion are not implemented yet;
 - Android history, full settings/profile screens, a hybrid typing keyboard, and measured phone performance remain incomplete;
 - keyboard microphone eligibility still needs physical validation on Android 14, 15, and 16 while the host application is foregrounded;
 - the Windows executable is a Debug development artifact and depends on Microsoft Debug runtimes; it is not a distributable installer;
