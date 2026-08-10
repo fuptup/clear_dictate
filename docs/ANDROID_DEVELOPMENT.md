@@ -41,9 +41,11 @@ Use `-Headless` for deterministic UI automation without host audio. The helper r
 
 ## Pair and test
 
+Use the [remote connectivity runbook](REMOTE_CLIENT_CONNECTIVITY.md) for the complete Tailscale, permissions, firewall, verification, and reconnection procedure.
+
 1. Start the Windows ClearDictate preview and wait for both models to report Ready.
-2. Select Phone in the Windows application. If more than one address is shown, choose the address belonging to the phone's Wi-Fi network.
-3. Connect the Android phone and PC to the same trusted private network.
+2. Connect Tailscale on both devices. When the PC is shared with an external tester, the tester accepts that machine share from their own Tailscale account.
+3. Select Phone in the Windows application and use the advertised Tailscale address. A private-LAN address is suitable only on a trusted local network.
 4. Install and open the Debug APK, select **Scan QR**, and scan the code shown on the PC. ClearDictate verifies and saves the pairing automatically.
 5. If Google Play services cannot provide the scanner, enter the displayed address and token and select **Connect manually**.
 6. Grant recording permissions and test the standalone recorder.
@@ -65,5 +67,5 @@ The accessibility service is explicitly user-enabled. It queries only focused ed
 transiently when Android requires a complete `ACTION_SET_TEXT` replacement. It does not capture screenshots or send editor contents or application identity to the PC.
 Unsupported custom editors and fields that change before the PC response are rejected without insertion.
 
-The current bearer-token transport is authenticated but not encrypted. Do not use it on public or untrusted networks. A production release requires encrypted,
-certificate-authenticated pairing.
+The current bearer-token application protocol is authenticated HTTP. Use it through the verified Tailscale tunnel or on a trusted private LAN; never expose TCP 8765
+through router port forwarding. A production release still requires an explicit encrypted transport design compatible with the release manifest.

@@ -24,9 +24,11 @@ Important current limitations:
 - keyboard microphone eligibility still needs physical validation on Android 14, 15, and 16 while the host application is foregrounded;
 - the Windows executable is a Debug development artifact and depends on Microsoft Debug runtimes; it is not a distributable installer;
 - measured tests on the target Motorola Edge+ phones have not yet been performed;
-- the current Android/PC endpoint uses authenticated cleartext HTTP in Debug builds and must be used only on a trusted private network until certificate pairing is implemented.
+- the Android/PC application protocol uses authenticated HTTP in Debug builds and currently relies on a verified Tailscale tunnel or a trusted private LAN for transport
+  encryption and isolation; the production manifest still requires an explicit release transport design.
 
-See [Windows development instructions](docs/WINDOWS_DEVELOPMENT.md) and [Android development instructions](docs/ANDROID_DEVELOPMENT.md) for the exact local workflows.
+See the [remote connectivity runbook](docs/REMOTE_CLIENT_CONNECTIVITY.md), [Windows development instructions](docs/WINDOWS_DEVELOPMENT.md), and
+[Android development instructions](docs/ANDROID_DEVELOPMENT.md) for the exact local workflows.
 
 On the configured development computer, double-click `Run-ClearDictate-Developer-Preview.cmd` to open the Windows microphone and text-pipeline harness. This launcher is a convenience for the existing Debug toolchain, not a redistributable installer.
 
