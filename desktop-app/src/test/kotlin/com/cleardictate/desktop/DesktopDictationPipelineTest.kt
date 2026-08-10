@@ -87,6 +87,7 @@ class DesktopDictationPipelineTest
 
         kotlinx.coroutines.test.runTest {
             pipeline.prepareModels()
+            pipeline.warmUpModels()
             pipeline.startRecording("headset-endpoint")
             val result = pipeline.finishDictation()
 

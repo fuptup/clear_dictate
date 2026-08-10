@@ -88,8 +88,8 @@ setup. A tester release requires per-device tokens, device listing, individual r
 For normal operation:
 
 1. The PC boots and Tailscale connects.
-2. ClearDictate starts, loads and warms both GPU workers, detects the Tailscale address, and binds TCP 8765 only to that address. The warm-up uses only local synthetic
-   silence and a fixed trusted phrase; it retains no dictation and moves one-time GPU setup outside the first phone request.
+2. ClearDictate starts, loads both GPU workers, detects the Tailscale address, and binds TCP 8765 only to that address. It then warms the GPU paths in the background
+   with local synthetic silence and a fixed trusted phrase. The endpoint remains available while warm-up runs, so it cannot block phone reconnection.
 3. The phone's Tailscale VPN connects over Wi-Fi or mobile data.
 4. ClearDictate's Android inference service checks the authenticated health endpoint.
 5. The floating microphone becomes available in supported, non-sensitive text fields.

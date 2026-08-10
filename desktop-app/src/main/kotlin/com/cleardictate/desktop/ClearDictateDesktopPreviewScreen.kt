@@ -100,6 +100,9 @@ fun ClearDictateDesktopPreviewScreen(
                         phoneServerStatus = try
                         {
                             phoneServer.start()
+                            scope.launch {
+                                runCatching { dictationPipeline.warmUpModels() }
+                            }
                             "Ready"
                         }
                         catch (_: Exception)

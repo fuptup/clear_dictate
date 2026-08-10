@@ -63,14 +63,23 @@ class DesktopDictationPipeline(
     private val inferenceMutex = Mutex()
 
     /**
-     * Loads and exercises both persistent GPU workers before dictation is enabled, moving one-time CUDA compilation and allocation outside the user's first release.
+     * Loads both persistent GPU workers before the phone endpoint advertises readiness.
      */
     suspend fun prepareModels()
     {
         speechTranscriber.prepare()
         transcriptRewriter.prepare()
-        speechTranscriber.warmUp()
-        transcriptRewriter.warmUp()
+    }
+
+    /**
+     * Exercises both loaded GPU paths behind the same operation mutex as real dictation, so warm-up never blocks phone connectivity or competes with a request.
+     */
+    suspend fun warmUpModels()
+    {
+        inferenceMutex.withLock {
+            speechTranscriber.warmUp()
+            transcriptRewriter.warmUp()
+        }
     }
 
     suspend fun startRecording(endpointIdentifier: String)
