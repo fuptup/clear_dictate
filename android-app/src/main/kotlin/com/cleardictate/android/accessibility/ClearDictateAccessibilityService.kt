@@ -463,7 +463,13 @@ class ClearDictateAccessibilityService : AccessibilityService()
 
     private fun editableText(node: AccessibilityNodeInfo): String
     {
-        return if (node.isShowingHintText) "" else node.text?.toString().orEmpty()
+        return resolveAccessibilityEditableText(
+            reportedText = node.text?.toString().orEmpty(),
+            hintText = node.hintText?.toString(),
+            isShowingHintText = node.isShowingHintText,
+            selectionStart = node.textSelectionStart,
+            selectionEnd = node.textSelectionEnd
+        )
     }
 
     companion object
@@ -482,6 +488,16 @@ class ClearDictateAccessibilityService : AccessibilityService()
                 }
         }
     }
+}
+
+/**
+ * Excludes a platform-reported placeholder while preserving actual text whenever the editor exposes a valid cursor.
+ */
+internal fun resolveAccessibilityEditableText(reportedText: String, hintText: String?, isShowingHintText: Boolean, selectionStart: Int, selectionEnd: Int): String
+{
+    val cursorUnavailable = selectionStart < 0 || selectionEnd < 0
+    val unmarkedHint = cursorUnavailable && !hintText.isNullOrEmpty() && reportedText == hintText
+    return if (isShowingHintText || unmarkedHint) "" else reportedText
 }
 
 private fun InferenceClientState.isReadyForDictation(): Boolean
