@@ -11,7 +11,7 @@ UTC capture datetime, and queue/ASR/rewrite/total durations in `%LOCALAPPDATA%\C
 overwritten. The native capture worker, Python ASR worker, and llama.cpp text worker communicate through private pipes. Process isolation is a crash and ownership
 boundary, not a hostile-code sandbox.
 
-The system-wide shortcut, focused-application insertion, history browsing/export, installer, and device-compatibility matrix remain separate product work.
+The system-wide shortcut, focused-application insertion, history export, installer, and device-compatibility matrix remain separate product work.
 
 ## Locked inputs
 
@@ -84,6 +84,9 @@ Double-click `Run-ClearDictate-Developer-Preview.cmd` or run:
 ```
 
 Wait for **Ready**, select a microphone, hold **Hold to talk**, speak, and release. ClearDictate loads both persistent model workers during startup so the first dictation does not also pay their loading cost.
+
+Select **History** to open the retained-record viewer. It lists newest records first, can filter by the PC's local calendar date, and plays a row's stored WAV through the
+Windows default output device when clicked. **Refresh** reloads records created while the viewer is open.
 
 ## Developer phone endpoint
 

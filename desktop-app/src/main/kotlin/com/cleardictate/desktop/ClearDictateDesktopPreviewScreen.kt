@@ -64,7 +64,8 @@ fun ClearDictateDesktopPreviewScreen(
     speechRecorder: DesktopSpeechRecorder,
     dictationPipeline: DesktopDictationPipeline,
     phoneAccessConfiguration: DesktopPhoneAccessConfiguration,
-    phoneServer: DesktopRemoteDictationServer
+    phoneServer: DesktopRemoteDictationServer,
+    onOpenHistory: () -> Unit
 )
 {
     MaterialTheme {
@@ -133,6 +134,14 @@ fun ClearDictateDesktopPreviewScreen(
                     Text("ClearDictate", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.weight(1.0F))
                     OutlinedButton(
+                        onClick = onOpenHistory,
+                        modifier = Modifier.width(82.dp).height(40.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp)
+                    ) {
+                        Text("History")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(
                         onClick = { showPhoneSetup = true },
                         modifier = Modifier.width(74.dp).height(40.dp),
                         contentPadding = PaddingValues(horizontal = 10.dp)
@@ -144,7 +153,7 @@ fun ClearDictateDesktopPreviewScreen(
                         captureDevices,
                         selectedEndpointIdentifier,
                         ready && !recording && !processing,
-                        Modifier.width(240.dp)
+                        Modifier.width(180.dp)
                     ) {
                         selectedEndpointIdentifier = it
                     }

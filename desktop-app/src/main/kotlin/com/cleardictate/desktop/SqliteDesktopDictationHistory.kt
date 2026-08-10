@@ -56,9 +56,9 @@ class SqliteDesktopDictationHistory private constructor(private val databasePath
     }
 
     /**
-     * Reads the retained entries in capture order for local review or explicit training-data export.
+     * Reads lightweight retained-entry summaries newest first for history browsing without loading audio BLOBs.
      */
-    suspend fun readAll(): List<StoredDictation>
+    suspend fun readSummaries(): List<StoredDictationSummary>
     {
         return withContext(Dispatchers.IO) {
             DriverManager.getConnection(connectionUrl()).use { connection ->
@@ -68,10 +68,9 @@ class SqliteDesktopDictationHistory private constructor(private val databasePath
                             while (resultSet.next())
                             {
                                 add(
-                                    StoredDictation(
+                                    StoredDictationSummary(
                                         identifier = resultSet.getLong("id"),
                                         recordedAt = Instant.parse(resultSet.getString("recorded_at_utc")),
-                                        wavAudio = resultSet.getBytes("wav_audio"),
                                         rawTranscript = resultSet.getString("raw_transcript"),
                                         polishedTranscript = resultSet.getString("polished_transcript"),
                                         timing = DesktopDictationTiming(
@@ -84,6 +83,23 @@ class SqliteDesktopDictationHistory private constructor(private val databasePath
                                 )
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Loads one WAV only when the user asks to hear that record, avoiding retention of every recording in the history window's memory.
+     */
+    suspend fun readWavAudio(identifier: Long): ByteArray?
+    {
+        return withContext(Dispatchers.IO) {
+            DriverManager.getConnection(connectionUrl()).use { connection ->
+                connection.prepareStatement(SELECT_AUDIO).use { statement ->
+                    statement.setLong(1, identifier)
+                    statement.executeQuery().use { resultSet ->
+                        if (resultSet.next()) resultSet.getBytes("wav_audio") else null
                     }
                 }
             }
@@ -120,11 +136,12 @@ class SqliteDesktopDictationHistory private constructor(private val databasePath
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """
         private const val SELECT_ENTRIES = """
-            SELECT id, recorded_at_utc, wav_audio, raw_transcript, polished_transcript,
+            SELECT id, recorded_at_utc, raw_transcript, polished_transcript,
                    queue_milliseconds, recognition_milliseconds, rewriting_milliseconds, total_milliseconds
             FROM dictation_history
-            ORDER BY id
+            ORDER BY recorded_at_utc DESC, id DESC
         """
+        private const val SELECT_AUDIO = "SELECT wav_audio FROM dictation_history WHERE id = ?"
 
         /**
          * Opens the history database in LocalAppData, keeping dictated material outside the source tree and portable build output.
@@ -146,12 +163,11 @@ class SqliteDesktopDictationHistory private constructor(private val databasePath
 }
 
 /**
- * Represents one complete retained dictation, including its exact audio payload and both model outputs.
+ * Represents the displayable fields for one retained dictation without its potentially large audio payload.
  */
-data class StoredDictation(
+data class StoredDictationSummary(
     val identifier: Long,
     val recordedAt: Instant,
-    val wavAudio: ByteArray,
     val rawTranscript: String,
     val polishedTranscript: String,
     val timing: DesktopDictationTiming

@@ -28,17 +28,18 @@ class SqliteDesktopDictationHistoryTest
         )
 
         history.record(recordedAt, capturedAudio, result)
-        val entry = history.readAll().single()
+        val entry = history.readSummaries().single()
+        val wavAudio = requireNotNull(history.readWavAudio(entry.identifier))
 
         assertEquals(1L, entry.identifier)
         assertEquals(recordedAt, entry.recordedAt)
         assertEquals(result.rawTranscript, entry.rawTranscript)
         assertEquals(result.polishedTranscript, entry.polishedTranscript)
         assertEquals(result.timing, entry.timing)
-        assertContentEquals("RIFF".encodeToByteArray(), entry.wavAudio.copyOfRange(0, 4))
-        assertContentEquals("WAVE".encodeToByteArray(), entry.wavAudio.copyOfRange(8, 12))
-        assertEquals(16_000, ByteBuffer.wrap(entry.wavAudio).order(ByteOrder.LITTLE_ENDIAN).getInt(24))
-        assertContentEquals(shortArrayOf(0, 16_384, Short.MIN_VALUE), decodePcm16Samples(entry.wavAudio))
+        assertContentEquals("RIFF".encodeToByteArray(), wavAudio.copyOfRange(0, 4))
+        assertContentEquals("WAVE".encodeToByteArray(), wavAudio.copyOfRange(8, 12))
+        assertEquals(16_000, ByteBuffer.wrap(wavAudio).order(ByteOrder.LITTLE_ENDIAN).getInt(24))
+        assertContentEquals(shortArrayOf(0, 16_384, Short.MIN_VALUE), decodePcm16Samples(wavAudio))
     }
 
     /**

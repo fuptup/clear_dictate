@@ -1,5 +1,6 @@
 # Gradle and Kotlin build output
 .gradle/
+.kotlin/
 **/build/
 .tooling/
 __pycache__/

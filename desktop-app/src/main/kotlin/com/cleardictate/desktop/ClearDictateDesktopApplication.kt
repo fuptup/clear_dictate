@@ -1,7 +1,10 @@
 package com.cleardictate.desktop
 
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowState
@@ -17,6 +20,7 @@ fun main() = application {
     val speechRecorder = remember(runtimeConfiguration) { DesktopSpeechRecorder(runtimeConfiguration) }
     val speechTranscriber = remember(runtimeConfiguration) { QwenDesktopSpeechTranscriber(runtimeConfiguration) }
     val dictationHistory = remember { SqliteDesktopDictationHistory.openDefault() }
+    var historyVisible by remember { mutableStateOf(false) }
     val dictationPipeline = remember(speechRecorder, speechTranscriber, transcriptProcessor, dictationHistory) {
         DesktopDictationPipeline(speechRecorder, speechTranscriber, transcriptProcessor, dictationHistory)
     }
@@ -43,6 +47,19 @@ fun main() = application {
         title = "ClearDictate",
         state = WindowState(width = 600.dp, height = 440.dp)
     ) {
-        ClearDictateDesktopPreviewScreen(runtimeReadiness, speechRecorder, dictationPipeline, phoneAccessConfiguration, phoneServer)
+        ClearDictateDesktopPreviewScreen(runtimeReadiness, speechRecorder, dictationPipeline, phoneAccessConfiguration, phoneServer) {
+            historyVisible = true
+        }
+    }
+
+    if (historyVisible)
+    {
+        Window(
+            onCloseRequest = { historyVisible = false },
+            title = "ClearDictate History",
+            state = WindowState(width = 1_020.dp, height = 620.dp)
+        ) {
+            ClearDictateHistoryScreen(dictationHistory)
+        }
     }
 }
