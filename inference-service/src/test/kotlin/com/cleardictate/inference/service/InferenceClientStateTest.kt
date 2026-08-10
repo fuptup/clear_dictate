@@ -10,6 +10,25 @@ import kotlin.test.assertNull
 class InferenceClientStateTest
 {
     @Test
+    fun `operation failure remains visible without disabling the next recording`()
+    {
+        val recordingState = InferenceClientState(
+            connectionState = InferenceConnectionState.CONNECTED,
+            speechModelState = SpeechModelState.READY,
+            recordingState = ClientRecordingState.FINALIZING,
+            partialRawTranscript = "Private partial transcript"
+        )
+
+        val failedState = recordingState.afterOperationFailure("PC transcription failed.")
+
+        assertEquals(InferenceConnectionState.CONNECTED, failedState.connectionState)
+        assertEquals(SpeechModelState.READY, failedState.speechModelState)
+        assertEquals(ClientRecordingState.IDLE, failedState.recordingState)
+        assertEquals("", failedState.partialRawTranscript)
+        assertEquals("PC transcription failed.", failedState.failureMessage)
+    }
+
+    @Test
     fun `service reconnection clears the abandoned operation error`()
     {
         val disconnectedState = InferenceClientState(

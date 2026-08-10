@@ -121,6 +121,9 @@ The accessibility service and the main ClearDictate screen are separate clients 
 On reconnection each client now clears any abandoned recording error, returns to idle, and waits for the inference process to replay current PC model readiness. This lets
 the long-lived floating microphone recover without toggling the accessibility service or reopening ClearDictate.
 
+A failed or accidentally too-short dictation now returns the floating microphone to idle while retaining the failure message for diagnosis. It no longer changes the
+control into the same unavailable state used for connection and model failures, so the next press can retry immediately.
+
 Check in this order:
 
 1. Confirm the Windows PC is powered on and the ClearDictate preview is running.
@@ -133,7 +136,7 @@ Check in this order:
 7. If connectivity still fails, run the unauthenticated and authenticated health checks separately to distinguish routing from credential failure.
 
 If the main ClearDictate screen can record but the floating microphone alone remains grey, verify that the accessibility service is enabled. A build older than the
-2026-08-10 Binder-reconnection fix can retain a stale recording error after the inference process restarts and must be updated.
+2026-08-10 recovery fixes can retain a stale recording error after either an inference-process restart or a failed dictation and must be updated.
 
 On 2026-08-10, the development phone remained grey after moving outdoors and returning to Wi-Fi. The PC listener, saved endpoint, and token were correct. The Tailscale
 Android VPN engine was stale; opening Tailscale restored the route and ClearDictate returned `200 OK`. Tailscale was then added to the phone's device-idle whitelist.

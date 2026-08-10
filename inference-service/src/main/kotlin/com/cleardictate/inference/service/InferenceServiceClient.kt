@@ -590,7 +590,9 @@ class InferenceServiceClient(
             activeOperationIdentifier = null
             cancelledOperationIdentifiers.clear()
         }
-        clearOperationTranscripts(ClientRecordingState.ERROR, message)
+        mutableState.update { currentState ->
+            currentState.afterOperationFailure(message)
+        }
     }
 
     private fun clearOperationTranscripts(
@@ -647,6 +649,25 @@ internal fun InferenceClientState.afterServiceConnected(): InferenceClientState
         usedDeterministicFallback = false,
         completedOperationIdentifier = null,
         failureMessage = null
+    )
+}
+
+/**
+ * Returns a retryable idle state after one dictation operation fails while the service and model remain available.
+ */
+internal fun InferenceClientState.afterOperationFailure(message: String): InferenceClientState
+{
+    return copy(
+        recordingState = ClientRecordingState.IDLE,
+        normalizedAudioLevel = 0.0f,
+        partialRawTranscript = "",
+        finalRawTranscript = "",
+        cleanTranscript = "",
+        polishedTranscript = null,
+        selectedTranscript = "",
+        usedDeterministicFallback = false,
+        completedOperationIdentifier = null,
+        failureMessage = message
     )
 }
 
