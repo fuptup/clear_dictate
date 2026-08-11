@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -63,6 +64,7 @@ fun ClearDictateRulesScreen(store: SqliteDesktopSpokenFormattingRuleStore)
         var busy by remember { mutableStateOf(false) }
         var status by remember { mutableStateOf("") }
         var statusIsError by remember { mutableStateOf(false) }
+        var helpVisible by remember { mutableStateOf(false) }
 
         fun resetEditor()
         {
@@ -86,12 +88,19 @@ fun ClearDictateRulesScreen(store: SqliteDesktopSpokenFormattingRuleStore)
 
         Surface(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize().padding(14.dp)) {
-                Text("Formatting rules", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "Your literal, case-insensitive rules override built-ins and apply to the next PC or phone dictation.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1.0F)) {
+                        Text("Formatting rules", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Custom rules override built-ins and apply to the next PC or phone dictation.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    OutlinedButton(onClick = { helpVisible = true }, modifier = Modifier.padding(start = 10.dp).height(36.dp)) {
+                        Text("Help")
+                    }
+                }
 
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -244,6 +253,58 @@ fun ClearDictateRulesScreen(store: SqliteDesktopSpokenFormattingRuleStore)
                 }
             }
         }
+
+        if (helpVisible)
+        {
+            RulesHelpDialog(onDismiss = { helpVisible = false })
+        }
+    }
+}
+
+/**
+ * Explains the complete custom-rule lifecycle without adding permanent instructional bulk to the editor.
+ */
+@Composable
+private fun RulesHelpDialog(onDismiss: () -> Unit)
+{
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rules help") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                RulesHelpSection(
+                    "Create a rule",
+                    "Enter the words ClearDictate should recognize in “When I say”, enter the exact output in “Write”, choose spacing, optionally remove recognizer punctuation, then select Add rule. Phrases are literal and case-insensitive."
+                )
+                RulesHelpSection(
+                    "Choose spacing",
+                    "Keep spaces: two plus two → two + two\nAttach left: 50 percent → 50%\nAttach right: hash topic → #topic\nAttach both: name at sign example dot com → name@example.com"
+                )
+                RulesHelpSection(
+                    "Edit or remove",
+                    "Select Edit, change the fields, then select Save. Select Delete to remove a custom rule immediately; deletion cannot be undone."
+                )
+                RulesHelpSection(
+                    "Built-ins and activation",
+                    "Built-in rules are read-only. Add a matching custom phrase to override one. Changes apply to the next PC or phone dictation without a restart."
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        }
+    )
+}
+
+/**
+ * Keeps each help topic visually scannable while using the dialog's compact body typography.
+ */
+@Composable
+private fun RulesHelpSection(title: String, body: String)
+{
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(title, fontWeight = FontWeight.SemiBold)
+        Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
