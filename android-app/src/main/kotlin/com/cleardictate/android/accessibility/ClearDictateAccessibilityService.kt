@@ -501,13 +501,15 @@ class ClearDictateAccessibilityService : AccessibilityService()
     private fun refreshControlPresentation(focusedEditor: AccessibilityNodeInfo? = findFocusedEditor())
     {
         val recordingActive = latestClientState.recordingState.isActive()
-        val visualState = if (!recordingActive && focusedEditor != null && !inspectSafety(focusedEditor).dictationAllowed)
+        val clientVisualState = latestClientState.visualState()
+        val visualState = if (clientVisualState != FloatingDictationVisualState.DISCONNECTED && !recordingActive && focusedEditor != null &&
+            !inspectSafety(focusedEditor).dictationAllowed)
         {
             FloatingDictationVisualState.UNAVAILABLE
         }
         else
         {
-            latestClientState.visualState()
+            clientVisualState
         }
         floatingControl.update(visualState, latestClientState.normalizedAudioLevel)
         floatingControl.visibility = if (recordingActive || focusedEditor != null) View.VISIBLE else View.GONE
@@ -623,8 +625,15 @@ private fun InferenceClientState.isReadyForDictation(): Boolean
     return connectionState == InferenceConnectionState.CONNECTED && speechModelState == SpeechModelState.READY && recordingState == ClientRecordingState.IDLE
 }
 
-private fun InferenceClientState.visualState(): FloatingDictationVisualState
+/**
+ * Gives connection loss priority so the overlay never resembles an available microphone after the PC link drops.
+ */
+internal fun InferenceClientState.visualState(): FloatingDictationVisualState
 {
+    if (connectionState != InferenceConnectionState.CONNECTED || speechModelState == SpeechModelState.NOT_PREPARED || speechModelState == SpeechModelState.FAILED)
+    {
+        return FloatingDictationVisualState.DISCONNECTED
+    }
     return when (recordingState)
     {
         ClientRecordingState.PREPARING, ClientRecordingState.LISTENING, ClientRecordingState.SPEECH_DETECTED -> FloatingDictationVisualState.RECORDING

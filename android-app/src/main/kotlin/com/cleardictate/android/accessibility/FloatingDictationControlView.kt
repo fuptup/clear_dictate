@@ -12,10 +12,11 @@ import com.cleardictate.android.R
 import com.cleardictate.inference.service.R as InferenceServiceResources
 
 /**
- * Names the four states the system-wide microphone must communicate without opening the app.
+ * Names the states the system-wide dictation control must communicate without opening the app.
  */
 internal enum class FloatingDictationVisualState
 {
+    DISCONNECTED,
     UNAVAILABLE,
     READY,
     RECORDING,
@@ -59,7 +60,7 @@ internal class FloatingUndoControlView(context: Context) : FrameLayout(context)
  */
 internal class FloatingDictationControlView(context: Context) : FrameLayout(context)
 {
-    private val microphone = ImageView(context)
+    private val statusIcon = ImageView(context)
     private val processingIndicator = ProgressBar(context)
     private val inputLevel = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal)
 
@@ -70,9 +71,8 @@ internal class FloatingDictationControlView(context: Context) : FrameLayout(cont
         elevation = densityIndependentPixels(10).toFloat()
         setPadding(densityIndependentPixels(14), densityIndependentPixels(14), densityIndependentPixels(14), densityIndependentPixels(10))
 
-        microphone.setImageResource(InferenceServiceResources.drawable.ic_cleardictate_microphone)
-        microphone.setColorFilter(Color.WHITE)
-        addView(microphone, centeredLayoutParameters(32))
+        statusIcon.setColorFilter(Color.WHITE)
+        addView(statusIcon, centeredLayoutParameters(32))
 
         processingIndicator.indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
         processingIndicator.visibility = View.GONE
@@ -97,18 +97,24 @@ internal class FloatingDictationControlView(context: Context) : FrameLayout(cont
         background = circularBackground(
             when (state)
             {
+                FloatingDictationVisualState.DISCONNECTED -> 0xFF6B7280.toInt()
                 FloatingDictationVisualState.UNAVAILABLE -> 0xFF6B7280.toInt()
                 FloatingDictationVisualState.READY -> 0xFF5B42C3.toInt()
                 FloatingDictationVisualState.RECORDING -> 0xFFD13C4B.toInt()
                 FloatingDictationVisualState.PROCESSING -> 0xFFCC7A00.toInt()
             }
         )
+        statusIcon.setImageResource(
+            if (state == FloatingDictationVisualState.DISCONNECTED) R.drawable.ic_cleardictate_no_entry
+            else InferenceServiceResources.drawable.ic_cleardictate_microphone
+        )
         processingIndicator.visibility = if (state == FloatingDictationVisualState.PROCESSING) View.VISIBLE else View.GONE
-        microphone.visibility = if (state == FloatingDictationVisualState.PROCESSING) View.GONE else View.VISIBLE
+        statusIcon.visibility = if (state == FloatingDictationVisualState.PROCESSING) View.GONE else View.VISIBLE
         inputLevel.visibility = if (state == FloatingDictationVisualState.RECORDING) View.VISIBLE else View.INVISIBLE
         inputLevel.progress = (normalizedAudioLevel.coerceIn(0.0f, 1.0f) * 100).toInt()
         contentDescription = when (state)
         {
+            FloatingDictationVisualState.DISCONNECTED -> "ClearDictate disconnected from the PC"
             FloatingDictationVisualState.UNAVAILABLE -> "ClearDictate unavailable"
             FloatingDictationVisualState.READY -> "Hold to dictate"
             FloatingDictationVisualState.RECORDING -> "Recording; release to process"

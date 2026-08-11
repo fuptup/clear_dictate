@@ -119,8 +119,9 @@ request and restored Wi-Fi afterward.
 
 ## Reconnection and recovery
 
-The floating microphone is grey while the Android inference client is disconnected, the PC model is not ready, or a recording error is awaiting recovery. The message
-**ClearDictate is reconnecting to the paired PC** describes this combined unavailable state; it does not by itself prove that the Tailscale route has failed.
+The floating control shows a no-entry icon as soon as the Android inference client detects that it is disconnected from the PC. A grey microphone instead means the client
+is connected but dictation is unavailable because the PC model is not ready, the focused field is sensitive, or a recording error is awaiting recovery. The message
+**ClearDictate is reconnecting to the paired PC** accompanies connection loss but does not by itself prove that the Tailscale route has failed.
 
 The accessibility service and the main ClearDictate screen are separate clients of the Android inference process. If that process restarts, Android reconnects both clients.
 On reconnection each client now clears any abandoned recording error, returns to idle, and waits for the inference process to replay current PC model readiness. This lets
