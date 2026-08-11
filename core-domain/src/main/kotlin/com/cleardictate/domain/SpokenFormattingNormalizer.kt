@@ -29,6 +29,11 @@ data class SpokenFormattingRule(
 }
 
 /**
+ * Describes one built-in rule in user-facing terms without exposing its regular-expression implementation.
+ */
+data class BuiltInSpokenFormattingRule(val spokenPhrases: String, val writtenText: String)
+
+/**
  * Converts explicit spoken formatting commands into written delimiters, symbols, punctuation, and line structure.
  */
 class SpokenFormattingNormalizer(customRules: List<SpokenFormattingRule> = emptyList())
@@ -56,58 +61,28 @@ class SpokenFormattingNormalizer(customRules: List<SpokenFormattingRule> = empty
         )
     )
     private val customTokenRules = customRules.sortedByDescending { rule -> rule.spokenPhrase.length }.map(::spokenLiteralToken)
-    private val builtInTokenRules = listOf(
-        spokenToken("new paragraph", "\n\n", SpokenFormattingSpacing.ATTACH_BOTH),
-        spokenToken("new line", "\n", SpokenFormattingSpacing.ATTACH_BOTH),
-        spokenToken("full stop|period", ".", consumesRecognizerPunctuation = true),
-        spokenToken("question mark", "?", consumesRecognizerPunctuation = true),
-        spokenToken("exclamation (?:mark|point)", "!", consumesRecognizerPunctuation = true),
-        spokenToken("comma", ",", consumesRecognizerPunctuation = true),
-        spokenToken("semi[ -]?colon", ";", consumesRecognizerPunctuation = true),
-        spokenToken("colon", ":", consumesRecognizerPunctuation = true),
-        spokenToken("ellipsis", "...", consumesRecognizerPunctuation = true),
-        spokenToken("percent(?: sign)?", "%", SpokenFormattingSpacing.ATTACH_LEFT),
-        spokenToken("at sign", "@", SpokenFormattingSpacing.ATTACH_BOTH),
-        spokenToken("hash(?: sign| tag)?|number sign|hashtag", "#", SpokenFormattingSpacing.ATTACH_RIGHT),
-        spokenToken("ampersand", "&"),
-        spokenToken("dollar sign", "\$", SpokenFormattingSpacing.ATTACH_RIGHT),
-        spokenToken("pound sign", "£", SpokenFormattingSpacing.ATTACH_RIGHT),
-        spokenToken("euro sign", "€", SpokenFormattingSpacing.ATTACH_RIGHT),
-        spokenToken("degree (?:sign|symbol)", "°", SpokenFormattingSpacing.ATTACH_BOTH),
-        spokenToken("plus(?: sign)?", "+"),
-        spokenToken("minus(?: sign)?", "-"),
-        spokenToken("equals(?: sign)?", "="),
-        spokenToken("less than(?: sign)?", "<"),
-        spokenToken("greater than(?: sign)?", ">"),
-        spokenToken("forward slash|slash", "/", SpokenFormattingSpacing.ATTACH_BOTH),
-        spokenToken("back ?slash", "\\", SpokenFormattingSpacing.ATTACH_BOTH),
-        spokenToken("underscore", "_", SpokenFormattingSpacing.ATTACH_BOTH),
-        spokenToken("apostrophe", "'", SpokenFormattingSpacing.ATTACH_BOTH),
-        spokenToken("hyphen", "-", SpokenFormattingSpacing.ATTACH_BOTH),
-        spokenToken("dot", ".", SpokenFormattingSpacing.ATTACH_BOTH, consumesRecognizerPunctuation = true),
-        spokenToken("asterisk|star symbol", "*"),
-        spokenToken("vertical bar|pipe symbol", "|"),
-        spokenToken("caret", "^")
-    )
+    private val builtInTokenRules = BUILT_IN_TOKEN_DEFINITIONS.map { definition ->
+        spokenToken(definition.spokenPattern, definition.replacement, definition.spacing, definition.consumesRecognizerPunctuation)
+    }
     private val duplicatedSentencePunctuationPattern = Regex("""[^\S\r\n]*([.!?])([)\]}"])[^\S\r\n]*([.!?])""")
 
     /**
-     * Applies paired delimiters first, then standalone commands and recognizer-punctuation repair in deterministic order.
+     * Protects custom replacements before applying paired delimiters, standalone built-ins, and recognizer-punctuation repair.
      */
     fun normalize(transcript: String): String
     {
         var normalizedTranscript = transcript
-        delimiterRules.forEach { rule ->
-            normalizedTranscript = rule.pattern.replace(normalizedTranscript) { match ->
-                rule.openingDelimiter + match.groupValues[1].trim() + rule.closingDelimiter
-            }
-        }
         val protectedReplacements = mutableListOf<String>()
         customTokenRules.forEach { rule ->
             normalizedTranscript = rule.pattern.replace(normalizedTranscript) {
                 val marker = customReplacementMarker(protectedReplacements.size)
                 protectedReplacements.add(rule.replacement)
                 marker
+            }
+        }
+        delimiterRules.forEach { rule ->
+            normalizedTranscript = rule.pattern.replace(normalizedTranscript) { match ->
+                rule.openingDelimiter + match.groupValues[1].trim() + rule.closingDelimiter
             }
         }
         builtInTokenRules.forEach { rule ->
@@ -170,5 +145,63 @@ class SpokenFormattingNormalizer(customRules: List<SpokenFormattingRule> = empty
 
     private data class SpokenDelimiterRule(val pattern: Regex, val openingDelimiter: String, val closingDelimiter: String)
     private data class SpokenTokenRule(val pattern: Regex, val replacement: String)
+    private data class BuiltInTokenDefinition(
+        val spokenPattern: String,
+        val spokenPhrases: String,
+        val replacement: String,
+        val spacing: SpokenFormattingSpacing = SpokenFormattingSpacing.PRESERVE,
+        val consumesRecognizerPunctuation: Boolean = false,
+        val displayedWrittenText: String = replacement
+    )
+
+    companion object
+    {
+        private val PAIRED_DELIMITER_RULES = listOf(
+            BuiltInSpokenFormattingRule("open round bracket … close round bracket", "(…)"),
+            BuiltInSpokenFormattingRule("open square bracket … close square bracket", "[…]"),
+            BuiltInSpokenFormattingRule("open curly bracket … close curly bracket", "{…}"),
+            BuiltInSpokenFormattingRule("open quote … close quote", "\"…\"")
+        )
+        private val BUILT_IN_TOKEN_DEFINITIONS = listOf(
+            BuiltInTokenDefinition("new paragraph", "new paragraph", "\n\n", SpokenFormattingSpacing.ATTACH_BOTH, displayedWrittenText = "paragraph break"),
+            BuiltInTokenDefinition("new line", "new line", "\n", SpokenFormattingSpacing.ATTACH_BOTH, displayedWrittenText = "line break"),
+            BuiltInTokenDefinition("full stop|period", "full stop / period", ".", consumesRecognizerPunctuation = true),
+            BuiltInTokenDefinition("question mark", "question mark", "?", consumesRecognizerPunctuation = true),
+            BuiltInTokenDefinition("exclamation (?:mark|point)", "exclamation mark / exclamation point", "!", consumesRecognizerPunctuation = true),
+            BuiltInTokenDefinition("comma", "comma", ",", consumesRecognizerPunctuation = true),
+            BuiltInTokenDefinition("semi[ -]?colon", "semicolon / semi colon", ";", consumesRecognizerPunctuation = true),
+            BuiltInTokenDefinition("colon", "colon", ":", consumesRecognizerPunctuation = true),
+            BuiltInTokenDefinition("ellipsis", "ellipsis", "...", consumesRecognizerPunctuation = true),
+            BuiltInTokenDefinition("percent(?: sign)?", "percent / percent sign", "%", SpokenFormattingSpacing.ATTACH_LEFT),
+            BuiltInTokenDefinition("at sign", "at sign", "@", SpokenFormattingSpacing.ATTACH_BOTH),
+            BuiltInTokenDefinition("hash(?: sign| tag)?|number sign|hashtag", "hash / hash sign / hash tag / number sign / hashtag", "#", SpokenFormattingSpacing.ATTACH_RIGHT),
+            BuiltInTokenDefinition("ampersand", "ampersand", "&"),
+            BuiltInTokenDefinition("dollar sign", "dollar sign", "\$", SpokenFormattingSpacing.ATTACH_RIGHT),
+            BuiltInTokenDefinition("pound sign", "pound sign", "£", SpokenFormattingSpacing.ATTACH_RIGHT),
+            BuiltInTokenDefinition("euro sign", "euro sign", "€", SpokenFormattingSpacing.ATTACH_RIGHT),
+            BuiltInTokenDefinition("degree (?:sign|symbol)", "degree sign / degree symbol", "°", SpokenFormattingSpacing.ATTACH_BOTH),
+            BuiltInTokenDefinition("plus(?: sign)?", "plus / plus sign", "+"),
+            BuiltInTokenDefinition("minus(?: sign)?", "minus / minus sign", "-"),
+            BuiltInTokenDefinition("equals(?: sign)?", "equals / equals sign", "="),
+            BuiltInTokenDefinition("less than(?: sign)?", "less than / less than sign", "<"),
+            BuiltInTokenDefinition("greater than(?: sign)?", "greater than / greater than sign", ">"),
+            BuiltInTokenDefinition("forward slash|slash", "forward slash / slash", "/", SpokenFormattingSpacing.ATTACH_BOTH),
+            BuiltInTokenDefinition("back ?slash", "backslash / back slash", "\\", SpokenFormattingSpacing.ATTACH_BOTH),
+            BuiltInTokenDefinition("underscore", "underscore", "_", SpokenFormattingSpacing.ATTACH_BOTH),
+            BuiltInTokenDefinition("apostrophe", "apostrophe", "'", SpokenFormattingSpacing.ATTACH_BOTH),
+            BuiltInTokenDefinition("hyphen", "hyphen", "-", SpokenFormattingSpacing.ATTACH_BOTH),
+            BuiltInTokenDefinition("dot", "dot", ".", SpokenFormattingSpacing.ATTACH_BOTH, consumesRecognizerPunctuation = true),
+            BuiltInTokenDefinition("asterisk|star symbol", "asterisk / star symbol", "*"),
+            BuiltInTokenDefinition("vertical bar|pipe symbol", "vertical bar / pipe symbol", "|"),
+            BuiltInTokenDefinition("caret", "caret", "^")
+        )
+
+        /**
+         * Returns the built-in rules in the same deterministic order used by transcript normalization.
+         */
+        val builtInRules: List<BuiltInSpokenFormattingRule> = PAIRED_DELIMITER_RULES + BUILT_IN_TOKEN_DEFINITIONS.map { definition ->
+            BuiltInSpokenFormattingRule(definition.spokenPhrases, definition.displayedWrittenText)
+        }
+    }
 
 }

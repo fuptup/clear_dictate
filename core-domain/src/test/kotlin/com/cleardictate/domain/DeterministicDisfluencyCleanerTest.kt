@@ -219,4 +219,24 @@ class DeterministicDisfluencyCleanerTest
 
         assertEquals("Use percent today.", normalizer.normalize("Use special rate today."))
     }
+
+    @Test
+    fun `custom phrase takes priority over a paired delimiter rule`()
+    {
+        val normalizer = SpokenFormattingNormalizer(
+            listOf(SpokenFormattingRule("open quote text close quote", "literal", SpokenFormattingSpacing.PRESERVE, false))
+        )
+
+        assertEquals("Use literal.", normalizer.normalize("Use open quote text close quote."))
+    }
+
+    @Test
+    fun `built in rules expose user facing descriptions`()
+    {
+        val rulesByPhrase = SpokenFormattingNormalizer.builtInRules.associateBy(BuiltInSpokenFormattingRule::spokenPhrases)
+
+        assertEquals("%", rulesByPhrase.getValue("percent / percent sign").writtenText)
+        assertEquals(".", rulesByPhrase.getValue("full stop / period").writtenText)
+        assertEquals("(…)", rulesByPhrase.getValue("open round bracket … close round bracket").writtenText)
+    }
 }

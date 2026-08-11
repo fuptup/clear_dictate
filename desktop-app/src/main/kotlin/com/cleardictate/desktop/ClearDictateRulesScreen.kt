@@ -39,6 +39,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.cleardictate.domain.BuiltInSpokenFormattingRule
+import com.cleardictate.domain.SpokenFormattingNormalizer
 import com.cleardictate.domain.SpokenFormattingSpacing
 import kotlinx.coroutines.launch
 
@@ -84,9 +86,9 @@ fun ClearDictateRulesScreen(store: SqliteDesktopSpokenFormattingRuleStore)
 
         Surface(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
-                Text("Custom formatting rules", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                Text("Formatting rules", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Literal, case-insensitive phrases. Changes apply to the next PC or phone dictation.",
+                    "Your literal, case-insensitive rules override built-ins and apply to the next PC or phone dictation.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -176,10 +178,22 @@ fun ClearDictateRulesScreen(store: SqliteDesktopSpokenFormattingRuleStore)
                     when
                     {
                         loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                        rules.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("No custom rules yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
                         else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            item {
+                                RuleSectionHeader("Your rules", "Editable rules stored on this PC.")
+                                HorizontalDivider()
+                            }
+                            if (rules.isEmpty())
+                            {
+                                item {
+                                    Text(
+                                        "No custom rules yet.",
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 16.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    HorizontalDivider()
+                                }
+                            }
                             items(rules, key = StoredSpokenFormattingRule::identifier) { rule ->
                                 CustomRuleRow(
                                     rule,
@@ -217,11 +231,45 @@ fun ClearDictateRulesScreen(store: SqliteDesktopSpokenFormattingRuleStore)
                                 )
                                 HorizontalDivider()
                             }
+                            item {
+                                RuleSectionHeader("Built-in rules", "Read-only reference. A matching custom phrase takes priority.")
+                                HorizontalDivider()
+                            }
+                            items(SpokenFormattingNormalizer.builtInRules, key = { rule -> "built-in:${rule.spokenPhrases}" }) { rule ->
+                                BuiltInRuleRow(rule)
+                                HorizontalDivider()
+                            }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * Separates editable custom rules from the read-only rules supplied with ClearDictate.
+ */
+@Composable
+private fun RuleSectionHeader(title: String, description: String)
+{
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
+        Text(title, fontWeight = FontWeight.SemiBold)
+        Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/**
+ * Shows one rule supplied by the shared formatter without implying that it is stored or editable.
+ */
+@Composable
+private fun BuiltInRuleRow(rule: BuiltInSpokenFormattingRule)
+{
+    Row(modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(rule.spokenPhrases, modifier = Modifier.weight(1.8F), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("→", modifier = Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(rule.writtenText, modifier = Modifier.weight(0.8F), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+        Text("Built-in", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
     }
 }
 
