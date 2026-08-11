@@ -65,7 +65,8 @@ fun ClearDictateDesktopPreviewScreen(
     dictationPipeline: DesktopDictationPipeline,
     phoneAccessConfiguration: DesktopPhoneAccessConfiguration,
     phoneServer: DesktopRemoteDictationServer,
-    onOpenHistory: () -> Unit
+    onOpenHistory: () -> Unit,
+    onOpenRules: () -> Unit
 )
 {
     MaterialTheme {
@@ -139,6 +140,14 @@ fun ClearDictateDesktopPreviewScreen(
                         contentPadding = PaddingValues(horizontal = 8.dp)
                     ) {
                         Text("History")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(
+                        onClick = onOpenRules,
+                        modifier = Modifier.width(66.dp).height(40.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp)
+                    ) {
+                        Text("Rules")
                     }
                     Spacer(Modifier.width(8.dp))
                     OutlinedButton(

@@ -27,11 +27,15 @@ fun main()
 private fun runClearDictateDesktopApplication() = application {
     val runtimeReadiness = remember { DesktopRuntimeConfigurationLocator().locate() }
     val runtimeConfiguration = (runtimeReadiness as? DesktopRuntimeReadiness.Ready)?.configuration
-    val transcriptProcessor = remember(runtimeConfiguration) { DesktopTranscriptProcessor(runtimeConfiguration) }
+    val spokenFormattingRuleStore = remember { SqliteDesktopSpokenFormattingRuleStore.openDefault() }
+    val transcriptProcessor = remember(runtimeConfiguration, spokenFormattingRuleStore) {
+        DesktopTranscriptProcessor(runtimeConfiguration, spokenFormattingRules = spokenFormattingRuleStore::currentRules)
+    }
     val speechRecorder = remember(runtimeConfiguration) { DesktopSpeechRecorder(runtimeConfiguration) }
     val speechTranscriber = remember(runtimeConfiguration) { QwenDesktopSpeechTranscriber(runtimeConfiguration) }
     val dictationHistory = remember { SqliteDesktopDictationHistory.openDefault() }
     var historyVisible by remember { mutableStateOf(false) }
+    var rulesVisible by remember { mutableStateOf(false) }
     val dictationPipeline = remember(speechRecorder, speechTranscriber, transcriptProcessor, dictationHistory) {
         DesktopDictationPipeline(speechRecorder, speechTranscriber, transcriptProcessor, dictationHistory)
     }
@@ -58,9 +62,15 @@ private fun runClearDictateDesktopApplication() = application {
         title = "ClearDictate",
         state = WindowState(width = 600.dp, height = 440.dp)
     ) {
-        ClearDictateDesktopPreviewScreen(runtimeReadiness, speechRecorder, dictationPipeline, phoneAccessConfiguration, phoneServer) {
-            historyVisible = true
-        }
+        ClearDictateDesktopPreviewScreen(
+            runtimeReadiness,
+            speechRecorder,
+            dictationPipeline,
+            phoneAccessConfiguration,
+            phoneServer,
+            onOpenHistory = { historyVisible = true },
+            onOpenRules = { rulesVisible = true }
+        )
     }
 
     if (historyVisible)
@@ -71,6 +81,17 @@ private fun runClearDictateDesktopApplication() = application {
             state = WindowState(width = 1_240.dp, height = 720.dp)
         ) {
             ClearDictateHistoryScreen(dictationHistory)
+        }
+    }
+
+    if (rulesVisible)
+    {
+        Window(
+            onCloseRequest = { rulesVisible = false },
+            title = "ClearDictate Rules",
+            state = WindowState(width = 780.dp, height = 620.dp)
+        ) {
+            ClearDictateRulesScreen(spokenFormattingRuleStore)
         }
     }
 }

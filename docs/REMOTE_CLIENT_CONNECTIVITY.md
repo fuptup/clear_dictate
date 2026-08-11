@@ -103,6 +103,8 @@ audio, endpoint, token, or transcript data and are intended to distinguish model
 `%LOCALAPPDATA%\ClearDictate\dictation-history.sqlite`, including WAV audio, both model outputs, and any later human-reviewed correction; see `PRIVACY.md` before using the
 service with sensitive speech.
 
+Custom rules created in the desktop **Rules** window are evaluated by this shared PC pipeline, so they apply immediately to every connected Android client without an APK update.
+
 ## Verification procedure
 
 Perform these checks without exposing the bearer token:

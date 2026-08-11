@@ -3,6 +3,9 @@ package com.cleardictate.desktop
 import com.cleardictate.desktop.inference.WindowsTextWorkerClient
 import com.cleardictate.desktop.inference.WindowsTextWorkerConfiguration
 import com.cleardictate.domain.ProcessedTranscript
+import com.cleardictate.domain.DeterministicDisfluencyCleaner
+import com.cleardictate.domain.SpokenFormattingNormalizer
+import com.cleardictate.domain.SpokenFormattingRule
 import com.cleardictate.domain.TranscriptFallbackReason
 import com.cleardictate.domain.TranscriptMode
 import com.cleardictate.domain.TranscriptPolisher
@@ -40,7 +43,8 @@ fun interface DesktopTextWorkerFactory
  */
 class DesktopTranscriptProcessor(
     private val runtimeConfiguration: DesktopRuntimeConfiguration?,
-    private val workerFactory: DesktopTextWorkerFactory = WindowsDesktopTextWorkerFactory()
+    private val workerFactory: DesktopTextWorkerFactory = WindowsDesktopTextWorkerFactory(),
+    private val spokenFormattingRules: () -> List<SpokenFormattingRule> = { emptyList() }
 ) : DesktopTranscriptRewriter
 {
     private val operationMutex = Mutex()
@@ -73,7 +77,10 @@ class DesktopTranscriptProcessor(
             val operationIdentifier = OperationIdentifier("desktop_${operationSequence.incrementAndGet()}")
             val processedTranscript = withContext(Dispatchers.Default)
             {
-                TranscriptProcessingPipeline(polisher = polisher).process(
+                TranscriptProcessingPipeline(
+                    polisher = polisher,
+                    cleaner = DeterministicDisfluencyCleaner(SpokenFormattingNormalizer(spokenFormattingRules()))
+                ).process(
                     operationContext = InferenceOperationContext(
                         clientSessionIdentifier = clientSessionIdentifier,
                         operationIdentifier = operationIdentifier,

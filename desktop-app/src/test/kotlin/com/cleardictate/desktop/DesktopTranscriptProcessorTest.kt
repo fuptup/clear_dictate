@@ -1,6 +1,8 @@
 package com.cleardictate.desktop
 
 import com.cleardictate.domain.TranscriptMode
+import com.cleardictate.domain.SpokenFormattingRule
+import com.cleardictate.domain.SpokenFormattingSpacing
 import com.cleardictate.domain.TranscriptPolisher
 import com.cleardictate.domain.TranscriptPolishingRequest
 import com.cleardictate.inference.CancellationAcknowledgement
@@ -80,6 +82,20 @@ class DesktopTranscriptProcessorTest
         assertTrue(workerFactory.createdWorkers.first().closed)
         assertFalse(recoveredResult.usedDeterministicFallback)
         assertEquals(2, workerFactory.createdWorkerCount)
+    }
+
+    @Test
+    fun `each utterance uses the latest custom formatting rule snapshot`() = runTest {
+        val workerFactory = RecordingWorkerFactory()
+        var rules = listOf(SpokenFormattingRule("special token", "@", SpokenFormattingSpacing.ATTACH_BOTH, false))
+        val processor = DesktopTranscriptProcessor(readyConfiguration(), workerFactory) { rules }
+
+        val firstResult = processor.process("alex special token example.com", TranscriptMode.CLEAN)
+        rules = listOf(SpokenFormattingRule("special token", "#", SpokenFormattingSpacing.ATTACH_RIGHT, false))
+        val secondResult = processor.process("use special token topic", TranscriptMode.CLEAN)
+
+        assertEquals("Alex@example.com", firstResult.selectedTranscript)
+        assertEquals("Use #topic", secondResult.selectedTranscript)
     }
 
     @Test

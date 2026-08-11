@@ -179,4 +179,44 @@ class DeterministicDisfluencyCleanerTest
 
         assertEquals(source, cleaner.clean(source).cleanedTranscript)
     }
+
+    @Test
+    fun `custom literal rules apply before built-ins and honor spacing`()
+    {
+        val customCleaner = DeterministicDisfluencyCleaner(
+            SpokenFormattingNormalizer(
+                listOf(
+                    SpokenFormattingRule("per cent", "%", SpokenFormattingSpacing.ATTACH_LEFT, true),
+                    SpokenFormattingRule("custom separator", "~", SpokenFormattingSpacing.PRESERVE, false),
+                    SpokenFormattingRule("percent", "pct", SpokenFormattingSpacing.PRESERVE, false)
+                )
+            )
+        )
+
+        val result = customCleaner.clean("Use 50 per cent, custom separator 60 percent.")
+
+        assertEquals("Use 50% ~ 60 pct.", result.cleanedTranscript)
+    }
+
+    @Test
+    fun `custom phrases are literal case-insensitive and cannot match inside words`()
+    {
+        val customCleaner = DeterministicDisfluencyCleaner(
+            SpokenFormattingNormalizer(
+                listOf(SpokenFormattingRule("C plus plus", "C++", SpokenFormattingSpacing.PRESERVE, false))
+            )
+        )
+
+        assertEquals("Use C++ and cplusplus.", customCleaner.clean("Use c PLUS plus and cplusplus.").cleanedTranscript)
+    }
+
+    @Test
+    fun `custom replacement is not reinterpreted as a built in command`()
+    {
+        val normalizer = SpokenFormattingNormalizer(
+            listOf(SpokenFormattingRule("special rate", "percent", SpokenFormattingSpacing.PRESERVE, false))
+        )
+
+        assertEquals("Use percent today.", normalizer.normalize("Use special rate today."))
+    }
 }

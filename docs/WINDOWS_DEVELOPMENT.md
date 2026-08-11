@@ -87,6 +87,8 @@ Wait for **Ready**, select a microphone, hold **Hold to talk**, speak, and relea
 
 Spoken formatting commands are converted before AI rewriting. Supported commands include punctuation (`comma`, `full stop`, `question mark`, `colon`), symbols (`percent`, `at sign`, `hash`, currency signs, operators, slashes, `underscore`), paired brackets or quotes, and `new line` or `new paragraph`.
 
+Select **Rules** to add literal custom commands. Enter the phrase ClearDictate should recognize, its written replacement, and how the replacement joins surrounding text. **Attach left** is suitable for `%`, **Attach right** for currency or hashtag prefixes, **Attach both** for email or identifier symbols, and **Keep spaces** for operators. Enable automatic-punctuation removal when the recognizer commonly appends punctuation to the command itself. Custom rules take precedence over built-ins and apply to the next PC or phone dictation without restarting.
+
 ClearDictate permits one desktop instance per Windows session. Launching it again restores and focuses the existing main window, then the duplicate process exits before loading models or opening another phone listener.
 
 Select **History** to open the retained-record viewer. It lists newest records first, can filter by the PC's local calendar date, plays a row's stored WAV through the

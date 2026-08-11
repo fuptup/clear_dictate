@@ -34,6 +34,9 @@ The History window can store a human-reviewed correction for a retained record. 
 kept in a separate local table with their UTC review time so model outputs remain unchanged and the
 reviewed target can be distinguished during dataset preparation.
 
+Custom spoken formatting phrases and their replacement text are stored in the same local SQLite
+database. They remain on this PC and are applied to both PC and phone dictations processed here.
+
 The current Android and Windows outputs are Debug development artifacts. Device validation is still
 required for operating-system microphone restrictions, audio-route changes, permission revocation,
 screen lock, native-process death, and long-duration memory behavior.
