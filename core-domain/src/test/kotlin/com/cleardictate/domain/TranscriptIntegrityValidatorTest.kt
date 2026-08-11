@@ -165,4 +165,14 @@ class TranscriptIntegrityValidatorTest
 
         assertEquals(IntegrityFailureReason.UNREQUESTED_MARKUP, result.failureReason)
     }
+
+    @Test
+    fun `rejects removal or reordering of explicit structural delimiters`()
+    {
+        val removedResult = validator.validate("My name is (Buckland).", "My name is Buckland.")
+        val reorderedResult = validator.validate("Use [alpha] then {beta}.", "Use ]alpha[ then {beta}.")
+
+        assertEquals(IntegrityFailureReason.DELIMITER_CHANGED, removedResult.failureReason)
+        assertEquals(IntegrityFailureReason.DELIMITER_CHANGED, reorderedResult.failureReason)
+    }
 }

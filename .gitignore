@@ -16,6 +16,7 @@ local.properties
 native-worker/build/
 native-worker/build-*/
 artifacts/visual-verification/
+artifacts/runtime/
 
 # Generated application packages and installers
 *.apk

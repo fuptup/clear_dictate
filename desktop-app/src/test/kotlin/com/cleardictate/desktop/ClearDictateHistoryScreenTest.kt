@@ -12,6 +12,14 @@ import kotlin.test.assertEquals
 class ClearDictateHistoryScreenTest
 {
     @Test
+    fun `status replaces the record count without changing header height`()
+    {
+        assertEquals("Loading records...", historySubtitle(loading = true, visibleEntryCount = 0, status = ""))
+        assertEquals("1 record", historySubtitle(loading = false, visibleEntryCount = 1, status = ""))
+        assertEquals("Correction saved.", historySubtitle(loading = false, visibleEntryCount = 13, status = "Correction saved."))
+    }
+
+    @Test
     fun `date filter uses local capture date`()
     {
         val london = ZoneId.of("Europe/London")
@@ -29,6 +37,8 @@ class ClearDictateHistoryScreenTest
             recordedAt = Instant.parse(recordedAt),
             rawTranscript = "raw $identifier",
             polishedTranscript = "polished $identifier",
+            correctedTranscript = null,
+            correctedAt = null,
             timing = DesktopDictationTiming(0, 1, 2, 3)
         )
     }

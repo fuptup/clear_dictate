@@ -171,6 +171,7 @@ enum class IntegrityFailureReason
     EMPTY_RESULT,
     PROTECTED_VALUE_CHANGED,
     NEGATION_CHANGED,
+    DELIMITER_CHANGED,
     MODEL_COMMENTARY,
     UNREQUESTED_MARKUP,
     ANSWERED_TRANSCRIPT,
@@ -222,6 +223,11 @@ class TranscriptIntegrityValidator(
         if (markupTokens(sourceTranscript) != markupTokens(polishedTranscript))
         {
             return rejected(IntegrityFailureReason.UNREQUESTED_MARKUP)
+        }
+
+        if (structuralDelimiters(sourceTranscript) != structuralDelimiters(polishedTranscript))
+        {
+            return rejected(IntegrityFailureReason.DELIMITER_CHANGED)
         }
 
         if (appearsToAnswerTranscript(sourceTranscript, polishedTranscript))
@@ -307,6 +313,14 @@ class TranscriptIntegrityValidator(
         return markupTokenPattern.findAll(transcript).map { match -> match.value.trim() }.toList()
     }
 
+    /**
+     * Preserves explicit brackets and quotes in order so the language model cannot silently discard spoken formatting.
+     */
+    private fun structuralDelimiters(transcript: String): List<Char>
+    {
+        return transcript.filter { character -> character in STRUCTURAL_DELIMITERS }.toList()
+    }
+
     private fun appearsToAnswerTranscript(sourceTranscript: String, polishedTranscript: String): Boolean
     {
         val requestLead = answerSeekingRequestPattern.find(sourceTranscript)?.value?.trim()?.lowercase(Locale.ROOT)
@@ -325,5 +339,10 @@ class TranscriptIntegrityValidator(
     private fun rejected(reason: IntegrityFailureReason): TranscriptIntegrityResult
     {
         return TranscriptIntegrityResult(accepted = false, failureReason = reason)
+    }
+
+    private companion object
+    {
+        const val STRUCTURAL_DELIMITERS = "()[]{}\""
     }
 }

@@ -30,6 +30,10 @@ shared with Android clients. This retention is intended for local review and pre
 fine-tuning data; it applies to every successful dictation because the PC pipeline does not receive
 the Android editor's sensitivity classification.
 
+The History window can store a human-reviewed correction for a retained record. Corrections are
+kept in a separate local table with their UTC review time so model outputs remain unchanged and the
+reviewed target can be distinguished during dataset preparation.
+
 The current Android and Windows outputs are Debug development artifacts. Device validation is still
 required for operating-system microphone restrictions, audio-route changes, permission revocation,
 screen lock, native-process death, and long-duration memory behavior.

@@ -109,4 +109,29 @@ class DeterministicDisfluencyCleanerTest
             assertEquals(source, cleaner.clean(source).cleanedTranscript)
         }
     }
+
+    @Test
+    fun `converts paired spoken brackets and removes duplicated sentence punctuation`()
+    {
+        val result = cleaner.clean("My name is Open brackets Buckland. Close brackets.")
+
+        assertEquals("My name is (Buckland).", result.cleanedTranscript)
+        assertTrue(result.report.transformations.contains(CleanupTransformation.SPOKEN_FORMATTING_APPLIED))
+    }
+
+    @Test
+    fun `converts square curly and quoted delimiter pairs`()
+    {
+        val result = cleaner.clean("Use open square bracket alpha close square bracket, open curly bracket beta close curly bracket, and open quote gamma close quote.")
+
+        assertEquals("Use [alpha], {beta}, and \"gamma\".", result.cleanedTranscript)
+    }
+
+    @Test
+    fun `preserves unmatched delimiter words as literal speech`()
+    {
+        val source = "The label says open brackets."
+
+        assertEquals(source, cleaner.clean(source).cleanedTranscript)
+    }
 }

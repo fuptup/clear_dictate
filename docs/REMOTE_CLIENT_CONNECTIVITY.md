@@ -98,7 +98,8 @@ For normal operation:
 
 The desktop **Phone** dialog displays the queue, ASR, rewriting, and total PC-pipeline durations for the most recent successful phone dictation. These values contain no
 audio, endpoint, token, or transcript data and are intended to distinguish model latency from network latency. The PC also stores every successful dictation locally in
-`%LOCALAPPDATA%\ClearDictate\dictation-history.sqlite`, including WAV audio and both model outputs; see `PRIVACY.md` before using the service with sensitive speech.
+`%LOCALAPPDATA%\ClearDictate\dictation-history.sqlite`, including WAV audio, both model outputs, and any later human-reviewed correction; see `PRIVACY.md` before using the
+service with sensitive speech.
 
 ## Verification procedure
 

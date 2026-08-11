@@ -37,6 +37,7 @@ enum class CleanupTransformation
     HESITATIONS_REMOVED,
     REPEATED_WORDS_COLLAPSED,
     REPEATED_PHRASES_COLLAPSED,
+    SPOKEN_FORMATTING_APPLIED,
     PUNCTUATION_REPAIRED,
     CAPITALIZATION_RESTORED
 }
@@ -69,7 +70,7 @@ data class TranscriptCleanupResult(
  * The cleaner deliberately leaves ambiguous spoken repetition intact. It is intended to remove
  * obvious recognition duplication and hesitation tokens, not infer the speaker's intent.
  */
-class DeterministicDisfluencyCleaner
+class DeterministicDisfluencyCleaner(private val spokenFormattingNormalizer: SpokenFormattingNormalizer = SpokenFormattingNormalizer())
 {
     private val unambiguousHesitationTokenPattern = Regex(
         pattern = """(?iu)(?<![\p{L}\p{N}])(?:um+|uh+|ah|erm)(?![\p{L}\p{N}])"""
@@ -129,6 +130,12 @@ class DeterministicDisfluencyCleaner
             transformation = CleanupTransformation.REPEATED_WORDS_COLLAPSED,
             appliedTransformations = appliedTransformations,
             operation = ::collapseImmediateRepeatedWords
+        )
+        currentTranscript = applyStage(
+            transcript = currentTranscript,
+            transformation = CleanupTransformation.SPOKEN_FORMATTING_APPLIED,
+            appliedTransformations = appliedTransformations,
+            operation = spokenFormattingNormalizer::normalize
         )
         currentTranscript = applyStage(
             transcript = currentTranscript,

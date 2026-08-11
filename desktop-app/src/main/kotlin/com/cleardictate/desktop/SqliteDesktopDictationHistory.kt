@@ -21,7 +21,10 @@ class SqliteDesktopDictationHistory private constructor(private val databasePath
     {
         databasePath.parent?.let(Files::createDirectories)
         DriverManager.getConnection(connectionUrl()).use { connection ->
-            connection.createStatement().use { statement -> statement.executeUpdate(CREATE_TABLE) }
+            connection.createStatement().use { statement ->
+                statement.executeUpdate(CREATE_HISTORY_TABLE)
+                statement.executeUpdate(CREATE_CORRECTIONS_TABLE)
+            }
         }
     }
 
@@ -73,6 +76,8 @@ class SqliteDesktopDictationHistory private constructor(private val databasePath
                                         recordedAt = Instant.parse(resultSet.getString("recorded_at_utc")),
                                         rawTranscript = resultSet.getString("raw_transcript"),
                                         polishedTranscript = resultSet.getString("polished_transcript"),
+                                        correctedTranscript = resultSet.getString("corrected_transcript"),
+                                        correctedAt = resultSet.getString("corrected_at_utc")?.let(Instant::parse),
                                         timing = DesktopDictationTiming(
                                             queueMilliseconds = resultSet.getLong("queue_milliseconds"),
                                             recognitionMilliseconds = resultSet.getLong("recognition_milliseconds"),
@@ -84,6 +89,26 @@ class SqliteDesktopDictationHistory private constructor(private val databasePath
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+
+    /**
+     * Stores or replaces the human-reviewed target for one retained dictation without altering either model output.
+     */
+    suspend fun saveCorrection(identifier: Long, correctedTranscript: String, correctedAt: Instant = Instant.now())
+    {
+        val normalizedCorrection = correctedTranscript.trim()
+        require(normalizedCorrection.isNotEmpty()) { "A corrected transcript cannot be empty." }
+        withContext(Dispatchers.IO) {
+            DriverManager.getConnection(connectionUrl()).use { connection ->
+                connection.prepareStatement(UPSERT_CORRECTION).use { statement ->
+                    statement.setLong(1, identifier)
+                    statement.setString(2, normalizedCorrection)
+                    statement.setString(3, correctedAt.toString())
+                    statement.setLong(4, identifier)
+                    check(statement.executeUpdate() == 1) { "The dictation correction was not stored." }
                 }
             }
         }
@@ -116,7 +141,7 @@ class SqliteDesktopDictationHistory private constructor(private val databasePath
 
     companion object
     {
-        private const val CREATE_TABLE = """
+        private const val CREATE_HISTORY_TABLE = """
             CREATE TABLE IF NOT EXISTS dictation_history (
                 id INTEGER PRIMARY KEY,
                 recorded_at_utc TEXT NOT NULL,
@@ -129,6 +154,14 @@ class SqliteDesktopDictationHistory private constructor(private val databasePath
                 total_milliseconds INTEGER NOT NULL
             )
         """
+        private const val CREATE_CORRECTIONS_TABLE = """
+            CREATE TABLE IF NOT EXISTS dictation_corrections (
+                dictation_id INTEGER PRIMARY KEY,
+                corrected_transcript TEXT NOT NULL,
+                corrected_at_utc TEXT NOT NULL,
+                FOREIGN KEY (dictation_id) REFERENCES dictation_history(id) ON DELETE CASCADE
+            )
+        """
         private const val INSERT_ENTRY = """
             INSERT INTO dictation_history (
                 recorded_at_utc, wav_audio, raw_transcript, polished_transcript,
@@ -136,12 +169,22 @@ class SqliteDesktopDictationHistory private constructor(private val databasePath
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """
         private const val SELECT_ENTRIES = """
-            SELECT id, recorded_at_utc, raw_transcript, polished_transcript,
-                   queue_milliseconds, recognition_milliseconds, rewriting_milliseconds, total_milliseconds
-            FROM dictation_history
-            ORDER BY recorded_at_utc DESC, id DESC
+            SELECT history.id, history.recorded_at_utc, history.raw_transcript, history.polished_transcript,
+                   correction.corrected_transcript, correction.corrected_at_utc,
+                   history.queue_milliseconds, history.recognition_milliseconds, history.rewriting_milliseconds, history.total_milliseconds
+            FROM dictation_history AS history
+            LEFT JOIN dictation_corrections AS correction ON correction.dictation_id = history.id
+            ORDER BY history.recorded_at_utc DESC, history.id DESC
         """
         private const val SELECT_AUDIO = "SELECT wav_audio FROM dictation_history WHERE id = ?"
+        private const val UPSERT_CORRECTION = """
+            INSERT INTO dictation_corrections (dictation_id, corrected_transcript, corrected_at_utc)
+            SELECT ?, ?, ?
+            WHERE EXISTS (SELECT 1 FROM dictation_history WHERE id = ?)
+            ON CONFLICT(dictation_id) DO UPDATE SET
+                corrected_transcript = excluded.corrected_transcript,
+                corrected_at_utc = excluded.corrected_at_utc
+        """
 
         /**
          * Opens the history database in LocalAppData, keeping dictated material outside the source tree and portable build output.
@@ -170,6 +213,8 @@ data class StoredDictationSummary(
     val recordedAt: Instant,
     val rawTranscript: String,
     val polishedTranscript: String,
+    val correctedTranscript: String?,
+    val correctedAt: Instant?,
     val timing: DesktopDictationTiming
 )
 

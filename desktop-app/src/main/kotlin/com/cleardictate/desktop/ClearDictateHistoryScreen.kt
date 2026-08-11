@@ -10,10 +10,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
@@ -23,6 +25,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -58,12 +61,16 @@ fun ClearDictateHistoryScreen(history: SqliteDesktopDictationHistory)
         var entries by remember { mutableStateOf<List<StoredDictationSummary>>(emptyList()) }
         var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
         var selectedIdentifier by remember { mutableStateOf<Long?>(null) }
+        var correctionDraft by remember { mutableStateOf("") }
         var refreshSequence by remember { mutableIntStateOf(0) }
         var loading by remember { mutableStateOf(true) }
+        var savingCorrection by remember { mutableStateOf(false) }
         var status by remember { mutableStateOf("") }
+        var statusIsError by remember { mutableStateOf(false) }
         val zoneId = remember { ZoneId.systemDefault() }
         val dates = remember(entries, zoneId) { entries.map { entry -> entry.localDate(zoneId) }.distinct().sortedDescending() }
         val visibleEntries = remember(entries, selectedDate, zoneId) { filterHistoryEntries(entries, selectedDate, zoneId) }
+        val selectedEntry = remember(entries, selectedIdentifier) { entries.firstOrNull { entry -> entry.identifier == selectedIdentifier } }
 
         DisposableEffect(audioPlayer)
         {
@@ -74,9 +81,13 @@ fun ClearDictateHistoryScreen(history: SqliteDesktopDictationHistory)
         {
             loading = true
             status = ""
+            statusIsError = false
             runCatching { history.readSummaries() }
                 .onSuccess { loadedEntries -> entries = loadedEntries }
-                .onFailure { status = "Could not load dictation history." }
+                .onFailure {
+                    status = "Could not load dictation history."
+                    statusIsError = true
+                }
             loading = false
         }
 
@@ -86,23 +97,24 @@ fun ClearDictateHistoryScreen(history: SqliteDesktopDictationHistory)
                     Column(modifier = Modifier.weight(1.0F)) {
                         Text("Dictation history", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                         Text(
-                            if (loading) "Loading records..." else "${visibleEntries.size} ${if (visibleEntries.size == 1) "record" else "records"}",
+                            historySubtitle(loading, visibleEntries.size, status),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = when
+                            {
+                                status.isEmpty() -> MaterialTheme.colorScheme.onSurfaceVariant
+                                statusIsError -> MaterialTheme.colorScheme.error
+                                else -> MaterialTheme.colorScheme.primary
+                            }
                         )
                     }
                     HistoryDateFilter(dates, selectedDate, Modifier.width(190.dp)) { date ->
                         selectedDate = date
                         selectedIdentifier = null
+                        correctionDraft = ""
                     }
                     OutlinedButton(onClick = { refreshSequence += 1 }, modifier = Modifier.padding(start = 10.dp).height(42.dp)) {
                         Text("Refresh")
                     }
-                }
-
-                if (status.isNotEmpty())
-                {
-                    Text(status, modifier = Modifier.padding(top = 10.dp), color = MaterialTheme.colorScheme.error)
                 }
 
                 Surface(
@@ -123,10 +135,15 @@ fun ClearDictateHistoryScreen(history: SqliteDesktopDictationHistory)
                                 items(visibleEntries, key = StoredDictationSummary::identifier) { entry ->
                                     HistoryEntryRow(entry, entry.identifier == selectedIdentifier, zoneId) {
                                         selectedIdentifier = entry.identifier
+                                        correctionDraft = entry.correctedTranscript ?: entry.polishedTranscript
                                         status = ""
+                                        statusIsError = false
                                         scope.launch {
                                             runCatching { audioPlayer.play(entry.identifier) }
-                                                .onFailure { status = "Could not play the selected recording." }
+                                                .onFailure {
+                                                    status = "Could not play the selected recording."
+                                                    statusIsError = true
+                                                }
                                         }
                                     }
                                     HorizontalDivider()
@@ -136,12 +153,85 @@ fun ClearDictateHistoryScreen(history: SqliteDesktopDictationHistory)
                     }
                 }
 
+                if (selectedEntry != null)
+                {
+                    HistoryCorrectionEditor(
+                        correctionDraft = correctionDraft,
+                        saving = savingCorrection,
+                        saveEnabled = correctionDraft.isNotBlank() && correctionDraft.trim() != selectedEntry.correctedTranscript,
+                        onCorrectionChanged = { correctionDraft = it },
+                        onSave = {
+                            savingCorrection = true
+                            status = ""
+                            statusIsError = false
+                            scope.launch {
+                                runCatching {
+                                    history.saveCorrection(selectedEntry.identifier, correctionDraft)
+                                    history.readSummaries()
+                                }.onSuccess { loadedEntries ->
+                                    entries = loadedEntries
+                                    correctionDraft = loadedEntries.first { entry -> entry.identifier == selectedEntry.identifier }.correctedTranscript.orEmpty()
+                                    status = "Correction saved."
+                                    statusIsError = false
+                                }.onFailure {
+                                    status = "Could not save the correction."
+                                    statusIsError = true
+                                }
+                                savingCorrection = false
+                            }
+                        }
+                    )
+                }
+
                 Text(
-                    "Click a row to play its recording. Times are shown in your PC's local time.",
+                    "Click a row to play its recording and review its correction target. Times are shown in your PC's local time.",
                     modifier = Modifier.padding(top = 10.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Keeps transient status inside the fixed-height header so selecting or saving a record never shifts the editor off-screen.
+ */
+internal fun historySubtitle(loading: Boolean, visibleEntryCount: Int, status: String): String
+{
+    if (status.isNotEmpty())
+    {
+        return status
+    }
+    if (loading)
+    {
+        return "Loading records..."
+    }
+    return "$visibleEntryCount ${if (visibleEntryCount == 1) "record" else "records"}"
+}
+
+/**
+ * Edits the human-reviewed target separately from immutable model output so training examples retain their provenance.
+ */
+@Composable
+private fun HistoryCorrectionEditor(correctionDraft: String, saving: Boolean, saveEnabled: Boolean, onCorrectionChanged: (String) -> Unit, onSave: () -> Unit)
+{
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+        shape = MaterialTheme.shapes.medium,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = correctionDraft,
+                onValueChange = onCorrectionChanged,
+                modifier = Modifier.weight(1.0F).heightIn(min = 86.dp),
+                label = { Text("Reviewed correction") },
+                supportingText = { Text("Stored separately from the ASR and polished outputs.") },
+                maxLines = 3
+            )
+            Button(onClick = onSave, enabled = saveEnabled && !saving, modifier = Modifier.padding(start = 12.dp).height(44.dp)) {
+                Text(if (saving) "Saving…" else "Save correction")
             }
         }
     }
@@ -167,6 +257,7 @@ private fun HistoryHeaderRow()
         HistoryCell("Date / time", 1.05F, fontWeight = FontWeight.SemiBold)
         HistoryCell("Qwen3-ASR", 2.2F, fontWeight = FontWeight.SemiBold)
         HistoryCell("Qwen3.5 polished", 2.2F, fontWeight = FontWeight.SemiBold)
+        HistoryCell("Reviewed correction", 2.2F, fontWeight = FontWeight.SemiBold)
         HistoryCell("ASR", 0.75F, fontWeight = FontWeight.SemiBold)
         HistoryCell("Total", 0.75F, fontWeight = FontWeight.SemiBold)
     }
@@ -184,6 +275,7 @@ private fun HistoryEntryRow(entry: StoredDictationSummary, selected: Boolean, zo
             HistoryCell("${localCaptureTime.format(DATE_FORMATTER)}\n${localCaptureTime.format(TIME_FORMATTER)}", 1.05F)
             HistoryCell(entry.rawTranscript, 2.2F)
             HistoryCell(entry.polishedTranscript, 2.2F)
+            HistoryCell(entry.correctedTranscript ?: "—", 2.2F)
             HistoryCell("${entry.timing.recognitionMilliseconds} ms", 0.75F)
             HistoryCell("${entry.timing.totalMilliseconds} ms", 0.75F)
         }

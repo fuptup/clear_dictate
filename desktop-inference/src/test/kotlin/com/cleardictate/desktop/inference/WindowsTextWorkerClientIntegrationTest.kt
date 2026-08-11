@@ -93,6 +93,17 @@ class WindowsTextWorkerClientIntegrationTest
                 assertContains(result, "14:30")
                 assertContains(result, "not")
                 assertContains(result, "14:45")
+
+                val spokenFormattingTranscript = pipeline.process(
+                    operationContext = operationContext.copy(
+                        operationIdentifier = OperationIdentifier("spoken_formatting_operation")
+                    ),
+                    exactRawTranscript = "My name is Open brackets Buckland. Close brackets.",
+                    mode = TranscriptMode.POLISHED
+                )
+                assertTrue(spokenFormattingTranscript.usedDeterministicFallback)
+                assertEquals(TranscriptFallbackReason.INTEGRITY_REJECTED, spokenFormattingTranscript.fallbackReason)
+                assertEquals("My name is (Buckland).", spokenFormattingTranscript.selectedTranscript)
             }
         }
     }

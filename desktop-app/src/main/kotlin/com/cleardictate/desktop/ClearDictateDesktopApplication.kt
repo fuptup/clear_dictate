@@ -57,7 +57,7 @@ fun main() = application {
         Window(
             onCloseRequest = { historyVisible = false },
             title = "ClearDictate History",
-            state = WindowState(width = 1_020.dp, height = 620.dp)
+            state = WindowState(width = 1_240.dp, height = 720.dp)
         ) {
             ClearDictateHistoryScreen(dictationHistory)
         }

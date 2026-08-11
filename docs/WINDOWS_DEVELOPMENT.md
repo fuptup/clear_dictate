@@ -85,8 +85,9 @@ Double-click `Run-ClearDictate-Developer-Preview.cmd` or run:
 
 Wait for **Ready**, select a microphone, hold **Hold to talk**, speak, and release. ClearDictate loads both persistent model workers during startup so the first dictation does not also pay their loading cost.
 
-Select **History** to open the retained-record viewer. It lists newest records first, can filter by the PC's local calendar date, and plays a row's stored WAV through the
-Windows default output device when clicked. **Refresh** reloads records created while the viewer is open.
+Select **History** to open the retained-record viewer. It lists newest records first, can filter by the PC's local calendar date, plays a row's stored WAV through the
+default Windows output, and lets a reviewed correction be saved separately from the immutable ASR and polished outputs. The correction and its UTC review time are retained
+in the same local SQLite database for regression testing and explicit dataset preparation. **Refresh** reloads records created while the viewer is open.
 
 ## Developer phone endpoint
 
