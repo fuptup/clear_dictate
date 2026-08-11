@@ -38,11 +38,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import java.awt.datatransfer.StringSelection
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -52,11 +58,12 @@ import java.time.format.FormatStyle
  * Lists retained dictations, filters them by the user's local date, and plays the WAV attached to any clicked row.
  */
 @Composable
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalMaterial3Api::class)
 fun ClearDictateHistoryScreen(history: SqliteDesktopDictationHistory)
 {
     MaterialTheme {
         val scope = rememberCoroutineScope()
+        val clipboard = LocalClipboard.current
         val audioPlayer = remember(history) { DesktopDictationAudioPlayer(history) }
         var entries by remember { mutableStateOf<List<StoredDictationSummary>>(emptyList()) }
         var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
@@ -92,7 +99,7 @@ fun ClearDictateHistoryScreen(history: SqliteDesktopDictationHistory)
         }
 
         Surface(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
+            Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1.0F)) {
                         Text("Dictation history", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
@@ -107,18 +114,18 @@ fun ClearDictateHistoryScreen(history: SqliteDesktopDictationHistory)
                             }
                         )
                     }
-                    HistoryDateFilter(dates, selectedDate, Modifier.width(190.dp)) { date ->
+                    HistoryDateFilter(dates, selectedDate, Modifier.width(170.dp)) { date ->
                         selectedDate = date
                         selectedIdentifier = null
                         correctionDraft = ""
                     }
-                    OutlinedButton(onClick = { refreshSequence += 1 }, modifier = Modifier.padding(start = 10.dp).height(42.dp)) {
+                    OutlinedButton(onClick = { refreshSequence += 1 }, modifier = Modifier.padding(start = 6.dp).height(36.dp)) {
                         Text("Refresh")
                     }
                 }
 
                 Surface(
-                    modifier = Modifier.fillMaxWidth().weight(1.0F).padding(top = 14.dp),
+                    modifier = Modifier.fillMaxWidth().weight(1.0F).padding(top = 8.dp),
                     shape = MaterialTheme.shapes.medium,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
@@ -133,19 +140,31 @@ fun ClearDictateHistoryScreen(history: SqliteDesktopDictationHistory)
                             }
                             else -> LazyColumn(modifier = Modifier.fillMaxHeight()) {
                                 items(visibleEntries, key = StoredDictationSummary::identifier) { entry ->
-                                    HistoryEntryRow(entry, entry.identifier == selectedIdentifier, zoneId) {
-                                        selectedIdentifier = entry.identifier
-                                        correctionDraft = entry.correctedTranscript ?: entry.polishedTranscript
-                                        status = ""
-                                        statusIsError = false
-                                        scope.launch {
-                                            runCatching { audioPlayer.play(entry.identifier) }
-                                                .onFailure {
-                                                    status = "Could not play the selected recording."
-                                                    statusIsError = true
-                                                }
+                                    HistoryEntryRow(
+                                        entry = entry,
+                                        selected = entry.identifier == selectedIdentifier,
+                                        zoneId = zoneId,
+                                        onCopy = { label, text ->
+                                            scope.launch {
+                                                clipboard.setClipEntry(ClipEntry(StringSelection(text)))
+                                                status = "$label copied."
+                                                statusIsError = false
+                                            }
+                                        },
+                                        onClick = {
+                                            selectedIdentifier = entry.identifier
+                                            correctionDraft = entry.correctedTranscript ?: entry.polishedTranscript
+                                            status = ""
+                                            statusIsError = false
+                                            scope.launch {
+                                                runCatching { audioPlayer.play(entry.identifier) }
+                                                    .onFailure {
+                                                        status = "Could not play the selected recording."
+                                                        statusIsError = true
+                                                    }
+                                            }
                                         }
-                                    }
+                                    )
                                     HorizontalDivider()
                                 }
                             }
@@ -184,8 +203,8 @@ fun ClearDictateHistoryScreen(history: SqliteDesktopDictationHistory)
                 }
 
                 Text(
-                    "Click a row to play its recording and review its correction target. Times are shown in your PC's local time.",
-                    modifier = Modifier.padding(top = 10.dp),
+                    "Click transcript text to copy it; click elsewhere on a row to play its recording.",
+                    modifier = Modifier.padding(top = 6.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -217,20 +236,19 @@ internal fun historySubtitle(loading: Boolean, visibleEntryCount: Int, status: S
 private fun HistoryCorrectionEditor(correctionDraft: String, saving: Boolean, saveEnabled: Boolean, onCorrectionChanged: (String) -> Unit, onSave: () -> Unit)
 {
     Surface(
-        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         shape = MaterialTheme.shapes.medium,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
-        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(modifier = Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = correctionDraft,
                 onValueChange = onCorrectionChanged,
-                modifier = Modifier.weight(1.0F).heightIn(min = 86.dp),
+                modifier = Modifier.weight(1.0F).heightIn(min = 60.dp),
                 label = { Text("Reviewed correction") },
-                supportingText = { Text("Stored separately from the ASR and polished outputs.") },
-                maxLines = 3
+                maxLines = 2
             )
-            Button(onClick = onSave, enabled = saveEnabled && !saving, modifier = Modifier.padding(start = 12.dp).height(44.dp)) {
+            Button(onClick = onSave, enabled = saveEnabled && !saving, modifier = Modifier.padding(start = 8.dp).height(36.dp)) {
                 Text(if (saving) "Saving…" else "Save correction")
             }
         }
@@ -253,8 +271,8 @@ private fun StoredDictationSummary.localDate(zoneId: ZoneId): LocalDate
 @Composable
 private fun HistoryHeaderRow()
 {
-    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
-        HistoryCell("Date / time", 1.05F, fontWeight = FontWeight.SemiBold)
+    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)) {
+        HistoryCell("Date / time", 1.15F, maxLines = 1, fontWeight = FontWeight.SemiBold)
         HistoryCell("Qwen3-ASR", 2.2F, fontWeight = FontWeight.SemiBold)
         HistoryCell("Qwen3.5 polished", 2.2F, fontWeight = FontWeight.SemiBold)
         HistoryCell("Reviewed correction", 2.2F, fontWeight = FontWeight.SemiBold)
@@ -264,35 +282,63 @@ private fun HistoryHeaderRow()
 }
 
 @Composable
-private fun HistoryEntryRow(entry: StoredDictationSummary, selected: Boolean, zoneId: ZoneId, onClick: () -> Unit)
+private fun HistoryEntryRow(entry: StoredDictationSummary, selected: Boolean, zoneId: ZoneId, onCopy: (String, String) -> Unit, onClick: () -> Unit)
 {
     Surface(color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(72.dp).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth().height(54.dp).clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             val localCaptureTime = entry.recordedAt.atZone(zoneId)
-            HistoryCell("${localCaptureTime.format(DATE_FORMATTER)}\n${localCaptureTime.format(TIME_FORMATTER)}", 1.05F)
-            HistoryCell(entry.rawTranscript, 2.2F)
-            HistoryCell(entry.polishedTranscript, 2.2F)
-            HistoryCell(entry.correctedTranscript ?: "—", 2.2F)
-            HistoryCell("${entry.timing.recognitionMilliseconds} ms", 0.75F)
-            HistoryCell("${entry.timing.totalMilliseconds} ms", 0.75F)
+            HistoryCell(localCaptureTime.format(HISTORY_TIMESTAMP_FORMATTER), 1.15F, maxLines = 1)
+            HistoryCopyCell(entry.rawTranscript, 2.2F) { onCopy("ASR text", entry.rawTranscript) }
+            HistoryCopyCell(entry.polishedTranscript, 2.2F) { onCopy("Polished text", entry.polishedTranscript) }
+            HistoryCopyCell(entry.correctedTranscript ?: "—", 2.2F, enabled = entry.correctedTranscript != null) {
+                onCopy("Reviewed correction", entry.correctedTranscript.orEmpty())
+            }
+            HistoryCell("${entry.timing.recognitionMilliseconds} ms", 0.75F, maxLines = 1)
+            HistoryCell("${entry.timing.totalMilliseconds} ms", 0.75F, maxLines = 1)
         }
     }
 }
 
 @Composable
-private fun RowScope.HistoryCell(text: String, weight: Float, fontWeight: FontWeight? = null)
+private fun RowScope.HistoryCell(text: String, weight: Float, maxLines: Int = 2, fontWeight: FontWeight? = null)
 {
     Text(
         text = text,
-        modifier = Modifier.weight(weight).padding(end = 12.dp),
-        maxLines = 2,
+        modifier = Modifier.weight(weight).padding(end = 8.dp),
+        maxLines = maxLines,
         overflow = TextOverflow.Ellipsis,
         style = MaterialTheme.typography.bodyMedium,
         fontWeight = fontWeight
     )
+}
+
+/**
+ * Copies exactly one transcript column while hover styling makes the click target unambiguous from the row's audio action.
+ */
+@Composable
+@OptIn(ExperimentalComposeUiApi::class)
+private fun RowScope.HistoryCopyCell(text: String, weight: Float, enabled: Boolean = true, onCopy: () -> Unit)
+{
+    var hovered by remember { mutableStateOf(false) }
+    Surface(
+        modifier = Modifier.weight(weight).fillMaxHeight().padding(end = 6.dp)
+            .onPointerEvent(PointerEventType.Enter) { hovered = enabled }
+            .onPointerEvent(PointerEventType.Exit) { hovered = false }
+            .clickable(enabled = enabled, onClick = onCopy),
+        shape = MaterialTheme.shapes.small,
+        color = if (hovered) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface.copy(alpha = 0.0F)
+    ) {
+        Row(modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(text, modifier = Modifier.weight(1.0F), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+            if (hovered)
+            {
+                Text("Copy", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
 }
 
 @Composable
@@ -303,7 +349,7 @@ private fun HistoryDateFilter(dates: List<LocalDate>, selectedDate: LocalDate?, 
     val label = selectedDate?.format(DATE_FORMATTER) ?: "All dates"
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         Surface(
-            modifier = modifier.height(42.dp).menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, true),
+            modifier = modifier.height(36.dp).menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, true),
             shape = MaterialTheme.shapes.small,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
         ) {
@@ -328,4 +374,4 @@ private fun HistoryDateFilter(dates: List<LocalDate>, selectedDate: LocalDate?, 
 }
 
 private val DATE_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
-private val TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+private val HISTORY_TIMESTAMP_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("dd MMM yy HH:mm:ss")

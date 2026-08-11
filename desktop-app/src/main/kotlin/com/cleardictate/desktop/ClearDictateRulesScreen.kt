@@ -85,7 +85,7 @@ fun ClearDictateRulesScreen(store: SqliteDesktopSpokenFormattingRuleStore)
         }
 
         Surface(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
+            Column(modifier = Modifier.fillMaxSize().padding(14.dp)) {
                 Text("Formatting rules", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                 Text(
                     "Your literal, case-insensitive rules override built-ins and apply to the next PC or phone dictation.",
@@ -94,12 +94,12 @@ fun ClearDictateRulesScreen(store: SqliteDesktopSpokenFormattingRuleStore)
                 )
 
                 Surface(
-                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     shape = MaterialTheme.shapes.medium,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(10.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedTextField(
                                 value = spokenPhrase,
                                 onValueChange = { spokenPhrase = it },
@@ -111,7 +111,7 @@ fun ClearDictateRulesScreen(store: SqliteDesktopSpokenFormattingRuleStore)
                             OutlinedTextField(
                                 value = replacement,
                                 onValueChange = { replacement = it },
-                                modifier = Modifier.width(190.dp),
+                                modifier = Modifier.width(150.dp),
                                 label = { Text("Write") },
                                 placeholder = { Text("%") },
                                 singleLine = true
@@ -119,11 +119,11 @@ fun ClearDictateRulesScreen(store: SqliteDesktopSpokenFormattingRuleStore)
                         }
 
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            RuleSpacingDropdown(spacing, Modifier.width(230.dp)) { selectedSpacing -> spacing = selectedSpacing }
+                            RuleSpacingDropdown(spacing, Modifier.width(190.dp)) { selectedSpacing -> spacing = selectedSpacing }
                             Row(modifier = Modifier.weight(1.0F), verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(checked = consumesRecognizerPunctuation, onCheckedChange = { consumesRecognizerPunctuation = it })
                                 Text("Remove automatic punctuation after phrase", style = MaterialTheme.typography.bodySmall)
@@ -165,7 +165,7 @@ fun ClearDictateRulesScreen(store: SqliteDesktopSpokenFormattingRuleStore)
 
                 Text(
                     if (status.isNotEmpty()) status else "${rules.size} custom ${if (rules.size == 1) "rule" else "rules"}",
-                    modifier = Modifier.padding(top = 10.dp, bottom = 8.dp),
+                    modifier = Modifier.padding(top = 6.dp, bottom = 5.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (statusIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -188,7 +188,7 @@ fun ClearDictateRulesScreen(store: SqliteDesktopSpokenFormattingRuleStore)
                                 item {
                                     Text(
                                         "No custom rules yet.",
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 16.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     HorizontalDivider()
@@ -253,7 +253,7 @@ fun ClearDictateRulesScreen(store: SqliteDesktopSpokenFormattingRuleStore)
 @Composable
 private fun RuleSectionHeader(title: String, description: String)
 {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)) {
         Text(title, fontWeight = FontWeight.SemiBold)
         Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -265,7 +265,7 @@ private fun RuleSectionHeader(title: String, description: String)
 @Composable
 private fun BuiltInRuleRow(rule: BuiltInSpokenFormattingRule)
 {
-    Row(modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier = Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(rule.spokenPhrases, modifier = Modifier.weight(1.8F), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text("→", modifier = Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(rule.writtenText, modifier = Modifier.weight(0.8F), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
@@ -279,7 +279,7 @@ private fun BuiltInRuleRow(rule: BuiltInSpokenFormattingRule)
 @Composable
 private fun CustomRuleRow(rule: StoredSpokenFormattingRule, busy: Boolean, onEdit: () -> Unit, onDelete: () -> Unit)
 {
-    Row(modifier = Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(rule.spokenPhrase, modifier = Modifier.weight(1.4F), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text("→", modifier = Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(rule.replacement, modifier = Modifier.weight(0.8F), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)

@@ -91,8 +91,8 @@ Select **Rules** to view the read-only built-in commands and add literal custom 
 
 ClearDictate permits one desktop instance per Windows session. Launching it again restores and focuses the existing main window, then the duplicate process exits before loading models or opening another phone listener.
 
-Select **History** to open the retained-record viewer. It lists newest records first, can filter by the PC's local calendar date, plays a row's stored WAV through the
-default Windows output, and lets a reviewed correction be saved separately from the immutable ASR and polished outputs. The correction and its UTC review time are retained
+Select **History** to open the retained-record viewer. It lists newest records first and can filter by the PC's local calendar date. Hover an ASR, polished, or reviewed-correction cell and click its **Copy** affordance to place exactly that cell's text on the clipboard; click elsewhere on the row to play its stored WAV through the
+default Windows output. A reviewed correction can be saved separately from the immutable ASR and polished outputs. The correction and its UTC review time are retained
 in the same local SQLite database for regression testing and explicit dataset preparation. **Refresh** reloads records created while the viewer is open.
 
 ## Developer phone endpoint

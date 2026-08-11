@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
@@ -49,6 +48,8 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogWindow
+import androidx.compose.ui.window.rememberDialogState
 import com.cleardictate.desktop.inference.WindowsCaptureDevice
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -129,45 +130,45 @@ fun ClearDictateDesktopPreviewScreen(
             }
 
             Column(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 16.dp)
+                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)
             ) {
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("ClearDictate", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.weight(1.0F))
                     OutlinedButton(
                         onClick = onOpenHistory,
-                        modifier = Modifier.width(82.dp).height(40.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp)
+                        modifier = Modifier.width(74.dp).height(36.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp)
                     ) {
                         Text("History")
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(6.dp))
                     OutlinedButton(
                         onClick = onOpenRules,
-                        modifier = Modifier.width(66.dp).height(40.dp),
+                        modifier = Modifier.width(60.dp).height(36.dp),
                         contentPadding = PaddingValues(horizontal = 6.dp)
                     ) {
                         Text("Rules")
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(6.dp))
                     OutlinedButton(
                         onClick = { showPhoneSetup = true },
-                        modifier = Modifier.width(74.dp).height(40.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp)
+                        modifier = Modifier.width(66.dp).height(36.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp)
                     ) {
                         Text("Phone")
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(6.dp))
                     MicrophoneDropdown(
                         captureDevices,
                         selectedEndpointIdentifier,
                         ready && !recording && !processing,
-                        Modifier.width(180.dp)
+                        Modifier.width(166.dp)
                     ) {
                         selectedEndpointIdentifier = it
                     }
                 }
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(6.dp))
 
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     PushToTalkButton(
@@ -215,27 +216,28 @@ fun ClearDictateDesktopPreviewScreen(
                             }
                         }
                     )
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(8.dp))
                     DictationActivityIndicator(recording, preparingModels || processing, microphoneActivity, status, Modifier.weight(1.0F))
                 }
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(6.dp))
                 OutlinedTextField(
                     value = polishedTranscript,
                     onValueChange = { polishedTranscript = it },
-                    modifier = Modifier.fillMaxWidth().height(124.dp),
+                    modifier = Modifier.fillMaxWidth().height(108.dp),
                     enabled = !recording && !processing,
                     label = { Text("Polished") }
                 )
                 OutlinedTextField(
                     value = rawTranscript,
                     onValueChange = {},
-                    modifier = Modifier.fillMaxWidth().height(76.dp).padding(top = 8.dp),
+                    modifier = Modifier.fillMaxWidth().height(66.dp).padding(top = 6.dp),
                     readOnly = true,
                     label = { Text("Raw") }
                 )
-                Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(modifier = Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedButton(
                         enabled = polishedTranscript.isNotEmpty() && !recording && !processing,
+                        modifier = Modifier.height(36.dp),
                         onClick = {
                             scope.launch {
                                 clipboard.setClipEntry(ClipEntry(StringSelection(polishedTranscript)))
@@ -247,6 +249,7 @@ fun ClearDictateDesktopPreviewScreen(
                     }
                     OutlinedButton(
                         enabled = !recording && !processing,
+                        modifier = Modifier.height(36.dp),
                         onClick = {
                             rawTranscript = ""
                             polishedTranscript = ""
@@ -292,65 +295,72 @@ private fun PhoneSetupDialog(
     var selectedEndpointIndex by remember(configuration.endpointUrls) { mutableIntStateOf(0) }
     val selectedEndpoint = configuration.endpointUrls.getOrNull(selectedEndpointIndex)
     val pairingPayload = selectedEndpoint?.let(configuration::pairingPayload)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Phone connection") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Status: $serverStatus", modifier = Modifier.fillMaxWidth())
-                lastTiming?.let { timing ->
-                    Text("Last phone dictation: ${formatLatency(timing)}", modifier = Modifier.fillMaxWidth())
-                }
-                if (pairingPayload == null)
-                {
-                    Text("No private IPv4 address found", modifier = Modifier.fillMaxWidth())
-                }
-                else
-                {
-                    val qrCode = remember(pairingPayload) { DesktopPhonePairingQrCode.render(pairingPayload.encode()) }
-                    Image(qrCode, "QR code for pairing this phone with ClearDictate", modifier = Modifier.size(220.dp))
-                    SelectionContainer {
-                        Column {
-                            Text(pairingPayload.endpointUrl)
-                            Text("Token: ${configuration.authorizationToken}")
-                        }
+    DialogWindow(
+        onCloseRequest = onDismiss,
+        title = "ClearDictate Phone",
+        state = rememberDialogState(width = 400.dp, height = 400.dp),
+        resizable = false
+    ) {
+        MaterialTheme {
+            Surface(modifier = Modifier.fillMaxSize()) {
+                Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Phone connection", modifier = Modifier.weight(1.0F), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                        Text(serverStatus, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
                     }
-                    if (configuration.endpointUrls.size > 1)
+                    lastTiming?.let { timing ->
+                        Text("Last: ${formatLatency(timing)}", modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (pairingPayload == null)
                     {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(onClick = {
-                                selectedEndpointIndex = (selectedEndpointIndex - 1 + configuration.endpointUrls.size) % configuration.endpointUrls.size
-                            }) {
-                                Text("Previous address")
+                        Box(modifier = Modifier.fillMaxWidth().weight(1.0F), contentAlignment = Alignment.Center) {
+                            Text("No private IPv4 address found")
+                        }
+                    }
+                    else
+                    {
+                        val qrCode = remember(pairingPayload) { DesktopPhonePairingQrCode.render(pairingPayload.encode()) }
+                        Image(qrCode, "QR code for pairing this phone with ClearDictate", modifier = Modifier.size(160.dp).align(Alignment.CenterHorizontally))
+                        SelectionContainer {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(pairingPayload.endpointUrl, style = MaterialTheme.typography.bodySmall)
+                                Text("Token: ${configuration.authorizationToken}", style = MaterialTheme.typography.bodySmall)
                             }
-                            TextButton(onClick = {
-                                selectedEndpointIndex = (selectedEndpointIndex + 1) % configuration.endpointUrls.size
-                            }) {
-                                Text("Next address")
+                        }
+                        if (configuration.endpointUrls.size > 1)
+                        {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                                TextButton(onClick = {
+                                    selectedEndpointIndex = (selectedEndpointIndex - 1 + configuration.endpointUrls.size) % configuration.endpointUrls.size
+                                }) {
+                                    Text("Previous address")
+                                }
+                                TextButton(onClick = {
+                                    selectedEndpointIndex = (selectedEndpointIndex + 1) % configuration.endpointUrls.size
+                                }) {
+                                    Text("Next address")
+                                }
                             }
                         }
                     }
+                    SelectionContainer {
+                        Text(
+                            "Scan in Android. Audio is authenticated but not encrypted; use Tailscale or another trusted private network.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Spacer(Modifier.weight(1.0F))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = onDismiss) { Text("Close") }
+                        TextButton(onClick = { pairingPayload?.let { payload -> onCopy(payload.encode()) } }, enabled = pairingPayload != null) {
+                            Text("Copy details")
+                        }
+                    }
                 }
-                SelectionContainer {
-                    Text(
-                        "Scan in the Android app. Audio is authenticated but not encrypted, so use a trusted private network.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { pairingPayload?.let { payload -> onCopy(payload.encode()) } }, enabled = pairingPayload != null) {
-                Text("Copy details")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close")
             }
         }
-    )
+    }
 }
 
 /**
@@ -375,7 +385,7 @@ private fun PushToTalkButton(enabled: Boolean, recording: Boolean, onPress: susp
         shape = MaterialTheme.shapes.extraLarge,
         color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
         contentColor = if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.width(148.dp).height(40.dp).pointerInput(enabled) {
+        modifier = Modifier.width(132.dp).height(36.dp).pointerInput(enabled) {
             detectTapGestures(
                 onPress = {
                     if (enabled)
@@ -402,7 +412,7 @@ private fun PushToTalkButton(enabled: Boolean, recording: Boolean, onPress: susp
 @Composable
 private fun DictationActivityIndicator(recording: Boolean, processing: Boolean, microphoneActivity: Float, status: String, modifier: Modifier)
 {
-    Row(modifier = modifier.height(40.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier = modifier.height(36.dp), verticalAlignment = Alignment.CenterVertically) {
         when
         {
             recording ->
@@ -436,13 +446,13 @@ private fun MicrophoneDropdown(captureDevices: List<WindowsCaptureDevice>, selec
 
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = enabled && it }) {
         Surface(
-            modifier = modifier.height(42.dp).menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled),
+            modifier = modifier.height(36.dp).menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled),
             shape = MaterialTheme.shapes.small,
             color = MaterialTheme.colorScheme.surface,
             contentColor = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
             border = BorderStroke(1.dp, if (enabled) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.outlineVariant)
         ) {
-            Row(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(selected.displayLabel, modifier = Modifier.weight(1.0F), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 ExposedDropdownMenuDefaults.TrailingIcon(expanded)
             }

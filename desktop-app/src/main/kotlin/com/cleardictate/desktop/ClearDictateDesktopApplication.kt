@@ -60,7 +60,7 @@ private fun runClearDictateDesktopApplication() = application {
     Window(
         onCloseRequest = ::exitApplication,
         title = "ClearDictate",
-        state = WindowState(width = 600.dp, height = 440.dp)
+        state = WindowState(width = 600.dp, height = 370.dp)
     ) {
         ClearDictateDesktopPreviewScreen(
             runtimeReadiness,
@@ -78,7 +78,7 @@ private fun runClearDictateDesktopApplication() = application {
         Window(
             onCloseRequest = { historyVisible = false },
             title = "ClearDictate History",
-            state = WindowState(width = 1_240.dp, height = 720.dp)
+            state = WindowState(width = 1_160.dp, height = 620.dp)
         ) {
             ClearDictateHistoryScreen(dictationHistory)
         }
@@ -89,7 +89,7 @@ private fun runClearDictateDesktopApplication() = application {
         Window(
             onCloseRequest = { rulesVisible = false },
             title = "ClearDictate Rules",
-            state = WindowState(width = 780.dp, height = 620.dp)
+            state = WindowState(width = 740.dp, height = 540.dp)
         ) {
             ClearDictateRulesScreen(spokenFormattingRuleStore)
         }
