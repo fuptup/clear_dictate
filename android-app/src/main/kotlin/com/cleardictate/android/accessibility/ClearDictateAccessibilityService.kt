@@ -274,22 +274,24 @@ class ClearDictateAccessibilityService : AccessibilityService()
      */
     private fun insertTranscript(node: AccessibilityNodeInfo, originalField: AccessibilityFieldIdentity, transcript: String): Boolean
     {
-        if (shouldUseNativePaste(
-                packageName = node.packageName?.toString().orEmpty(),
+        val whatsappComposerEmpty = isWhatsAppComposerEmpty(node)
+        if (!whatsappComposerEmpty && shouldUseNativePaste(
                 selectionStart = node.textSelectionStart,
                 selectionEnd = node.textSelectionEnd,
-                pasteSupported = supportsAction(node, AccessibilityNodeInfo.ACTION_PASTE)
-            ))
+                pasteSupported = supportsAction(node, AccessibilityNodeInfo.ACTION_PASTE)))
         {
             return performNativePaste(node, originalField, transcript)
         }
+        val currentText = if (whatsappComposerEmpty) "" else editableText(node)
+        val selectionStart = if (whatsappComposerEmpty) 0 else node.textSelectionStart
+        val selectionEnd = if (whatsappComposerEmpty) 0 else node.textSelectionEnd
         val replacement = insertionPlanner.plan(
             recordingField = originalField,
             currentField = AccessibilityEditableText(
                 identity = createIdentity(node),
-                text = editableText(node),
-                selectionStart = node.textSelectionStart,
-                selectionEnd = node.textSelectionEnd,
+                text = currentText,
+                selectionStart = selectionStart,
+                selectionEnd = selectionEnd,
                 isSensitive = false
             ),
             transcript = transcript
@@ -300,6 +302,21 @@ class ClearDictateAccessibilityService : AccessibilityService()
             lastInsertionUndo = insertionUndoPlanner.capture(createIdentity(node), replacement)
         }
         return actionSucceeded
+    }
+
+    /**
+     * Uses WhatsApp's visible voice-note control as the authoritative empty-composer signal because its accessibility text can still report the visual placeholder.
+     */
+    private fun isWhatsAppComposerEmpty(node: AccessibilityNodeInfo): Boolean
+    {
+        val voiceNoteControlVisible = rootInActiveWindow
+            ?.findAccessibilityNodeInfosByViewId(WHATSAPP_VOICE_NOTE_VIEW_IDENTIFIER)
+            ?.any { control -> control.isVisibleToUser } == true
+        return isWhatsAppEmptyComposer(
+            packageName = node.packageName?.toString().orEmpty(),
+            viewIdentifier = node.viewIdResourceName.orEmpty(),
+            voiceNoteControlVisible = voiceNoteControlVisible
+        )
     }
 
     /**
@@ -625,16 +642,24 @@ internal fun resolveAccessibilityEditableText(reportedText: String, hintText: St
 }
 
 /**
- * Keeps WhatsApp on native paste even when its composer exposes a cursor for the visual Message placeholder, which would otherwise become replacement input.
+ * Selects native paste only when an editor with paste support hides its cursor.
  */
-internal fun shouldUseNativePaste(packageName: String, selectionStart: Int, selectionEnd: Int, pasteSupported: Boolean): Boolean
+internal fun shouldUseNativePaste(selectionStart: Int, selectionEnd: Int, pasteSupported: Boolean): Boolean
 {
     if (!pasteSupported)
     {
         return false
     }
     val selectionUnavailable = selectionStart < 0 || selectionEnd < 0
-    return selectionUnavailable || packageName == WHATSAPP_PACKAGE_NAME
+    return selectionUnavailable
+}
+
+/**
+ * Recognizes WhatsApp's genuinely empty composer without trusting the placeholder text exposed through accessibility.
+ */
+internal fun isWhatsAppEmptyComposer(packageName: String, viewIdentifier: String, voiceNoteControlVisible: Boolean): Boolean
+{
+    return packageName == WHATSAPP_PACKAGE_NAME && viewIdentifier == WHATSAPP_COMPOSER_VIEW_IDENTIFIER && voiceNoteControlVisible
 }
 
 private fun InferenceClientState.isReadyForDictation(): Boolean
@@ -666,3 +691,5 @@ private fun ClientRecordingState.isActive(): Boolean
 }
 
 private const val WHATSAPP_PACKAGE_NAME = "com.whatsapp"
+private const val WHATSAPP_COMPOSER_VIEW_IDENTIFIER = "com.whatsapp:id/entry"
+private const val WHATSAPP_VOICE_NOTE_VIEW_IDENTIFIER = "com.whatsapp:id/voice_note_btn"
