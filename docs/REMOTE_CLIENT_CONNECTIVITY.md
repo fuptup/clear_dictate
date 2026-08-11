@@ -87,6 +87,8 @@ setup. A tester release requires per-device tokens, device listing, individual r
 
 For normal operation:
 
+- Run only one ClearDictate desktop instance. The app enforces this per Windows session; another launch activates the existing window and exits before starting model workers or a second listener.
+
 1. The PC boots and Tailscale connects.
 2. ClearDictate starts, loads both GPU workers, detects the Tailscale address, and binds TCP 8765 only to that address. It then warms the GPU paths in the background
    with local synthetic silence and a fixed trusted phrase. The endpoint remains available while warm-up runs, so it cannot block phone reconnection.

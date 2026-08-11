@@ -11,9 +11,20 @@ import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 
 /**
- * Starts the Windows push-to-talk application and owns its local worker pipeline.
+ * Acquires process-wide ownership before Compose or either model worker can be initialized.
  */
-fun main() = application {
+fun main()
+{
+    val instanceLease = DesktopSingleInstanceController(WindowsDesktopSingleInstancePlatform()).acquireOrActivate() ?: return
+    instanceLease.use {
+        runClearDictateDesktopApplication()
+    }
+}
+
+/**
+ * Starts the Windows push-to-talk application and owns its local worker pipeline after single-instance ownership is established.
+ */
+private fun runClearDictateDesktopApplication() = application {
     val runtimeReadiness = remember { DesktopRuntimeConfigurationLocator().locate() }
     val runtimeConfiguration = (runtimeReadiness as? DesktopRuntimeReadiness.Ready)?.configuration
     val transcriptProcessor = remember(runtimeConfiguration) { DesktopTranscriptProcessor(runtimeConfiguration) }
