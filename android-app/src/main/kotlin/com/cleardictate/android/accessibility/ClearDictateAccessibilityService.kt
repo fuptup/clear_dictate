@@ -274,8 +274,12 @@ class ClearDictateAccessibilityService : AccessibilityService()
      */
     private fun insertTranscript(node: AccessibilityNodeInfo, originalField: AccessibilityFieldIdentity, transcript: String): Boolean
     {
-        val selectionAvailable = node.textSelectionStart >= 0 && node.textSelectionEnd >= 0
-        if (!selectionAvailable && supportsAction(node, AccessibilityNodeInfo.ACTION_PASTE))
+        if (shouldUseNativePaste(
+                packageName = node.packageName?.toString().orEmpty(),
+                selectionStart = node.textSelectionStart,
+                selectionEnd = node.textSelectionEnd,
+                pasteSupported = supportsAction(node, AccessibilityNodeInfo.ACTION_PASTE)
+            ))
         {
             return performNativePaste(node, originalField, transcript)
         }
@@ -620,6 +624,19 @@ internal fun resolveAccessibilityEditableText(reportedText: String, hintText: St
     return if (isShowingHintText || unmarkedHint) "" else reportedText
 }
 
+/**
+ * Keeps WhatsApp on native paste even when its composer exposes a cursor for the visual Message placeholder, which would otherwise become replacement input.
+ */
+internal fun shouldUseNativePaste(packageName: String, selectionStart: Int, selectionEnd: Int, pasteSupported: Boolean): Boolean
+{
+    if (!pasteSupported)
+    {
+        return false
+    }
+    val selectionUnavailable = selectionStart < 0 || selectionEnd < 0
+    return selectionUnavailable || packageName == WHATSAPP_PACKAGE_NAME
+}
+
 private fun InferenceClientState.isReadyForDictation(): Boolean
 {
     return connectionState == InferenceConnectionState.CONNECTED && speechModelState == SpeechModelState.READY && recordingState == ClientRecordingState.IDLE
@@ -647,3 +664,5 @@ private fun ClientRecordingState.isActive(): Boolean
 {
     return this == ClientRecordingState.PREPARING || this == ClientRecordingState.LISTENING || this == ClientRecordingState.SPEECH_DETECTED || this == ClientRecordingState.FINALIZING
 }
+
+private const val WHATSAPP_PACKAGE_NAME = "com.whatsapp"

@@ -139,7 +139,8 @@ sensitive, places it on the system clipboard only for the synchronous paste acti
 access to verify the actual inserted range and apply boundary spacing.
 
 On the verified Motorola/WhatsApp combination, native paste inserted dictated text into an empty composer without the visual **Message** placeholder becoming content, and
-the adjacent undo control removed only that dictated insertion.
+the adjacent undo control removed only that dictated insertion. WhatsApp is kept on this native-paste path even when an app update exposes cursor metadata for the composer;
+complete-value replacement can otherwise treat the visual **Message** placeholder as draft text and prefix it to the dictation.
 
 After successful insertion, a smaller undo icon appears beside the microphone. ClearDictate retains only the field identity, inserted range, and a SHA-256 digest of the
 inserted segment. The icon removes that segment only while the same field still contains it unchanged, preserving all text that existed before insertion and any later text
