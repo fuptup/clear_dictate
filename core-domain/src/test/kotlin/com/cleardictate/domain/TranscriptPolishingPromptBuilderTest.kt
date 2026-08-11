@@ -17,7 +17,7 @@ class TranscriptPolishingPromptBuilderTest
 
         assertTrue(request.systemInstruction.startsWith("You edit spoken transcripts"))
         assertTrue(request.systemInstruction.contains("spoken formatting commands"))
-        assertTrue(request.systemInstruction.contains("(Buckland)"))
+        assertTrue(request.systemInstruction.contains("50%, not 60%"))
         assertTrue(request.userMessage.startsWith("Edit this transcript:"))
         assertFalse(request.systemInstruction.contains("Keep the intended meaning."))
     }

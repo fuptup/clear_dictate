@@ -104,6 +104,15 @@ class WindowsTextWorkerClientIntegrationTest
                 assertTrue(spokenFormattingTranscript.usedDeterministicFallback)
                 assertEquals(TranscriptFallbackReason.INTEGRITY_REJECTED, spokenFormattingTranscript.fallbackReason)
                 assertEquals("My name is (Buckland).", spokenFormattingTranscript.selectedTranscript)
+
+                val spokenSymbolsTranscript = pipeline.process(
+                    operationContext = operationContext.copy(
+                        operationIdentifier = OperationIdentifier("spoken_symbols_operation")
+                    ),
+                    exactRawTranscript = "Set it to 50 percent comma not 60 percent full stop.",
+                    mode = TranscriptMode.POLISHED
+                )
+                assertEquals("Set it to 50%, not 60%.", spokenSymbolsTranscript.selectedTranscript)
             }
         }
     }

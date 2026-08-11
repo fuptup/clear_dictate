@@ -175,4 +175,14 @@ class TranscriptIntegrityValidatorTest
         assertEquals(IntegrityFailureReason.DELIMITER_CHANGED, removedResult.failureReason)
         assertEquals(IntegrityFailureReason.DELIMITER_CHANGED, reorderedResult.failureReason)
     }
+
+    @Test
+    fun `rejects removal or replacement of explicit nonverbal symbols`()
+    {
+        val removedResult = validator.validate("Set it to 50%.", "Set it to 50 percent.")
+        val replacedResult = validator.validate("Email alex@example.com.", "Email alex at example.com.")
+
+        assertEquals(IntegrityFailureReason.DELIMITER_CHANGED, removedResult.failureReason)
+        assertEquals(IntegrityFailureReason.DELIMITER_CHANGED, replacedResult.failureReason)
+    }
 }

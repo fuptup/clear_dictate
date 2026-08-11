@@ -225,7 +225,7 @@ class TranscriptIntegrityValidator(
             return rejected(IntegrityFailureReason.UNREQUESTED_MARKUP)
         }
 
-        if (structuralDelimiters(sourceTranscript) != structuralDelimiters(polishedTranscript))
+        if (protectedSymbols(sourceTranscript) != protectedSymbols(polishedTranscript))
         {
             return rejected(IntegrityFailureReason.DELIMITER_CHANGED)
         }
@@ -314,11 +314,11 @@ class TranscriptIntegrityValidator(
     }
 
     /**
-     * Preserves explicit brackets and quotes in order so the language model cannot silently discard spoken formatting.
+     * Preserves explicit delimiters and nonverbal symbols in order so the language model cannot silently discard spoken formatting.
      */
-    private fun structuralDelimiters(transcript: String): List<Char>
+    private fun protectedSymbols(transcript: String): List<Char>
     {
-        return transcript.filter { character -> character in STRUCTURAL_DELIMITERS }.toList()
+        return transcript.filter { character -> character in PROTECTED_SYMBOLS }.toList()
     }
 
     private fun appearsToAnswerTranscript(sourceTranscript: String, polishedTranscript: String): Boolean
@@ -343,6 +343,6 @@ class TranscriptIntegrityValidator(
 
     private companion object
     {
-        const val STRUCTURAL_DELIMITERS = "()[]{}\""
+        const val PROTECTED_SYMBOLS = "()[]{}\"%@#&+=/\\*_£€\$°|<>^"
     }
 }

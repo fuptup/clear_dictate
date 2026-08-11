@@ -72,7 +72,7 @@ Remove hesitation fillers, abandoned starts, accidental repetitions, and verbal 
 
 Improve punctuation and sentence structure only where required for readability.
 
-Apply explicit spoken formatting commands as formatting rather than literal words. For example, "open brackets Buckland close brackets" becomes "(Buckland)".
+Apply explicit spoken formatting commands as formatting rather than literal words. This includes punctuation, symbols, line breaks, and paired delimiters. For example, "50 percent comma not 60 percent" becomes "50%, not 60%".
 
 Preserve the speaker's intended meaning exactly.
 

@@ -85,6 +85,8 @@ Double-click `Run-ClearDictate-Developer-Preview.cmd` or run:
 
 Wait for **Ready**, select a microphone, hold **Hold to talk**, speak, and release. ClearDictate loads both persistent model workers during startup so the first dictation does not also pay their loading cost.
 
+Spoken formatting commands are converted before AI rewriting. Supported commands include punctuation (`comma`, `full stop`, `question mark`, `colon`), symbols (`percent`, `at sign`, `hash`, currency signs, operators, slashes, `underscore`), paired brackets or quotes, and `new line` or `new paragraph`.
+
 ClearDictate permits one desktop instance per Windows session. Launching it again restores and focuses the existing main window, then the duplicate process exits before loading models or opening another phone listener.
 
 Select **History** to open the retained-record viewer. It lists newest records first, can filter by the PC's local calendar date, plays a row's stored WAV through the

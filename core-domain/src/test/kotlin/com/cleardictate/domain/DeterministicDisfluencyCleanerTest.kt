@@ -27,7 +27,7 @@ class DeterministicDisfluencyCleanerTest
     {
         val result = cleaner.clean("Set it to fifty, fifty percent.")
 
-        assertEquals("Set it to fifty percent.", result.cleanedTranscript)
+        assertEquals("Set it to fifty%.", result.cleanedTranscript)
         assertTrue(result.report.transformations.contains(CleanupTransformation.REPEATED_WORDS_COLLAPSED))
     }
 
@@ -128,9 +128,54 @@ class DeterministicDisfluencyCleanerTest
     }
 
     @Test
+    fun `removes duplicated sentence punctuation across a spoken closing quote`()
+    {
+        val result = cleaner.clean("He said open quote hello full stop close quote full stop.")
+
+        assertEquals("He said \"hello\".", result.cleanedTranscript)
+    }
+
+    @Test
     fun `preserves unmatched delimiter words as literal speech`()
     {
         val source = "The label says open brackets."
+
+        assertEquals(source, cleaner.clean(source).cleanedTranscript)
+    }
+
+    @Test
+    fun `converts spoken percent and punctuation with written spacing`()
+    {
+        val result = cleaner.clean("Set it to 50 percent comma, not 60 percent full stop.")
+
+        assertEquals("Set it to 50%, not 60%.", result.cleanedTranscript)
+        assertTrue(result.report.transformations.contains(CleanupTransformation.SPOKEN_FORMATTING_APPLIED))
+    }
+
+    @Test
+    fun `converts spoken symbols using context-appropriate spacing`()
+    {
+        val result = cleaner.clean(
+            "Email alex at sign example dot com comma then use hash tag demo underscore 1 slash 2 and pay pound sign 50 plus dollar sign 5."
+        )
+
+        assertEquals("Email alex@example.com, then use #demo_1/2 and pay £50 + \$5.", result.cleanedTranscript)
+    }
+
+    @Test
+    fun `converts spoken punctuation operators and line structure`()
+    {
+        val result = cleaner.clean(
+            "Is two plus two equals four question mark new paragraph yes exclamation mark new line temperature 20 degree sign C full stop"
+        )
+
+        assertEquals("Is two + two = four?\n\nYes!\nTemperature 20°C.", result.cleanedTranscript)
+    }
+
+    @Test
+    fun `does not convert symbol command words embedded inside longer words`()
+    {
+        val source = "Percentage points and periodic work remain literal."
 
         assertEquals(source, cleaner.clean(source).cleanedTranscript)
     }
