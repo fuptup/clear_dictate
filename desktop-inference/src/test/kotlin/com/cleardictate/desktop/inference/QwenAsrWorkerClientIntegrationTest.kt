@@ -10,6 +10,7 @@ import javax.sound.sampled.AudioSystem
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * Exercises the Kotlin binary-pipe client against the real pinned CUDA ASR worker and public spoken fixture.
@@ -38,9 +39,10 @@ class QwenAsrWorkerClientIntegrationTest
         ).use { client ->
             val transcript = client.transcribe(loadPcm16Wave(Path.of(requireNotNull(waveFixture))))
 
-            assertContains(transcript.lowercase(), "best of times")
-            assertContains(transcript.lowercase(), "worst of times")
-            assertContains(transcript.lowercase(), "age of wisdom")
+            assertContains(transcript.transcript.lowercase(), "best of times")
+            assertContains(transcript.transcript.lowercase(), "worst of times")
+            assertContains(transcript.transcript.lowercase(), "age of wisdom")
+            assertTrue(transcript.processingMilliseconds > 0)
         }
     }
 

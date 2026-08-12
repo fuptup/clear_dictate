@@ -220,11 +220,12 @@ class QwenDesktopSpeechTranscriber(private val runtimeConfiguration: DesktopRunt
         acquireClient().warmUp()
     }
 
-    override suspend fun transcribe(capturedAudio: CapturedAudio): String
+    override suspend fun transcribe(capturedAudio: CapturedAudio): DesktopSpeechRecognition
     {
         return try
         {
-            acquireClient().transcribe(capturedAudio)
+            val recognition = acquireClient().transcribe(capturedAudio)
+            DesktopSpeechRecognition(recognition.transcript, recognition.processingMilliseconds)
         }
         catch (throwable: Throwable)
         {

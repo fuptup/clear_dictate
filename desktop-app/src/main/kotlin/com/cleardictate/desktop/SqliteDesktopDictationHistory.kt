@@ -78,6 +78,7 @@ class SqliteDesktopDictationHistory private constructor(private val databasePath
                                         polishedTranscript = resultSet.getString("polished_transcript"),
                                         correctedTranscript = resultSet.getString("corrected_transcript"),
                                         correctedAt = resultSet.getString("corrected_at_utc")?.let(Instant::parse),
+                                        audioDurationMilliseconds = WavAudioCodec.readDurationMilliseconds(resultSet.getBytes("wav_header")),
                                         timing = DesktopDictationTiming(
                                             queueMilliseconds = resultSet.getLong("queue_milliseconds"),
                                             recognitionMilliseconds = resultSet.getLong("recognition_milliseconds"),
@@ -171,6 +172,7 @@ class SqliteDesktopDictationHistory private constructor(private val databasePath
         private const val SELECT_ENTRIES = """
             SELECT history.id, history.recorded_at_utc, history.raw_transcript, history.polished_transcript,
                    correction.corrected_transcript, correction.corrected_at_utc,
+                   substr(history.wav_audio, 1, 44) AS wav_header,
                    history.queue_milliseconds, history.recognition_milliseconds, history.rewriting_milliseconds, history.total_milliseconds
             FROM dictation_history AS history
             LEFT JOIN dictation_corrections AS correction ON correction.dictation_id = history.id
@@ -215,6 +217,7 @@ data class StoredDictationSummary(
     val polishedTranscript: String,
     val correctedTranscript: String?,
     val correctedAt: Instant?,
+    val audioDurationMilliseconds: Long,
     val timing: DesktopDictationTiming
 )
 
@@ -250,6 +253,23 @@ private object WavAudioCodec
         return wavAudio.array()
     }
 
+    /**
+     * Reads duration from the fixed PCM WAV header, allowing history summaries to avoid loading the retained audio payload.
+     */
+    fun readDurationMilliseconds(wavHeader: ByteArray): Long
+    {
+        require(wavHeader.size == WAV_HEADER_BYTE_COUNT) { "Stored WAV header has an invalid size." }
+        require(wavHeader.copyOfRange(0, 4).contentEquals("RIFF".encodeToByteArray())) { "Stored audio is not a RIFF WAV file." }
+        require(wavHeader.copyOfRange(8, 12).contentEquals("WAVE".encodeToByteArray())) { "Stored audio is not a WAVE file." }
+        val header = ByteBuffer.wrap(wavHeader).order(ByteOrder.LITTLE_ENDIAN)
+        val sampleRate = header.getInt(24)
+        val blockAlignment = header.getShort(32).toInt() and 0xFFFF
+        val audioByteCount = header.getInt(40).toLong() and 0xFFFF_FFFFL
+        require(sampleRate > 0 && blockAlignment > 0) { "Stored WAV timing metadata is invalid." }
+        val bytesPerSecond = Math.multiplyExact(sampleRate.toLong(), blockAlignment.toLong())
+        return Math.multiplyExact(audioByteCount, MILLISECONDS_PER_SECOND) / bytesPerSecond
+    }
+
     private fun Float.toPcm16(): Short
     {
         if (this <= -1.0F)
@@ -258,4 +278,6 @@ private object WavAudioCodec
         }
         return (coerceIn(-1.0F, 1.0F) * Short.MAX_VALUE).roundToInt().toShort()
     }
+
+    private const val MILLISECONDS_PER_SECOND = 1_000L
 }

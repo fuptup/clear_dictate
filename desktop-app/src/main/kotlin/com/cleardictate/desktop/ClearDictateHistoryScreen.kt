@@ -53,6 +53,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import java.util.Locale
 
 /**
  * Lists retained dictations, filters them by the user's local date, and plays the WAV attached to any clicked row.
@@ -272,10 +273,11 @@ private fun StoredDictationSummary.localDate(zoneId: ZoneId): LocalDate
 private fun HistoryHeaderRow()
 {
     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)) {
-        HistoryCell("Date / time", 1.15F, maxLines = 1, fontWeight = FontWeight.SemiBold)
+        HistoryCell("Date / time", 1.35F, maxLines = 1, fontWeight = FontWeight.SemiBold)
         HistoryCell("Qwen3-ASR", 2.2F, fontWeight = FontWeight.SemiBold)
         HistoryCell("Qwen3.5 polished", 2.2F, fontWeight = FontWeight.SemiBold)
-        HistoryCell("Reviewed correction", 2.2F, fontWeight = FontWeight.SemiBold)
+        HistoryCell("Reviewed correction", 2.0F, fontWeight = FontWeight.SemiBold)
+        HistoryCell("Audio", 0.75F, fontWeight = FontWeight.SemiBold)
         HistoryCell("ASR", 0.75F, fontWeight = FontWeight.SemiBold)
         HistoryCell("Total", 0.75F, fontWeight = FontWeight.SemiBold)
     }
@@ -290,16 +292,25 @@ private fun HistoryEntryRow(entry: StoredDictationSummary, selected: Boolean, zo
             verticalAlignment = Alignment.CenterVertically
         ) {
             val localCaptureTime = entry.recordedAt.atZone(zoneId)
-            HistoryCell(localCaptureTime.format(HISTORY_TIMESTAMP_FORMATTER), 1.15F, maxLines = 1)
+            HistoryCell(localCaptureTime.format(HISTORY_TIMESTAMP_FORMATTER), 1.35F, maxLines = 1)
             HistoryCopyCell(entry.rawTranscript, 2.2F) { onCopy("ASR text", entry.rawTranscript) }
             HistoryCopyCell(entry.polishedTranscript, 2.2F) { onCopy("Polished text", entry.polishedTranscript) }
-            HistoryCopyCell(entry.correctedTranscript ?: "—", 2.2F, enabled = entry.correctedTranscript != null) {
+            HistoryCopyCell(entry.correctedTranscript ?: "—", 2.0F, enabled = entry.correctedTranscript != null) {
                 onCopy("Reviewed correction", entry.correctedTranscript.orEmpty())
             }
+            HistoryCell(formatAudioDuration(entry.audioDurationMilliseconds), 0.75F, maxLines = 1)
             HistoryCell("${entry.timing.recognitionMilliseconds} ms", 0.75F, maxLines = 1)
             HistoryCell("${entry.timing.totalMilliseconds} ms", 0.75F, maxLines = 1)
         }
     }
+}
+
+/**
+ * Shows sampled-audio length in seconds while keeping the compact History column easy to scan.
+ */
+internal fun formatAudioDuration(durationMilliseconds: Long): String
+{
+    return String.format(Locale.ROOT, "%.2f s", durationMilliseconds / 1_000.0)
 }
 
 @Composable

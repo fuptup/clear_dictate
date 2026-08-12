@@ -38,11 +38,23 @@ class SqliteDesktopDictationHistoryTest
         assertEquals(result.polishedTranscript, entry.polishedTranscript)
         assertEquals(null, entry.correctedTranscript)
         assertEquals(null, entry.correctedAt)
+        assertEquals(0, entry.audioDurationMilliseconds)
         assertEquals(result.timing, entry.timing)
         assertContentEquals("RIFF".encodeToByteArray(), wavAudio.copyOfRange(0, 4))
         assertContentEquals("WAVE".encodeToByteArray(), wavAudio.copyOfRange(8, 12))
         assertEquals(16_000, ByteBuffer.wrap(wavAudio).order(ByteOrder.LITTLE_ENDIAN).getInt(24))
         assertContentEquals(shortArrayOf(0, 16_384, Short.MIN_VALUE), decodePcm16Samples(wavAudio))
+    }
+
+    @Test
+    fun `summary derives sampled audio duration from the retained WAV header`() = runTest {
+        val history = SqliteDesktopDictationHistory.open(Files.createTempDirectory("cleardictate-duration").resolve("history.sqlite"))
+        val capturedAudio = CapturedAudio(sampleRate = 16_000, samples = FloatArray(24_000))
+        val result = DesktopDictationResult("raw", "polished", DesktopDictationTiming(0, 1, 2, 3))
+
+        history.record(Instant.parse("2026-08-12T12:00:00Z"), capturedAudio, result)
+
+        assertEquals(1_500, history.readSummaries().single().audioDurationMilliseconds)
     }
 
     @Test

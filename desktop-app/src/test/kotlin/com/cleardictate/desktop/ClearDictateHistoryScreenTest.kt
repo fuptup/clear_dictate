@@ -30,6 +30,13 @@ class ClearDictateHistoryScreenTest
         assertEquals(listOf(lateUtcEntry, daytimeEntry), filterHistoryEntries(listOf(lateUtcEntry, daytimeEntry), null, london))
     }
 
+    @Test
+    fun `audio duration uses compact seconds`()
+    {
+        assertEquals("0.00 s", formatAudioDuration(0))
+        assertEquals("3.25 s", formatAudioDuration(3_250))
+    }
+
     private fun entry(identifier: Long, recordedAt: String): StoredDictationSummary
     {
         return StoredDictationSummary(
@@ -39,6 +46,7 @@ class ClearDictateHistoryScreenTest
             polishedTranscript = "polished $identifier",
             correctedTranscript = null,
             correctedAt = null,
+            audioDurationMilliseconds = 1_500,
             timing = DesktopDictationTiming(0, 1, 2, 3)
         )
     }

@@ -51,10 +51,10 @@ class DesktopDictationPipelineTest
                     events += "warm-speech"
                 }
 
-                override suspend fun transcribe(capturedAudio: CapturedAudio): String
+                override suspend fun transcribe(capturedAudio: CapturedAudio): DesktopSpeechRecognition
                 {
                     events += "transcribe"
-                    return "um send the report tomorrow"
+                    return DesktopSpeechRecognition("um send the report tomorrow", 37)
                 }
 
                 override fun close()
@@ -96,6 +96,7 @@ class DesktopDictationPipelineTest
 
             assertEquals("um send the report tomorrow", result.rawTranscript)
             assertEquals("Send the report tomorrow.", result.polishedTranscript)
+            assertEquals(37, result.timing.recognitionMilliseconds)
         }
 
         assertEquals(
@@ -126,10 +127,10 @@ class DesktopDictationPipelineTest
             {
                 override suspend fun prepare() = Unit
 
-                override suspend fun transcribe(capturedAudio: CapturedAudio): String
+                override suspend fun transcribe(capturedAudio: CapturedAudio): DesktopSpeechRecognition
                 {
                     transcriberSamples = capturedAudio.samples.copyOf()
-                    return "raw"
+                    return DesktopSpeechRecognition("raw", 19)
                 }
 
                 override fun close() = Unit

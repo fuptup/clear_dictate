@@ -23,8 +23,13 @@ interface DesktopSpeechTranscriber : AutoCloseable
 {
     suspend fun prepare()
     suspend fun warmUp() = Unit
-    suspend fun transcribe(capturedAudio: CapturedAudio): String
+    suspend fun transcribe(capturedAudio: CapturedAudio): DesktopSpeechRecognition
 }
+
+/**
+ * Carries the transcript together with the worker-measured audio processing time.
+ */
+data class DesktopSpeechRecognition(val transcript: String, val processingMilliseconds: Long)
 
 /**
  * Rewrites a raw transcript into polished text without changing its meaning.
@@ -146,16 +151,16 @@ class DesktopDictationPipeline(
             try
             {
                 val processingStartedNanoseconds = System.nanoTime()
-                val rawTranscript = speechTranscriber.transcribe(capturedAudio)
+                val recognition = speechTranscriber.transcribe(capturedAudio)
                 val recognitionCompletedNanoseconds = System.nanoTime()
-                val polishedTranscript = transcriptRewriter.rewrite(rawTranscript)
+                val polishedTranscript = transcriptRewriter.rewrite(recognition.transcript)
                 val completedNanoseconds = System.nanoTime()
                 val result = DesktopDictationResult(
-                    rawTranscript = rawTranscript,
+                    rawTranscript = recognition.transcript,
                     polishedTranscript = polishedTranscript,
                     timing = DesktopDictationTiming(
                         queueMilliseconds = elapsedMilliseconds(requestStartedNanoseconds, processingStartedNanoseconds),
-                        recognitionMilliseconds = elapsedMilliseconds(processingStartedNanoseconds, recognitionCompletedNanoseconds),
+                        recognitionMilliseconds = recognition.processingMilliseconds,
                         rewritingMilliseconds = elapsedMilliseconds(recognitionCompletedNanoseconds, completedNanoseconds),
                         totalMilliseconds = elapsedMilliseconds(requestStartedNanoseconds, completedNanoseconds)
                     )

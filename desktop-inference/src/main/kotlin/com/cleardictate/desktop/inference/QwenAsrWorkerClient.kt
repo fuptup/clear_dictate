@@ -10,6 +10,8 @@ import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CompletableFuture
@@ -25,6 +27,11 @@ data class QwenAsrWorkerConfiguration(
     val startupTimeoutMilliseconds: Long = 180_000,
     val transcriptionTimeoutMilliseconds: Long = 120_000
 )
+
+/**
+ * Separates model-reported speech processing time from transport, startup, and cleanup latency.
+ */
+data class QwenAsrTranscription(val transcript: String, val processingMilliseconds: Long)
 
 /**
  * Owns one persistent CUDA Qwen3-ASR process and serializes release-triggered transcription requests.
@@ -52,11 +59,11 @@ class QwenAsrWorkerClient private constructor(
     /**
      * Sends one completed in-memory recording and waits for its final transcript.
      */
-    suspend fun transcribe(capturedAudio: CapturedAudio): String
+    suspend fun transcribe(capturedAudio: CapturedAudio): QwenAsrTranscription
     {
         if (capturedAudio.samples.isEmpty())
         {
-            return ""
+            return QwenAsrTranscription("", 0)
         }
 
         return requestMutex.withLock {
@@ -72,7 +79,7 @@ class QwenAsrWorkerClient private constructor(
                     {
                         when (response.type)
                         {
-                            RESPONSE_TRANSCRIPT -> response.payload.toString(Charsets.UTF_8)
+                            RESPONSE_TRANSCRIPT -> decodeTranscription(response.payload)
                             RESPONSE_ERROR -> throw LocalInferenceException(InferenceFailureCategory.NATIVE_FAILURE, "QWEN_ASR_INFERENCE_FAILED")
                             else -> throw LocalInferenceException(InferenceFailureCategory.PROTOCOL_FAILURE, "UNEXPECTED_QWEN_ASR_RESPONSE")
                         }
@@ -222,12 +229,32 @@ class QwenAsrWorkerClient private constructor(
         }
     }
 
+    /**
+     * Decodes the worker's monotonic processing duration followed by its UTF-8 transcript.
+     */
+    private fun decodeTranscription(payload: ByteArray): QwenAsrTranscription
+    {
+        if (payload.size < PROCESSING_DURATION_BYTE_COUNT)
+        {
+            throw LocalInferenceException(InferenceFailureCategory.PROTOCOL_FAILURE, "INVALID_QWEN_ASR_TRANSCRIPT_PAYLOAD")
+        }
+        val processingNanoseconds = ByteBuffer.wrap(payload, 0, PROCESSING_DURATION_BYTE_COUNT).order(ByteOrder.BIG_ENDIAN).long
+        if (processingNanoseconds < 0)
+        {
+            throw LocalInferenceException(InferenceFailureCategory.PROTOCOL_FAILURE, "INVALID_QWEN_ASR_PROCESSING_DURATION")
+        }
+        return QwenAsrTranscription(
+            transcript = String(payload, PROCESSING_DURATION_BYTE_COUNT, payload.size - PROCESSING_DURATION_BYTE_COUNT, Charsets.UTF_8),
+            processingMilliseconds = processingNanoseconds / NANOSECONDS_PER_MILLISECOND
+        )
+    }
+
     private data class QwenAsrFrame(val type: Int, val payload: ByteArray)
 
     companion object
     {
         private const val PROTOCOL_MAGIC = 0x43445141
-        private const val PROTOCOL_VERSION = 1
+        private const val PROTOCOL_VERSION = 2
         private const val REQUEST_TRANSCRIBE = 1
         private const val REQUEST_SHUTDOWN = 2
         private const val REQUEST_WARM_UP = 3
@@ -236,6 +263,8 @@ class QwenAsrWorkerClient private constructor(
         private const val RESPONSE_ERROR = 3
         private const val RESPONSE_WARMED = 4
         private const val MAXIMUM_RESPONSE_BYTES = 64 * 1024
+        private const val PROCESSING_DURATION_BYTE_COUNT = Long.SIZE_BYTES
+        private const val NANOSECONDS_PER_MILLISECOND = 1_000_000L
 
         /**
          * Starts the pinned worker and returns only after model verification and CUDA loading complete.

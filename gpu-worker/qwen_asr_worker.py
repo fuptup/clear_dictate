@@ -8,6 +8,7 @@ import struct
 import sys
 import hashlib
 import json
+import time
 from pathlib import Path
 
 import numpy
@@ -16,7 +17,7 @@ from transformers import AutoModelForMultimodalLM, AutoProcessor
 
 
 PROTOCOL_MAGIC = 0x43445141
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 REQUEST_TRANSCRIBE = 1
 REQUEST_SHUTDOWN = 2
 REQUEST_WARM_UP = 3
@@ -109,7 +110,6 @@ class QwenAsrEngine:
         generated_ids = output_ids[:, inputs["input_ids"].shape[1]:]
         transcript = self.processor.decode(generated_ids, return_format="transcription_only")[0]
         del generated_ids, output_ids, inputs
-        release_inactive_cpu_pages()
         return transcript
 
     def warm_up(self) -> None:
@@ -161,8 +161,12 @@ def run_worker(model_directory: Path, lock_path: Path) -> int:
             if message_type != REQUEST_TRANSCRIBE:
                 raise ValueError("Unknown private request type.")
             samples, sample_rate = decode_captured_audio(payload)
+            processing_started_ns = time.perf_counter_ns()
             transcript = engine.transcribe(samples, sample_rate)
-            write_frame(output_stream, RESPONSE_TRANSCRIPT, transcript.encode("utf-8"))
+            processing_nanoseconds = time.perf_counter_ns() - processing_started_ns
+            release_inactive_cpu_pages()
+            response_payload = struct.pack(">Q", processing_nanoseconds) + transcript.encode("utf-8")
+            write_frame(output_stream, RESPONSE_TRANSCRIPT, response_payload)
         except Exception:
             write_frame(output_stream, RESPONSE_ERROR)
         finally:
