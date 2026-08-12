@@ -77,7 +77,7 @@ private fun runClearDictateDesktopApplication() = application {
     {
         Window(
             onCloseRequest = { historyVisible = false },
-            title = "ClearDictate History",
+            title = "History",
             state = WindowState(width = 1_160.dp, height = 620.dp)
         ) {
             ClearDictateHistoryScreen(dictationHistory)
@@ -88,7 +88,7 @@ private fun runClearDictateDesktopApplication() = application {
     {
         Window(
             onCloseRequest = { rulesVisible = false },
-            title = "ClearDictate Rules",
+            title = "Rules",
             state = WindowState(width = 740.dp, height = 540.dp)
         ) {
             ClearDictateRulesScreen(spokenFormattingRuleStore)
