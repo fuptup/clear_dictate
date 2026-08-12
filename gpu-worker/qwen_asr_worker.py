@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ctypes
+import gc
 import struct
 import sys
 import hashlib
@@ -28,6 +30,19 @@ CAPTURED_AUDIO_VERSION = 1
 FLOAT32_SAMPLE_FORMAT = 1
 WARM_UP_SAMPLE_RATE = 16_000
 WARM_UP_SAMPLE_COUNT = WARM_UP_SAMPLE_RATE
+
+
+def release_inactive_cpu_pages() -> None:
+    """Returns freed Python and model-loading pages to Windows after a completed inference boundary."""
+    gc.collect()
+    if sys.platform != "win32":
+        return
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel32.SetProcessWorkingSetSize.argtypes = (ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t)
+    kernel32.SetProcessWorkingSetSize.restype = ctypes.c_int
+    if not kernel32.SetProcessWorkingSetSize(kernel32.GetCurrentProcess(), ctypes.c_size_t(-1), ctypes.c_size_t(-1)):
+        raise ctypes.WinError(ctypes.get_last_error())
 
 
 def read_exact(input_stream, byte_count: int) -> bytes:
@@ -75,9 +90,12 @@ class QwenAsrEngine:
             model_directory,
             local_files_only=True,
             dtype=torch.bfloat16,
-            device_map="cuda",
+            device_map={"": "cuda:0"},
+            low_cpu_mem_usage=True,
             attn_implementation="sdpa",
         ).eval()
+        if any(parameter.device.type != "cuda" for parameter in self.model.parameters()):
+            raise RuntimeError("Qwen3-ASR model weights are not fully resident on CUDA.")
 
     def transcribe(self, samples: numpy.ndarray, sample_rate: int) -> str:
         """Returns one final English transcript without sampling or partial output."""
@@ -89,7 +107,10 @@ class QwenAsrEngine:
         with torch.inference_mode():
             output_ids = self.model.generate(**inputs, max_new_tokens=256, do_sample=False)
         generated_ids = output_ids[:, inputs["input_ids"].shape[1]:]
-        return self.processor.decode(generated_ids, return_format="transcription_only")[0]
+        transcript = self.processor.decode(generated_ids, return_format="transcription_only")[0]
+        del generated_ids, output_ids, inputs
+        release_inactive_cpu_pages()
+        return transcript
 
     def warm_up(self) -> None:
         """Executes ASR prefill and exactly one decode step without producing or retaining a transcript."""
@@ -101,6 +122,8 @@ class QwenAsrEngine:
         ).to(self.model.device, self.model.dtype)
         with torch.inference_mode():
             self.model.generate(**inputs, max_new_tokens=1, do_sample=False)
+        del inputs
+        release_inactive_cpu_pages()
 
 
 def verify_model(model_directory: Path, lock_path: Path) -> None:

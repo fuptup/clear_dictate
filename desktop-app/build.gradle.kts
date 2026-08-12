@@ -36,7 +36,7 @@ compose.desktop {
         nativeDistributions {
             packageName = "ClearDictate"
             packageVersion = "0.1.0"
-            modules("jdk.httpserver")
+            modules("java.sql", "jdk.httpserver")
         }
     }
 }

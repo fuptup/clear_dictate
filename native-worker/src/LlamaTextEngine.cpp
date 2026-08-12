@@ -4,6 +4,7 @@
 #include "llama.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <climits>
 #include <cstddef>
@@ -557,13 +558,23 @@ namespace clear_dictate
             }
         }
 
-        static llama_model_params CreateModelParameters()
+        static llama_model_params CreateModelParameters(ggml_backend_dev_t gpuDevice, std::array<llama_model_tensor_buft_override, 2>& tensorBufferOverrides)
         {
+            tensorBufferOverrides =
+            {{
+                { "token_embd\\.weight", ggml_backend_dev_buffer_type(gpuDevice) },
+                { nullptr, nullptr }
+            }};
             llama_model_params modelParameters = llama_model_default_params();
+            modelParameters.tensor_buft_overrides = tensorBufferOverrides.data();
             modelParameters.n_gpu_layers = INT_MAX;
             modelParameters.split_mode = LLAMA_SPLIT_MODE_NONE;
             modelParameters.main_gpu = 0;
-            modelParameters.check_tensors = true;
+            // The verified file has already passed an exact size and SHA-256 check. Reading it through bounded staging buffers uploads weights to CUDA without retaining
+            // a second, fully touched memory mapping in the process working set.
+            modelParameters.load_mode = LLAMA_LOAD_MODE_NONE;
+            modelParameters.check_tensors = false;
+            modelParameters.no_host = true;
             return modelParameters;
         }
 
@@ -580,12 +591,16 @@ namespace clear_dictate
             {
                 throw std::runtime_error("The local text model CPU backend is unavailable.");
             }
-            if (ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_GPU) == nullptr)
+            ggml_backend_dev_t gpuDevice = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_GPU);
+            if (gpuDevice == nullptr)
             {
                 throw std::runtime_error("The local text model CUDA backend is unavailable.");
             }
 
-            LlamaModelHandle model(llama_model_load_from_file_ptr(verifiedModelFile, CreateModelParameters()));
+            // llama.cpp normally leaves the large token-embedding input tensor on the CPU because that is a small speed optimization. The dedicated 24 GB GPU has room
+            // for the complete model, so keeping that tensor on CUDA avoids retaining a partial model copy in system RAM.
+            std::array<llama_model_tensor_buft_override, 2> tensorBufferOverrides {};
+            LlamaModelHandle model(llama_model_load_from_file_ptr(verifiedModelFile, CreateModelParameters(gpuDevice, tensorBufferOverrides)));
             if (!model)
             {
                 throw std::runtime_error("The verified local text model could not be loaded.");

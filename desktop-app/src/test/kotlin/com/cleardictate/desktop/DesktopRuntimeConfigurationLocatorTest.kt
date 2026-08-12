@@ -50,6 +50,27 @@ class DesktopRuntimeConfigurationLocatorTest
         assertEquals("Install the local Qwen3-ASR and Qwen3.5 runtime files to enable push-to-talk dictation.", result.explanation)
     }
 
+    @Test
+    fun `packaged application path finds the repository when Windows supplies an unrelated working directory`()
+    {
+        val root = Path.of("E:/VoiceToText")
+        val expected = expectedPaths(root)
+        val applicationPath = root.resolve("desktop-app/build/compose/binaries/main/app/ClearDictate/ClearDictate.exe")
+        val locator = DesktopRuntimeConfigurationLocator(
+            currentDirectory = Path.of("C:/Windows/System32"),
+            systemPropertyReader = { propertyName -> if (propertyName == "jpackage.app-path") applicationPath.toString() else null },
+            environmentVariableReader = { null },
+            isRegularFile = { path -> path.fileName.toString() != "settings.gradle.kts" || path.parent == root },
+            isDirectory = { true }
+        )
+
+        val configuration = assertIs<DesktopRuntimeReadiness.Ready>(locator.locate()).configuration
+
+        assertEquals(expected.textWorker, configuration.textWorkerExecutable)
+        assertEquals(expected.python, configuration.pythonExecutable)
+        assertEquals(expected.textModel, configuration.textModelPath)
+    }
+
     private fun expectedPaths(root: Path): ExpectedPaths
     {
         return ExpectedPaths(

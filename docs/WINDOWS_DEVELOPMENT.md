@@ -24,6 +24,8 @@ The system-wide shortcut, focused-application insertion, history export, install
 The native text worker verifies the GGUF length and digest before loading the same open file handle. The Python ASR worker verifies every required model file against `gpu-worker/qwen3-asr-1.7b-lock.json` before Transformers parses it.
 The text worker also applies Qwen3.5's non-thinking generation prefix so the fixed 256-token response budget is spent on the polished transcript rather than hidden reasoning.
 
+Both models require CUDA. Qwen3.5 is read through bounded staging buffers after verification, including its token embedding, so the complete model remains on the NVIDIA GPU without a retained GGUF memory mapping in system RAM. Qwen3-ASR rejects any CPU-placed parameter and returns inactive Python loading and inference pages to Windows after warm-up and each completed transcription.
+
 ## Local setup
 
 Run these commands from the repository root:
@@ -77,11 +79,14 @@ local SQLite history database described above.
 
 ## Run the preview
 
-Double-click `Run-ClearDictate-Developer-Preview.cmd` or run:
+Create the direct Windows application image with a full Java 17 JDK that includes `jmods`:
 
 ```powershell
-.\gradlew.bat :desktop-app:run
+$env:JAVA_HOME='path\to\full-jdk-17'
+.\gradlew.bat :desktop-app:createDistributable --no-daemon
 ```
+
+Double-click `Run-ClearDictate-Developer-Preview.cmd`. The launcher starts the generated `ClearDictate.exe` directly; Gradle and its build JVMs do not remain in memory while the app is running.
 
 Wait for **Ready**, select a microphone, hold **Hold to talk**, speak, and release. ClearDictate loads both persistent model workers during startup so the first dictation does not also pay their loading cost.
 

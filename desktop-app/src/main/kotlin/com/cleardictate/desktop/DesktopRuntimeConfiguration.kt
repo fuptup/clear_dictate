@@ -41,7 +41,10 @@ class DesktopRuntimeConfigurationLocator(
 )
 {
     private val repositoryRoot: Path by lazy {
-        generateSequence(currentDirectory) { directory -> directory.parent }
+        val packagedApplicationDirectory = systemPropertyReader(JPACKAGE_APPLICATION_PATH_PROPERTY)?.takeIf(String::isNotBlank)?.let(Path::of)?.parent
+        sequenceOf(packagedApplicationDirectory, currentDirectory)
+            .filterNotNull()
+            .flatMap { startingDirectory -> generateSequence(startingDirectory) { directory -> directory.parent } }
             .firstOrNull { candidate -> isRegularFile(candidate.resolve(REPOSITORY_SENTINEL_FILENAME)) }
             ?: currentDirectory
     }
@@ -116,5 +119,6 @@ class DesktopRuntimeConfigurationLocator(
 
         private const val MISSING_RUNTIME_EXPLANATION = "Install the local Qwen3-ASR and Qwen3.5 runtime files to enable push-to-talk dictation."
         private const val REPOSITORY_SENTINEL_FILENAME = "settings.gradle.kts"
+        private const val JPACKAGE_APPLICATION_PATH_PROPERTY = "jpackage.app-path"
     }
 }
