@@ -49,6 +49,7 @@ class ClearDictateAccessibilityService : AccessibilityService()
     private lateinit var floatingUndoControl: FloatingUndoControlView
     private lateinit var windowManager: WindowManager
     private var latestClientState = InferenceClientState()
+    private var focusedEditorIdentity: AccessibilityFieldIdentity? = null
     private var recordingField: AccessibilityFieldIdentity? = null
     private var lastInsertionUndo: AccessibilityInsertionUndoRecord? = null
     private var pendingPaste: AccessibilityPendingPaste? = null
@@ -71,6 +72,14 @@ class ClearDictateAccessibilityService : AccessibilityService()
     override fun onAccessibilityEvent(event: AccessibilityEvent?)
     {
         val eventEditor = event?.source?.takeIf(::isSupportedEditor)
+        if (event?.eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED)
+        {
+            focusedEditorIdentity = eventEditor?.let(::createIdentity)
+        }
+        else if (eventEditor != null)
+        {
+            focusedEditorIdentity = createIdentity(eventEditor)
+        }
         if (event?.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED && eventEditor != null)
         {
             captureNativePaste(eventEditor, event)
@@ -279,7 +288,9 @@ class ClearDictateAccessibilityService : AccessibilityService()
         if (!whatsappComposerEmpty && shouldUseNativePaste(
                 selectionStart = node.textSelectionStart,
                 selectionEnd = node.textSelectionEnd,
-                pasteSupported = supportsAction(node, AccessibilityNodeInfo.ACTION_PASTE)))
+                pasteSupported = supportsAction(node, AccessibilityNodeInfo.ACTION_PASTE),
+                setTextSupported = supportsAction(node, AccessibilityNodeInfo.ACTION_SET_TEXT),
+                isEditable = node.isEditable))
         {
             return performNativePaste(node, originalField, transcript)
         }
@@ -475,7 +486,8 @@ class ClearDictateAccessibilityService : AccessibilityService()
     }
 
     /**
-     * Searches application windows rather than the overlay or input-method windows and accepts only editors exposing direct set-text support.
+     * Searches application windows rather than overlay or input-method windows. Custom document editors can temporarily stop answering Android's focus query after an
+     * overlay window event, so the text-free identity from their focus event is used to resolve the same node again in the active application window.
      */
     private fun findFocusedEditor(): AccessibilityNodeInfo?
     {
@@ -483,13 +495,51 @@ class ClearDictateAccessibilityService : AccessibilityService()
             .filter { window -> window.type == AccessibilityWindowInfo.TYPE_APPLICATION }
             .mapNotNull { window -> window.root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) }
             .firstOrNull(::isSupportedEditor)
-        return applicationWindowEditor ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf(::isSupportedEditor)
+        val activeWindowEditor = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf(::isSupportedEditor)
+        return applicationWindowEditor ?: activeWindowEditor ?: resolveRememberedEditor()
+    }
+
+    /**
+     * Resolves the remembered field without reading or retaining its text.
+     */
+    private fun resolveRememberedEditor(): AccessibilityNodeInfo?
+    {
+        val rememberedIdentity = focusedEditorIdentity ?: return null
+        return windows.asSequence()
+            .filter { window -> window.type == AccessibilityWindowInfo.TYPE_APPLICATION && (window.isActive || window.isFocused) }
+            .mapNotNull(AccessibilityWindowInfo::getRoot)
+            .mapNotNull { root -> findMatchingEditor(root, rememberedIdentity) }
+            .firstOrNull()
+    }
+
+    private fun findMatchingEditor(root: AccessibilityNodeInfo, identity: AccessibilityFieldIdentity): AccessibilityNodeInfo?
+    {
+        val pendingNodes = ArrayDeque<AccessibilityNodeInfo>()
+        pendingNodes.add(root)
+        while (pendingNodes.isNotEmpty())
+        {
+            val node = pendingNodes.removeFirst()
+            if (isSupportedEditor(node) && identity.representsSameEditor(createIdentity(node)))
+            {
+                return node
+            }
+            for (childIndex in 0 until node.childCount)
+            {
+                node.getChild(childIndex)?.let(pendingNodes::addLast)
+            }
+        }
+        return null
     }
 
     private fun isSupportedEditor(node: AccessibilityNodeInfo): Boolean
     {
-        return node.isEditable && node.isEnabled && node.isVisibleToUser &&
-            node.actionList.any { action -> action.id == AccessibilityNodeInfo.ACTION_SET_TEXT }
+        return isSupportedAccessibilityEditor(
+            isEditable = node.isEditable,
+            isEnabled = node.isEnabled,
+            isVisibleToUser = node.isVisibleToUser,
+            setTextSupported = supportsAction(node, AccessibilityNodeInfo.ACTION_SET_TEXT),
+            pasteSupported = supportsAction(node, AccessibilityNodeInfo.ACTION_PASTE)
+        )
     }
 
     private fun inspectSafety(node: AccessibilityNodeInfo) = securityInspector.inspect(
@@ -518,25 +568,17 @@ class ClearDictateAccessibilityService : AccessibilityService()
     }
 
     /**
-     * Shows the control only beside supported fields and greys it out for sensitive or unavailable contexts.
+     * Shows the control beside non-sensitive editors only; connection state still determines the icon drawn inside the visible control.
      */
     private fun refreshControlPresentation(focusedEditor: AccessibilityNodeInfo? = findFocusedEditor())
     {
         val recordingActive = latestClientState.recordingState.isActive()
         val clientVisualState = latestClientState.visualState()
-        val visualState = if (clientVisualState != FloatingDictationVisualState.DISCONNECTED && !recordingActive && focusedEditor != null &&
-            !inspectSafety(focusedEditor).dictationAllowed)
-        {
-            FloatingDictationVisualState.UNAVAILABLE
-        }
-        else
-        {
-            clientVisualState
-        }
-        floatingControl.update(visualState, latestClientState.normalizedAudioLevel)
-        floatingControl.visibility = if (recordingActive || focusedEditor != null) View.VISIBLE else View.GONE
+        val focusedEditorAllowsDictation = focusedEditor?.let(::inspectSafety)?.dictationAllowed == true
+        floatingControl.update(clientVisualState, latestClientState.normalizedAudioLevel)
+        floatingControl.visibility = if (shouldShowFloatingDictationControl(recordingActive, focusedEditor != null, focusedEditorAllowsDictation)) View.VISIBLE else View.GONE
         val undoRecord = lastInsertionUndo
-        floatingUndoControl.visibility = if (!recordingActive && focusedEditor != null && undoRecord != null &&
+        floatingUndoControl.visibility = if (!recordingActive && focusedEditorAllowsDictation && undoRecord != null &&
             undoRecord.fieldIdentity.representsSameEditor(createIdentity(focusedEditor))) View.VISIBLE else View.GONE
     }
 
@@ -645,14 +687,31 @@ internal fun resolveAccessibilityEditableText(reportedText: String, hintText: St
 /**
  * Selects native paste only when an editor with paste support hides its cursor.
  */
-internal fun shouldUseNativePaste(selectionStart: Int, selectionEnd: Int, pasteSupported: Boolean): Boolean
+internal fun shouldUseNativePaste(selectionStart: Int, selectionEnd: Int, pasteSupported: Boolean, setTextSupported: Boolean, isEditable: Boolean): Boolean
 {
-    if (!pasteSupported)
+    val pasteCanBeAttempted = pasteSupported || (isEditable && !setTextSupported)
+    if (!pasteCanBeAttempted)
     {
         return false
     }
     val selectionUnavailable = selectionStart < 0 || selectionEnd < 0
-    return selectionUnavailable
+    return !setTextSupported || selectionUnavailable
+}
+
+/**
+ * Uses Android's advertised insertion actions instead of the unreliable editable flag used by some custom document editors.
+ */
+internal fun isSupportedAccessibilityEditor(isEditable: Boolean, isEnabled: Boolean, isVisibleToUser: Boolean, setTextSupported: Boolean, pasteSupported: Boolean): Boolean
+{
+    return isEnabled && isVisibleToUser && (isEditable || setTextSupported || pasteSupported)
+}
+
+/**
+ * Keeps the overlay visible through an active recording but otherwise excludes non-editors and sensitive editors.
+ */
+internal fun shouldShowFloatingDictationControl(recordingActive: Boolean, editorSupported: Boolean, dictationAllowed: Boolean): Boolean
+{
+    return recordingActive || (editorSupported && dictationAllowed)
 }
 
 /**
