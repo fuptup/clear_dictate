@@ -14,6 +14,14 @@ import kotlin.test.assertTrue
 class DesktopPreviewPresentationStateTest
 {
     @Test
+    fun `latency status reconciles measured stages with total overhead`()
+    {
+        val timing = DesktopDictationTiming(queueMilliseconds = 0, recognitionMilliseconds = 687, rewritingMilliseconds = 225, totalMilliseconds = 1_195)
+
+        assertEquals("1195 ms = 687 ASR + 225 rewrite + 283 overhead", formatLatency(timing))
+    }
+
+    @Test
     fun `source change invalidates previously processed output`()
     {
         val processedState = DesktopPreviewPresentationState(rawTranscript = "old source")

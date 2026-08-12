@@ -422,9 +422,10 @@ private fun PhoneSetupDialog(
 /**
  * Keeps latency visible in the compact desktop UI without exposing any transcript content.
  */
-private fun formatLatency(timing: DesktopDictationTiming): String
+internal fun formatLatency(timing: DesktopDictationTiming): String
 {
-    return "${timing.totalMilliseconds} ms total (${timing.recognitionMilliseconds} ms ASR, ${timing.rewritingMilliseconds} ms rewrite)"
+    val overheadMilliseconds = timing.totalMilliseconds - timing.recognitionMilliseconds - timing.rewritingMilliseconds
+    return "${timing.totalMilliseconds} ms = ${timing.recognitionMilliseconds} ASR + ${timing.rewritingMilliseconds} rewrite + $overheadMilliseconds overhead"
 }
 
 /**
