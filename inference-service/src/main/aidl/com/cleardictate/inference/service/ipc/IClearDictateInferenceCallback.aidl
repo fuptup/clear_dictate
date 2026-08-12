@@ -2,6 +2,7 @@ package com.cleardictate.inference.service.ipc;
 
 oneway interface IClearDictateInferenceCallback
 {
+    void onPcConnectionStateChanged(int stateCode);
     void onSpeechModelStateChanged(int stateCode);
     void onOperationAccepted(String operationIdentifier);
     void onOperationBusy(String operationIdentifier);

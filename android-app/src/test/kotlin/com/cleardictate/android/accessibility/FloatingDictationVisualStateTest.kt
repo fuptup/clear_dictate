@@ -3,6 +3,7 @@ package com.cleardictate.android.accessibility
 import com.cleardictate.inference.service.ClientRecordingState
 import com.cleardictate.inference.service.InferenceClientState
 import com.cleardictate.inference.service.InferenceConnectionState
+import com.cleardictate.inference.service.PcConnectionState
 import com.cleardictate.inference.service.SpeechModelState
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -17,6 +18,7 @@ class FloatingDictationVisualStateTest
     {
         val clientState = InferenceClientState(
             connectionState = InferenceConnectionState.DISCONNECTED,
+            pcConnectionState = PcConnectionState.CONNECTED,
             speechModelState = SpeechModelState.READY,
             recordingState = ClientRecordingState.LISTENING
         )
@@ -29,7 +31,8 @@ class FloatingDictationVisualStateTest
     {
         val clientState = InferenceClientState(
             connectionState = InferenceConnectionState.CONNECTED,
-            speechModelState = SpeechModelState.FAILED,
+            pcConnectionState = PcConnectionState.DISCONNECTED,
+            speechModelState = SpeechModelState.READY,
             recordingState = ClientRecordingState.IDLE
         )
 
@@ -41,12 +44,15 @@ class FloatingDictationVisualStateTest
     {
         val readyState = InferenceClientState(
             connectionState = InferenceConnectionState.CONNECTED,
+            pcConnectionState = PcConnectionState.CONNECTED,
             speechModelState = SpeechModelState.READY,
             recordingState = ClientRecordingState.IDLE
         )
         val modelUnavailableState = readyState.copy(speechModelState = SpeechModelState.VERIFYING_AND_LOADING)
+        val connectionCheckState = readyState.copy(pcConnectionState = PcConnectionState.CHECKING)
 
         assertEquals(FloatingDictationVisualState.READY, readyState.visualState())
         assertEquals(FloatingDictationVisualState.UNAVAILABLE, modelUnavailableState.visualState())
+        assertEquals(FloatingDictationVisualState.UNAVAILABLE, connectionCheckState.visualState())
     }
 }

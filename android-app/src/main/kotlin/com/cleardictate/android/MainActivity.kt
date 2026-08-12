@@ -69,6 +69,7 @@ import com.cleardictate.inference.service.InferenceConnectionState
 import com.cleardictate.inference.service.InferenceServiceClient
 import com.cleardictate.inference.service.PcDictationClient
 import com.cleardictate.inference.service.PcDictationEndpoint
+import com.cleardictate.inference.service.PcConnectionState
 import com.cleardictate.inference.service.PcEndpointPreferences
 import com.cleardictate.inference.service.SpeechModelState
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -177,16 +178,21 @@ private fun ClearDictateScreen(inferenceServiceClient: InferenceServiceClient)
         }
     }
 
-    LaunchedEffect(clientState.speechModelState, pairedEndpointExists, connectionCheckRunning)
+    LaunchedEffect(clientState.pcConnectionState, clientState.speechModelState, pairedEndpointExists, connectionCheckRunning)
     {
         if (pairedEndpointExists && !connectionCheckRunning && !manualConnectionAttempted)
         {
-            connectionMessage = when (clientState.speechModelState)
+            connectionMessage = when (clientState.pcConnectionState)
             {
-                SpeechModelState.READY -> "PC connected."
-                SpeechModelState.VERIFYING_AND_LOADING -> "Checking paired PC…"
-                SpeechModelState.FAILED -> "The paired PC is not reachable."
-                SpeechModelState.NOT_PREPARED -> connectionMessage
+                PcConnectionState.CHECKING -> "Checking paired PC…"
+                PcConnectionState.DISCONNECTED -> "The paired PC is not reachable."
+                PcConnectionState.CONNECTED -> when (clientState.speechModelState)
+                {
+                    SpeechModelState.READY -> "PC connected."
+                    SpeechModelState.VERIFYING_AND_LOADING -> "Preparing PC dictation…"
+                    SpeechModelState.FAILED -> "The PC is connected, but dictation is unavailable."
+                    SpeechModelState.NOT_PREPARED -> connectionMessage
+                }
             }
         }
     }
@@ -321,7 +327,7 @@ private data class ScreenState(
 {
     val recordingReady: Boolean
         get() = microphonePermissionGranted && notificationPermissionGranted && clientState.connectionState == InferenceConnectionState.CONNECTED &&
-            clientState.speechModelState == SpeechModelState.READY
+            clientState.pcConnectionState == PcConnectionState.CONNECTED && clientState.speechModelState == SpeechModelState.READY
 }
 
 /**
@@ -431,7 +437,7 @@ private fun SetupCard(state: ScreenState, actions: ScreenActions)
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Phone setup", style = MaterialTheme.typography.titleMedium)
-            Text("PC service: ${state.clientState.speechModelState.readableName()}")
+            Text("PC service: ${state.clientState.pcConnectionState.readableName()}")
             Text("Microphone: ${if (state.microphonePermissionGranted) "Allowed" else "Permission required"}")
             if (!state.microphonePermissionGranted || !state.notificationPermissionGranted)
             {
@@ -600,13 +606,12 @@ private fun ClientRecordingState.readableName(): String
     }
 }
 
-private fun SpeechModelState.readableName(): String
+private fun PcConnectionState.readableName(): String
 {
     return when (this)
     {
-        SpeechModelState.NOT_PREPARED -> "Not checked"
-        SpeechModelState.VERIFYING_AND_LOADING -> "Checking…"
-        SpeechModelState.READY -> "Connected"
-        SpeechModelState.FAILED -> "Not connected"
+        PcConnectionState.CHECKING -> "Checking…"
+        PcConnectionState.CONNECTED -> "Connected"
+        PcConnectionState.DISCONNECTED -> "Not connected"
     }
 }

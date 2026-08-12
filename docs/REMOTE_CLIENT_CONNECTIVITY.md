@@ -93,7 +93,8 @@ For normal operation:
 2. ClearDictate starts, loads both GPU workers, detects the Tailscale address, and binds TCP 8765 only to that address. It then warms the GPU paths in the background
    with local synthetic silence and a fixed trusted phrase. The endpoint remains available while warm-up runs, so it cannot block phone reconnection.
 3. The phone's Tailscale VPN connects over Wi-Fi or mobile data.
-4. ClearDictate's Android inference service checks the authenticated health endpoint.
+4. ClearDictate's Android inference service checks the authenticated health endpoint immediately, then every 30 seconds while the service is active. Each health request
+   has a five-second deadline and contains no audio or transcript data.
 5. The floating microphone becomes available in supported, non-sensitive text fields.
 6. Holding the control records locally. Releasing it uploads the complete audio, waits for the serialized PC pipeline, and inserts the returned text only if the same field
    remains focused.
@@ -122,11 +123,19 @@ Perform these checks without exposing the bearer token:
 The development setup has passed the unauthorized `401`, authenticated `200`, blocked-LAN, and authenticated mobile-data checks. The mobile-data check used only a health
 request and restored Wi-Fi afterward.
 
+On 2026-08-12, the periodic connection monitor was verified end to end on the Android 15 project emulator against the live RTX 3090 server. Blocking only the emulator's
+TCP 8765 route changed the focused-field overlay from the microphone to the no-entry icon after the next poll; restoring the route changed it back without restarting the
+app or accessibility service.
+
 ## Reconnection and recovery
 
-The floating control shows a no-entry icon as soon as the Android inference client detects that it is disconnected from the PC. A grey microphone instead means the client
-is connected but dictation is unavailable because the PC model is not ready, the focused field is sensitive, or a recording error is awaiting recovery. The message
-**ClearDictate is reconnecting to the paired PC** accompanies connection loss but does not by itself prove that the Tailscale route has failed.
+The Android inference process owns one authenticated connection monitor shared by the main app, optional keyboard, and floating accessibility control. It checks the PC at
+startup and every 30 seconds rather than allowing each surface to create its own network loop. A failed check changes the floating control to a no-entry icon and blocks new
+recordings. A later successful check restores the microphone automatically; the user does not need to reopen ClearDictate or toggle the accessibility service.
+
+A grey microphone means the connection is still being checked, the PC model is not ready, the focused field is sensitive, or a recording error is awaiting recovery. The
+message **ClearDictate is reconnecting to the paired PC** accompanies connection loss but does not by itself prove that the Tailscale route has failed. Loss may take up to
+approximately 35 seconds to appear: one 30-second polling interval plus the health request's five-second deadline.
 
 The accessibility service and the main ClearDictate screen are separate clients of the Android inference process. If that process restarts, Android reconnects both clients.
 On reconnection each client now clears any abandoned recording error, returns to idle, and waits for the inference process to replay current PC model readiness. This lets
@@ -159,7 +168,8 @@ Check in this order:
    transition.
 4. Confirm no other Android VPN has displaced Tailscale.
 5. Confirm Tailscale has unrestricted battery use and is not suspended by Motorola or another manufacturer's battery manager.
-6. Reopen ClearDictate. Its service should recheck the saved endpoint and update the overlay state.
+6. Wait up to 35 seconds for the shared connection monitor to update the overlay. Reopening ClearDictate also starts an immediate check if the inference service was not
+   already active.
 7. If connectivity still fails, run the unauthenticated and authenticated health checks separately to distinguish routing from credential failure.
 
 If the main ClearDictate screen can record but the floating microphone alone remains grey, verify that the accessibility service is enabled. A build older than the

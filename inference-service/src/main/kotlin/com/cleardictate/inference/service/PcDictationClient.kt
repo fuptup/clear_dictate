@@ -76,7 +76,9 @@ class PcDictationClient(
     override suspend fun checkHealth(endpoint: PcDictationEndpoint): Boolean = withContext(Dispatchers.IO)
     {
         val request = authenticatedRequest(endpoint, RemoteDictationProtocol.HEALTH_PATH).get().build()
-        httpClient.newCall(request).await().use { response -> response.isSuccessful }
+        val call = httpClient.newCall(request)
+        call.timeout().timeout(HEALTH_CHECK_TIMEOUT_MILLISECONDS, TimeUnit.MILLISECONDS)
+        call.await().use { response -> response.isSuccessful }
     }
 
     /**
@@ -160,6 +162,8 @@ class PcDictationClient(
 
     private companion object
     {
+        const val HEALTH_CHECK_TIMEOUT_MILLISECONDS = 5_000L
+
         /**
          * Matches the PC's 120-second ASR boundary plus its 15-second transcript-polishing boundary.
          */

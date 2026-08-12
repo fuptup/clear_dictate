@@ -26,6 +26,7 @@ import com.cleardictate.inference.service.ClientRecordingState
 import com.cleardictate.inference.service.InferenceClientState
 import com.cleardictate.inference.service.InferenceConnectionState
 import com.cleardictate.inference.service.InferenceServiceClient
+import com.cleardictate.inference.service.PcConnectionState
 import com.cleardictate.inference.service.SpeechModelState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -664,7 +665,8 @@ internal fun isWhatsAppEmptyComposer(packageName: String, viewIdentifier: String
 
 private fun InferenceClientState.isReadyForDictation(): Boolean
 {
-    return connectionState == InferenceConnectionState.CONNECTED && speechModelState == SpeechModelState.READY && recordingState == ClientRecordingState.IDLE
+    return connectionState == InferenceConnectionState.CONNECTED && pcConnectionState == PcConnectionState.CONNECTED &&
+        speechModelState == SpeechModelState.READY && recordingState == ClientRecordingState.IDLE
 }
 
 /**
@@ -672,7 +674,7 @@ private fun InferenceClientState.isReadyForDictation(): Boolean
  */
 internal fun InferenceClientState.visualState(): FloatingDictationVisualState
 {
-    if (connectionState != InferenceConnectionState.CONNECTED || speechModelState == SpeechModelState.NOT_PREPARED || speechModelState == SpeechModelState.FAILED)
+    if (connectionState != InferenceConnectionState.CONNECTED || pcConnectionState == PcConnectionState.DISCONNECTED)
     {
         return FloatingDictationVisualState.DISCONNECTED
     }

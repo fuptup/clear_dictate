@@ -42,6 +42,7 @@ class ClearDictateInferenceService : Service()
     private val registrationGeneration = AtomicLong(0L)
     private lateinit var coordinator: InferenceCoordinator
     private lateinit var endpointPreferences: PcEndpointPreferences
+    private lateinit var pcConnectionMonitor: PcConnectionMonitor
     private var foregroundOperation: ForegroundOperation? = null
 
     private val binder = object : IClearDictateInferenceService.Stub()
@@ -69,6 +70,7 @@ class ClearDictateInferenceService : Service()
             }
             return runCatching {
                 endpointPreferences.save(baseUrl, authorizationToken)
+                pcConnectionMonitor.refreshNow()
                 coordinator.prepareSpeechModel()
                 true
             }.getOrDefault(false)
@@ -206,6 +208,13 @@ class ClearDictateInferenceService : Service()
                 }
             }
         )
+        pcConnectionMonitor = PcConnectionMonitor(
+            endpointProvider = endpointPreferences,
+            transport = pcTransport,
+            pollIntervalMilliseconds = PC_CONNECTION_POLL_INTERVAL_MILLISECONDS,
+            stateChanged = { state -> handlePcConnectionStateChanged(state) }
+        )
+        pcConnectionMonitor.start()
     }
 
     override fun onBind(intent: Intent?): IBinder?
@@ -340,6 +349,10 @@ class ClearDictateInferenceService : Service()
     override fun onDestroy()
     {
         PROCESS_SHUTTING_DOWN.set(true)
+        if (::pcConnectionMonitor.isInitialized)
+        {
+            pcConnectionMonitor.close()
+        }
         val registrations = clientRegistrations.drain()
         registrations.forEach { registration ->
             registration.callback.asBinder().unlinkToDeath(registration.deathRecipient, 0)
@@ -439,6 +452,7 @@ class ClearDictateInferenceService : Service()
                 else
                 {
                     coordinator.registerClient(clientIdentifier, endpoint)
+                    endpoint.onPcConnectionStateChanged(pcConnectionMonitor.currentState)
                     callback.asBinder().isBinderAlive
                 }
             },
@@ -464,6 +478,23 @@ class ClearDictateInferenceService : Service()
                 deactivateClientRegistration(clientIdentifier, registration)
             }
         )
+    }
+
+    /**
+     * Broadcasts one authoritative PC-availability state to every bound surface and retries model preparation after connectivity recovers.
+     */
+    private fun handlePcConnectionStateChanged(state: PcConnectionState)
+    {
+        clientRegistrations.snapshot().forEach { registration ->
+            registration.endpoint.onPcConnectionStateChanged(state)
+        }
+
+        if (state == PcConnectionState.CONNECTED &&
+            coordinator.currentSpeechModelState() != SpeechModelState.READY &&
+            coordinator.currentSpeechModelState() != SpeechModelState.VERIFYING_AND_LOADING)
+        {
+            coordinator.prepareSpeechModel()
+        }
     }
 
     private fun deactivateClientRegistration(
@@ -643,6 +674,7 @@ class ClearDictateInferenceService : Service()
         private const val MICROPHONE_NOTIFICATION_CHANNEL = "active_dictation"
         private const val MICROPHONE_NOTIFICATION_IDENTIFIER = 4101
         private const val FOREGROUND_AUTHORIZATION_TIMEOUT_MILLISECONDS = 10_000L
+        private const val PC_CONNECTION_POLL_INTERVAL_MILLISECONDS = 30_000L
         private val PROCESS_SHUTTING_DOWN = AtomicBoolean(false)
 
         fun createMicrophoneForegroundIntent(
@@ -670,6 +702,11 @@ private class BinderInferenceClientEndpoint(
 {
     @Volatile
     var recordingOperation: OperationIdentifier? = null
+
+    fun onPcConnectionStateChanged(state: PcConnectionState)
+    {
+        safelyDeliver { callback.onPcConnectionStateChanged(state.toProtocolCode()) }
+    }
 
     override fun onSpeechModelStateChanged(state: SpeechModelState)
     {
@@ -879,6 +916,16 @@ private fun SpeechModelState.toProtocolCode(): Int
         SpeechModelState.VERIFYING_AND_LOADING -> InferenceProtocolCodes.MODEL_VERIFYING_AND_LOADING
         SpeechModelState.READY -> InferenceProtocolCodes.MODEL_READY
         SpeechModelState.FAILED -> InferenceProtocolCodes.MODEL_FAILED
+    }
+}
+
+private fun PcConnectionState.toProtocolCode(): Int
+{
+    return when (this)
+    {
+        PcConnectionState.CHECKING -> InferenceProtocolCodes.PC_CONNECTION_CHECKING
+        PcConnectionState.CONNECTED -> InferenceProtocolCodes.PC_CONNECTION_CONNECTED
+        PcConnectionState.DISCONNECTED -> InferenceProtocolCodes.PC_CONNECTION_DISCONNECTED
     }
 }
 

@@ -14,6 +14,7 @@ class InferenceClientStateTest
     {
         val recordingState = InferenceClientState(
             connectionState = InferenceConnectionState.CONNECTED,
+            pcConnectionState = PcConnectionState.CONNECTED,
             speechModelState = SpeechModelState.READY,
             recordingState = ClientRecordingState.FINALIZING,
             partialRawTranscript = "Private partial transcript"
@@ -22,6 +23,7 @@ class InferenceClientStateTest
         val failedState = recordingState.afterOperationFailure("PC transcription failed.")
 
         assertEquals(InferenceConnectionState.CONNECTED, failedState.connectionState)
+        assertEquals(PcConnectionState.CONNECTED, failedState.pcConnectionState)
         assertEquals(SpeechModelState.READY, failedState.speechModelState)
         assertEquals(ClientRecordingState.IDLE, failedState.recordingState)
         assertEquals("", failedState.partialRawTranscript)
@@ -33,6 +35,7 @@ class InferenceClientStateTest
     {
         val disconnectedState = InferenceClientState(
             connectionState = InferenceConnectionState.DISCONNECTED,
+            pcConnectionState = PcConnectionState.DISCONNECTED,
             speechModelState = SpeechModelState.READY,
             recordingState = ClientRecordingState.ERROR,
             normalizedAudioLevel = 0.75f,
@@ -49,6 +52,7 @@ class InferenceClientStateTest
         val reconnectedState = disconnectedState.afterServiceConnected()
 
         assertEquals(InferenceConnectionState.CONNECTED, reconnectedState.connectionState)
+        assertEquals(PcConnectionState.CHECKING, reconnectedState.pcConnectionState)
         assertEquals(SpeechModelState.READY, reconnectedState.speechModelState)
         assertEquals(ClientRecordingState.IDLE, reconnectedState.recordingState)
         assertEquals(0.0f, reconnectedState.normalizedAudioLevel)

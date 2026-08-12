@@ -42,6 +42,7 @@ enum class ClientRecordingState
  */
 data class InferenceClientState(
     val connectionState: InferenceConnectionState = InferenceConnectionState.DISCONNECTED,
+    val pcConnectionState: PcConnectionState = PcConnectionState.CHECKING,
     val speechModelState: SpeechModelState = SpeechModelState.NOT_PREPARED,
     val recordingState: ClientRecordingState = ClientRecordingState.IDLE,
     val normalizedAudioLevel: Float = 0.0f,
@@ -66,7 +67,7 @@ data class InferenceClientState(
         {
             "<redacted>"
         }
-        return "InferenceClientState(connectionState=$connectionState, speechModelState=$speechModelState, recordingState=$recordingState, " +
+        return "InferenceClientState(connectionState=$connectionState, pcConnectionState=$pcConnectionState, speechModelState=$speechModelState, recordingState=$recordingState, " +
             "normalizedAudioLevel=$normalizedAudioLevel, selectedMode=$selectedMode, usedDeterministicFallback=$usedDeterministicFallback, " +
             "completedOperationIdentifier=$redactedCompletedOperationIdentifier, failureMessage=$failureMessage, transcripts=<redacted>)"
     }
@@ -98,6 +99,15 @@ class InferenceServiceClient(
 
     private val callback = object : IClearDictateInferenceCallback.Stub()
     {
+        override fun onPcConnectionStateChanged(stateCode: Int)
+        {
+            postIfOpen {
+                mutableState.update { currentState ->
+                    currentState.copy(pcConnectionState = parsePcConnectionState(stateCode))
+                }
+            }
+        }
+
         override fun onSpeechModelStateChanged(stateCode: Int)
         {
             postIfOpen {
@@ -332,7 +342,7 @@ class InferenceServiceClient(
             }
         }
 
-        if (mutableState.value.speechModelState != SpeechModelState.READY)
+        if (mutableState.value.pcConnectionState != PcConnectionState.CONNECTED || mutableState.value.speechModelState != SpeechModelState.READY)
         {
             mutableState.update { currentState ->
                 currentState.copy(failureMessage = "The paired PC is not ready.")
@@ -543,7 +553,8 @@ class InferenceServiceClient(
         clearOperationTranscripts(
             recordingState = ClientRecordingState.ERROR,
             failureMessage = "The recording service stopped. Reconnect to try again.",
-            connectionState = InferenceConnectionState.DISCONNECTED
+            connectionState = InferenceConnectionState.DISCONNECTED,
+            pcConnectionState = PcConnectionState.DISCONNECTED
         )
     }
 
@@ -598,12 +609,14 @@ class InferenceServiceClient(
     private fun clearOperationTranscripts(
         recordingState: ClientRecordingState,
         failureMessage: String?,
-        connectionState: InferenceConnectionState = mutableState.value.connectionState
+        connectionState: InferenceConnectionState = mutableState.value.connectionState,
+        pcConnectionState: PcConnectionState = mutableState.value.pcConnectionState
     )
     {
         mutableState.update { currentState ->
             currentState.copy(
                 connectionState = connectionState,
+                pcConnectionState = pcConnectionState,
                 recordingState = recordingState,
                 normalizedAudioLevel = 0.0f,
                 partialRawTranscript = "",
@@ -639,6 +652,7 @@ internal fun InferenceClientState.afterServiceConnected(): InferenceClientState
 {
     return copy(
         connectionState = InferenceConnectionState.CONNECTED,
+        pcConnectionState = PcConnectionState.CHECKING,
         recordingState = ClientRecordingState.IDLE,
         normalizedAudioLevel = 0.0f,
         partialRawTranscript = "",
@@ -669,6 +683,16 @@ internal fun InferenceClientState.afterOperationFailure(message: String): Infere
         completedOperationIdentifier = null,
         failureMessage = message
     )
+}
+
+private fun parsePcConnectionState(code: Int): PcConnectionState
+{
+    return when (code)
+    {
+        InferenceProtocolCodes.PC_CONNECTION_CONNECTED -> PcConnectionState.CONNECTED
+        InferenceProtocolCodes.PC_CONNECTION_DISCONNECTED -> PcConnectionState.DISCONNECTED
+        else -> PcConnectionState.CHECKING
+    }
 }
 
 private fun parseSpeechModelState(code: Int): SpeechModelState

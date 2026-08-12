@@ -79,6 +79,17 @@ internal class SerializedClientRegistrationRegistry<ClientKey : Any, Registratio
         }
     }
 
+    /**
+     * Captures the active registrations so a shared service-state change can be delivered without holding the registry lock during callbacks.
+     */
+    fun snapshot(): List<Registration>
+    {
+        return synchronized(coordinationLock)
+        {
+            registrations.values.toList()
+        }
+    }
+
     fun drain(): List<Registration>
     {
         return synchronized(coordinationLock)

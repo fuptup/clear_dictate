@@ -63,6 +63,7 @@ import com.cleardictate.inference.service.ClientRecordingState
 import com.cleardictate.inference.service.InferenceClientState
 import com.cleardictate.inference.service.InferenceServiceClient
 import com.cleardictate.inference.service.InferenceConnectionState
+import com.cleardictate.inference.service.PcConnectionState
 import com.cleardictate.inference.service.SpeechModelState
 import com.cleardictate.input.EditorContext
 import com.cleardictate.input.EditorSafetyDecision
@@ -237,6 +238,7 @@ class ClearDictateInputMethodService : android.inputmethodservice.InputMethodSer
         val dictationReady = microphonePermissionGranted &&
             notificationPermissionGranted &&
             currentSafetyDecision.dictationAllowed &&
+            clientState.pcConnectionState == PcConnectionState.CONNECTED &&
             clientState.speechModelState == SpeechModelState.READY &&
             clientState.connectionState == InferenceConnectionState.CONNECTED
 
@@ -329,7 +331,7 @@ class ClearDictateInputMethodService : android.inputmethodservice.InputMethodSer
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text("ClearDictate", style = MaterialTheme.typography.titleLarge)
-            Text("PC: ${clientState.speechModelState.name.lowercase().replace('_', ' ')}")
+            Text("PC: ${clientState.pcConnectionState.name.lowercase()}")
         }
     }
 
@@ -376,7 +378,9 @@ class ClearDictateInputMethodService : android.inputmethodservice.InputMethodSer
                 recordingActive = recordingActive
             )
 
-            if (clientState.connectionState == InferenceConnectionState.CONNECTED && clientState.speechModelState == SpeechModelState.FAILED)
+            if (clientState.connectionState == InferenceConnectionState.CONNECTED &&
+                clientState.pcConnectionState == PcConnectionState.CONNECTED &&
+                clientState.speechModelState == SpeechModelState.FAILED)
             {
                 OutlinedButton(onClick = inferenceServiceClient::retrySpeechModelPreparation) {
                     Text("Retry PC")
