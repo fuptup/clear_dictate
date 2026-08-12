@@ -2,20 +2,30 @@ package com.cleardictate.desktop
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.rememberScrollbarAdapter
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
@@ -83,8 +93,8 @@ fun ClearDictateDesktopPreviewScreen(
             var preparingModels by remember(ready) { mutableStateOf(ready) }
             var recording by remember { mutableStateOf(false) }
             var processing by remember { mutableStateOf(false) }
-            var rawTranscript by remember { mutableStateOf("") }
-            var polishedTranscript by remember { mutableStateOf("") }
+            val rawTranscript = rememberTextFieldState()
+            val polishedTranscript = rememberTextFieldState()
             var status by remember { mutableStateOf(if (ready) "Preparing AI…" else (runtimeReadiness as DesktopRuntimeReadiness.Unavailable).explanation) }
             var phoneServerStatus by remember { mutableStateOf("Waiting for AI") }
             var showPhoneSetup by remember { mutableStateOf(false) }
@@ -201,8 +211,8 @@ fun ClearDictateDesktopPreviewScreen(
                                 try
                                 {
                                     val result = dictationPipeline.finishDictation()
-                                    rawTranscript = result.rawTranscript
-                                    polishedTranscript = result.polishedTranscript
+                                    rawTranscript.setTextAndPlaceCursorAtEnd(result.rawTranscript)
+                                    polishedTranscript.setTextAndPlaceCursorAtEnd(result.polishedTranscript)
                                     status = "Ready \u2022 ${formatLatency(result.timing)}"
                                 }
                                 catch (_: Exception)
@@ -220,27 +230,27 @@ fun ClearDictateDesktopPreviewScreen(
                     DictationActivityIndicator(recording, preparingModels || processing, microphoneActivity, status, Modifier.weight(1.0F))
                 }
                 Spacer(Modifier.height(6.dp))
-                OutlinedTextField(
-                    value = polishedTranscript,
-                    onValueChange = { polishedTranscript = it },
+                ScrollableTranscriptField(
+                    state = polishedTranscript,
                     modifier = Modifier.fillMaxWidth().height(108.dp),
                     enabled = !recording && !processing,
-                    label = { Text("Polished") }
+                    readOnly = false,
+                    label = "Polished"
                 )
-                OutlinedTextField(
-                    value = rawTranscript,
-                    onValueChange = {},
+                ScrollableTranscriptField(
+                    state = rawTranscript,
                     modifier = Modifier.fillMaxWidth().height(66.dp).padding(top = 6.dp),
+                    enabled = true,
                     readOnly = true,
-                    label = { Text("Raw") }
+                    label = "Raw"
                 )
                 Row(modifier = Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedButton(
-                        enabled = polishedTranscript.isNotEmpty() && !recording && !processing,
+                        enabled = polishedTranscript.text.isNotEmpty() && !recording && !processing,
                         modifier = Modifier.height(36.dp),
                         onClick = {
                             scope.launch {
-                                clipboard.setClipEntry(ClipEntry(StringSelection(polishedTranscript)))
+                                clipboard.setClipEntry(ClipEntry(StringSelection(polishedTranscript.text.toString())))
                                 status = "Copied"
                             }
                         }
@@ -251,8 +261,8 @@ fun ClearDictateDesktopPreviewScreen(
                         enabled = !recording && !processing,
                         modifier = Modifier.height(36.dp),
                         onClick = {
-                            rawTranscript = ""
-                            polishedTranscript = ""
+                            rawTranscript.setTextAndPlaceCursorAtEnd("")
+                            polishedTranscript.setTextAndPlaceCursorAtEnd("")
                             status = "Ready"
                         }
                     ) {
@@ -277,6 +287,52 @@ fun ClearDictateDesktopPreviewScreen(
                 )
             }
         }
+    }
+}
+
+/**
+ * Keeps each compact transcript box multiline and exposes its internal vertical position only when wrapped content overflows.
+ */
+@Composable
+private fun ScrollableTranscriptField(state: TextFieldState, modifier: Modifier, enabled: Boolean, readOnly: Boolean, label: String)
+{
+    val scrollState = rememberScrollState()
+    var emptyFieldScrollRange by remember { mutableIntStateOf(0) }
+    val fieldIsEmpty = state.text.isEmpty()
+    LaunchedEffect(fieldIsEmpty, scrollState.maxValue)
+    {
+        if (fieldIsEmpty)
+        {
+            emptyFieldScrollRange = scrollState.maxValue
+        }
+    }
+    Box(modifier = modifier)
+    {
+        OutlinedTextField(
+            state = state,
+            modifier = Modifier.fillMaxSize(),
+            enabled = enabled,
+            readOnly = readOnly,
+            lineLimits = TextFieldLineLimits.MultiLine(),
+            scrollState = scrollState,
+            label = { Text(label) }
+        )
+        TranscriptScrollbar(scrollState, !fieldIsEmpty && scrollState.maxValue > emptyFieldScrollRange)
+    }
+}
+
+/**
+ * Avoids reserving horizontal space for a scrollbar until the field has more wrapped lines than it can display.
+ */
+@Composable
+private fun BoxScope.TranscriptScrollbar(scrollState: ScrollState, contentOverflows: Boolean)
+{
+    if (contentOverflows)
+    {
+        VerticalScrollbar(
+            adapter = rememberScrollbarAdapter(scrollState),
+            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(top = 12.dp, end = 3.dp, bottom = 4.dp)
+        )
     }
 }
 
