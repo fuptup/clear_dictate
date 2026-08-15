@@ -46,6 +46,7 @@ private fun runClearDictateDesktopApplication() = application {
     val mainWindowState = remember { WindowState(width = 600.dp, height = 370.dp) }
     val trayWindowController = remember { DesktopTrayWindowController() }
     val trayIcon = remember { DesktopTrayIconPainter() }
+    val startupRegistration = remember { WindowsDesktopStartupRegistration.forCurrentProcess() }
     val showMainWindow = trayWindowController::restore
     val dictationPipeline = remember(speechRecorder, speechTranscriber, transcriptProcessor, dictationHistory) {
         DesktopDictationPipeline(speechRecorder, speechTranscriber, transcriptProcessor, dictationHistory)
@@ -105,6 +106,7 @@ private fun runClearDictateDesktopApplication() = application {
             dictationPipeline,
             phoneAccessConfiguration,
             phoneServer,
+            startupRegistration,
             onOpenHistory = { historyVisible = true },
             onOpenRules = { rulesVisible = true }
         )

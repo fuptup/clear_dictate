@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.rememberScrollState
@@ -37,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -53,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.font.FontWeight
@@ -70,12 +73,13 @@ import java.awt.datatransfer.StringSelection
  */
 @Composable
 @OptIn(ExperimentalComposeUiApi::class)
-fun ClearDictateDesktopPreviewScreen(
+internal fun ClearDictateDesktopPreviewScreen(
     runtimeReadiness: DesktopRuntimeReadiness,
     speechRecorder: DesktopSpeechRecorder,
     dictationPipeline: DesktopDictationPipeline,
     phoneAccessConfiguration: DesktopPhoneAccessConfiguration,
     phoneServer: DesktopRemoteDictationServer,
+    startupRegistration: DesktopStartupRegistration,
     onOpenHistory: () -> Unit,
     onOpenRules: () -> Unit
 )
@@ -98,6 +102,7 @@ fun ClearDictateDesktopPreviewScreen(
             var status by remember { mutableStateOf(if (ready) "Preparing AI…" else (runtimeReadiness as DesktopRuntimeReadiness.Unavailable).explanation) }
             var phoneServerStatus by remember { mutableStateOf("Waiting for AI") }
             var showPhoneSetup by remember { mutableStateOf(false) }
+            var startWithWindows by remember(startupRegistration) { mutableStateOf(runCatching(startupRegistration::isEnabled).getOrDefault(false)) }
 
             LaunchedEffect(ready, speechRecorder, dictationPipeline, phoneServer)
             {
@@ -244,7 +249,7 @@ fun ClearDictateDesktopPreviewScreen(
                     readOnly = true,
                     label = "Raw"
                 )
-                Row(modifier = Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedButton(
                         enabled = polishedTranscript.text.isNotEmpty() && !recording && !processing,
                         modifier = Modifier.height(36.dp),
@@ -267,6 +272,30 @@ fun ClearDictateDesktopPreviewScreen(
                         }
                     ) {
                         Text("Clear")
+                    }
+                    Spacer(Modifier.weight(1.0F))
+                    Row(
+                        modifier = Modifier.height(36.dp).toggleable(
+                            value = startWithWindows,
+                            role = Role.Switch,
+                            onValueChange = { enabled ->
+                                try
+                                {
+                                    startupRegistration.setEnabled(enabled)
+                                    startWithWindows = startupRegistration.isEnabled()
+                                }
+                                catch (_: Exception)
+                                {
+                                    startWithWindows = runCatching(startupRegistration::isEnabled).getOrDefault(false)
+                                    status = "Could not update Windows startup."
+                                }
+                            }
+                        ),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Start with Windows", style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.width(6.dp))
+                        Switch(checked = startWithWindows, onCheckedChange = null)
                     }
                 }
             }

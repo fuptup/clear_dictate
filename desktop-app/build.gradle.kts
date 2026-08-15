@@ -16,6 +16,7 @@ dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
     implementation(libs.jna)
+    implementation(libs.jna.platform)
     implementation(libs.kotlin.coroutines.swing)
     implementation(libs.zxing.core)
     implementation(libs.sqlite.jdbc)
