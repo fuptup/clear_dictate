@@ -1,53 +1,50 @@
 package com.cleardictate.inference.remote
 
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 /**
- * Locks the completed-audio bytes shared by the Android client and PC service.
+ * Locks the streaming bytes shared by the Android client and PC service.
  */
 class RemoteDictationProtocolTest
 {
     @Test
-    fun `round trips the versioned PCM16 payload`()
+    fun `stream header and audio frames round trip incrementally until the explicit finish frame`()
     {
-        val audio = RemotePcmAudio(
-            sampleRateHertz = RemoteDictationProtocol.SAMPLE_RATE_HERTZ,
-            samples = shortArrayOf(0, 8_192, -16_384)
-        )
+        val payload = ByteArrayOutputStream()
+        DataOutputStream(payload).use { output ->
+            RemoteDictationProtocol.writeStreamHeader(output)
+            RemoteDictationProtocol.writeAudioFrame(output, shortArrayOf(0, 8_192, -16_384), 3)
+            RemoteDictationProtocol.writeAudioFrame(output, shortArrayOf(7, 99), 1)
+            RemoteDictationProtocol.writeStreamFinish(output)
+        }
 
-        val payload = RemoteDictationProtocol.encodeAudio(audio)
-        val decoded = RemoteDictationProtocol.decodeAudio(payload)
-
-        assertEquals(RemoteDictationProtocol.SAMPLE_RATE_HERTZ, decoded.sampleRateHertz)
-        assertContentEquals(audio.samples, decoded.samples)
-        assertContentEquals(
-            byteArrayOf(
-                0x43, 0x44, 0x52, 0x41,
-                0x00, 0x01,
-                0x00, 0x01,
-                0x00, 0x00, 0x3E, 0x80.toByte(),
-                0x00, 0x00, 0x00, 0x03,
-                0x00, 0x00,
-                0x20, 0x00,
-                0xC0.toByte(), 0x00
-            ),
-            payload
-        )
+        DataInputStream(ByteArrayInputStream(payload.toByteArray())).use { input ->
+            RemoteDictationProtocol.readAndValidateStreamHeader(input)
+            assertContentEquals(shortArrayOf(0, 8_192, -16_384), RemoteDictationProtocol.readAudioFrame(input))
+            assertContentEquals(shortArrayOf(7), RemoteDictationProtocol.readAudioFrame(input))
+            assertEquals(null, RemoteDictationProtocol.readAudioFrame(input))
+        }
     }
 
     @Test
-    fun `rejects an out of range declared sample count before allocation`()
+    fun `stream rejects a frame that would exceed the remaining recording boundary before allocation`()
     {
-        val payload = RemoteDictationProtocol.encodeAudio(
-            RemotePcmAudio(RemoteDictationProtocol.SAMPLE_RATE_HERTZ, shortArrayOf(1))
-        )
-        payload[12] = 0x7F
+        val payload = ByteArrayOutputStream()
+        DataOutputStream(payload).use { output ->
+            output.writeInt(RemoteDictationProtocol.MAXIMUM_SAMPLE_COUNT)
+        }
 
         val failure = assertFailsWith<RemoteAudioPayloadException> {
-            RemoteDictationProtocol.decodeAudio(payload)
+            DataInputStream(ByteArrayInputStream(payload.toByteArray())).use { input ->
+                RemoteDictationProtocol.readAudioFrame(input, remainingSampleCount = 1)
+            }
         }
 
         assertEquals(RemoteAudioPayloadFailure.INVALID_SAMPLE_COUNT, failure.failure)

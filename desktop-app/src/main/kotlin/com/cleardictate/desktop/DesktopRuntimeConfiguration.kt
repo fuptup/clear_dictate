@@ -12,11 +12,11 @@ data class DesktopRuntimeConfiguration(
     val audioCaptureWorkerExecutable: Path,
     val audioDeviceEnumeratorExecutable: Path,
     val workerLauncherExecutable: Path,
-    val pythonExecutable: Path,
+    val wslExecutable: Path,
+    val wslDistribution: String,
     val asrWorkerScript: Path,
     val asrModelLock: Path,
     val textModelPath: Path,
-    val asrModelDirectory: Path,
     val inferenceThreadCount: Int = 8
 )
 
@@ -36,8 +36,7 @@ class DesktopRuntimeConfigurationLocator(
     private val currentDirectory: Path = Path.of("").toAbsolutePath().normalize(),
     private val systemPropertyReader: (String) -> String? = System::getProperty,
     private val environmentVariableReader: (String) -> String? = System::getenv,
-    private val isRegularFile: (Path) -> Boolean = Files::isRegularFile,
-    private val isDirectory: (Path) -> Boolean = Files::isDirectory
+    private val isRegularFile: (Path) -> Boolean = Files::isRegularFile
 )
 {
     private val repositoryRoot: Path by lazy {
@@ -57,14 +56,16 @@ class DesktopRuntimeConfigurationLocator(
             val audioCaptureWorkerExecutable = resolvePath(AUDIO_CAPTURE_WORKER_PROPERTY, AUDIO_CAPTURE_WORKER_ENVIRONMENT_VARIABLE, "native-worker/build-llama/Debug/clear_dictate_audio_capture_worker.exe")
             val audioDeviceEnumeratorExecutable = resolvePath(AUDIO_DEVICE_ENUMERATOR_PROPERTY, AUDIO_DEVICE_ENUMERATOR_ENVIRONMENT_VARIABLE, "native-worker/build-llama/Debug/clear_dictate_audio_device_enumerator.exe")
             val workerLauncherExecutable = textWorkerExecutable.resolveSibling("clear_dictate_worker_launcher.exe")
-            val pythonExecutable = resolvePath(PYTHON_EXECUTABLE_PROPERTY, PYTHON_EXECUTABLE_ENVIRONMENT_VARIABLE, ".tooling/qwen-python/Scripts/python.exe")
+            val wslExecutable = resolvePath(WSL_EXECUTABLE_PROPERTY, WSL_EXECUTABLE_ENVIRONMENT_VARIABLE, "C:/Windows/System32/wsl.exe")
+            val wslDistribution = systemPropertyReader(WSL_DISTRIBUTION_PROPERTY)?.takeIf(String::isNotBlank)
+                ?: environmentVariableReader(WSL_DISTRIBUTION_ENVIRONMENT_VARIABLE)?.takeIf(String::isNotBlank)
+                ?: DEFAULT_WSL_DISTRIBUTION
             val asrWorkerScript = resolvePath(ASR_WORKER_SCRIPT_PROPERTY, ASR_WORKER_SCRIPT_ENVIRONMENT_VARIABLE, "gpu-worker/qwen_asr_worker.py")
             val asrModelLock = resolvePath(ASR_MODEL_LOCK_PROPERTY, ASR_MODEL_LOCK_ENVIRONMENT_VARIABLE, "gpu-worker/qwen3-asr-1.7b-lock.json")
             val textModelPath = resolvePath(TEXT_MODEL_PROPERTY, TEXT_MODEL_ENVIRONMENT_VARIABLE, ".tooling/models/qwen3.5-9b/Qwen3.5-9B-Q6_K.gguf")
-            val asrModelDirectory = resolvePath(ASR_MODEL_DIRECTORY_PROPERTY, ASR_MODEL_DIRECTORY_ENVIRONMENT_VARIABLE, ".tooling/models/qwen3-asr-1.7b")
 
-            val requiredFiles = listOf(textWorkerExecutable, audioCaptureWorkerExecutable, workerLauncherExecutable, pythonExecutable, asrWorkerScript, asrModelLock, textModelPath)
-            if (requiredFiles.all(isRegularFile) && isDirectory(asrModelDirectory))
+            val requiredFiles = listOf(textWorkerExecutable, audioCaptureWorkerExecutable, workerLauncherExecutable, wslExecutable, asrWorkerScript, asrModelLock, textModelPath)
+            if (requiredFiles.all(isRegularFile))
             {
                 DesktopRuntimeReadiness.Ready(
                     DesktopRuntimeConfiguration(
@@ -72,11 +73,11 @@ class DesktopRuntimeConfigurationLocator(
                         audioCaptureWorkerExecutable,
                         audioDeviceEnumeratorExecutable,
                         workerLauncherExecutable,
-                        pythonExecutable,
+                        wslExecutable,
+                        wslDistribution,
                         asrWorkerScript,
                         asrModelLock,
-                        textModelPath,
-                        asrModelDirectory
+                        textModelPath
                     )
                 )
             }
@@ -103,21 +104,22 @@ class DesktopRuntimeConfigurationLocator(
         const val TEXT_WORKER_PROPERTY = "clearDictate.textWorkerExecutable"
         const val AUDIO_CAPTURE_WORKER_PROPERTY = "clearDictate.audioCaptureWorkerExecutable"
         const val AUDIO_DEVICE_ENUMERATOR_PROPERTY = "clearDictate.audioDeviceEnumeratorExecutable"
-        const val PYTHON_EXECUTABLE_PROPERTY = "clearDictate.pythonExecutable"
+        const val WSL_EXECUTABLE_PROPERTY = "clearDictate.wslExecutable"
+        const val WSL_DISTRIBUTION_PROPERTY = "clearDictate.wslDistribution"
         const val ASR_WORKER_SCRIPT_PROPERTY = "clearDictate.asrWorkerScript"
         const val ASR_MODEL_LOCK_PROPERTY = "clearDictate.asrModelLock"
         const val TEXT_MODEL_PROPERTY = "clearDictate.textModel"
-        const val ASR_MODEL_DIRECTORY_PROPERTY = "clearDictate.asrModelDirectory"
         const val TEXT_WORKER_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_TEXT_WORKER_EXECUTABLE"
         const val AUDIO_CAPTURE_WORKER_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_AUDIO_CAPTURE_WORKER_EXECUTABLE"
         const val AUDIO_DEVICE_ENUMERATOR_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_AUDIO_DEVICE_ENUMERATOR_EXECUTABLE"
-        const val PYTHON_EXECUTABLE_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_PYTHON_EXECUTABLE"
+        const val WSL_EXECUTABLE_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_WSL_EXECUTABLE"
+        const val WSL_DISTRIBUTION_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_WSL_DISTRIBUTION"
         const val ASR_WORKER_SCRIPT_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_ASR_WORKER_SCRIPT"
         const val ASR_MODEL_LOCK_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_ASR_MODEL_LOCK"
         const val TEXT_MODEL_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_TEXT_MODEL"
-        const val ASR_MODEL_DIRECTORY_ENVIRONMENT_VARIABLE = "CLEAR_DICTATE_ASR_MODEL_DIRECTORY"
 
         private const val MISSING_RUNTIME_EXPLANATION = "Install the local Qwen3-ASR and Qwen3.5 runtime files to enable push-to-talk dictation."
+        private const val DEFAULT_WSL_DISTRIBUTION = "Ubuntu"
         private const val REPOSITORY_SENTINEL_FILENAME = "settings.gradle.kts"
         private const val JPACKAGE_APPLICATION_PATH_PROPERTY = "jpackage.app-path"
     }

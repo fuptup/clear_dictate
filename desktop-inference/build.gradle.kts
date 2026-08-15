@@ -23,8 +23,8 @@ tasks.test {
         "clearDictate.workerExecutable",
         "clearDictate.textModel",
         "clearDictate.audioCaptureWorkerExecutable",
-        "clearDictate.asrModelDirectory",
-        "clearDictate.pythonExecutable",
+        "clearDictate.wslExecutable",
+        "clearDictate.wslDistribution",
         "clearDictate.asrWorkerScript",
         "clearDictate.asrModelLock",
         "clearDictate.asrWaveFixture"

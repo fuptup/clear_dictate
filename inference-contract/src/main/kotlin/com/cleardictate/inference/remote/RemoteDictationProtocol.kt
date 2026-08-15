@@ -1,27 +1,7 @@
 package com.cleardictate.inference.remote
 
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-
-/**
- * Owns one completed mono Pulse Code Modulation recording transferred from Android to the PC.
- * Samples remain mutable so each owner can erase them immediately after use.
- */
-data class RemotePcmAudio(
-    val sampleRateHertz: Int,
-    val samples: ShortArray
-)
-{
-    init
-    {
-        require(sampleRateHertz == RemoteDictationProtocol.SAMPLE_RATE_HERTZ) {
-            "Remote dictation requires ${RemoteDictationProtocol.SAMPLE_RATE_HERTZ} Hz audio."
-        }
-        require(samples.isNotEmpty() && samples.size <= RemoteDictationProtocol.MAXIMUM_SAMPLE_COUNT) {
-            "Remote dictation audio has an invalid sample count."
-        }
-    }
-}
+import java.io.DataInput
+import java.io.DataOutput
 
 enum class RemoteAudioPayloadFailure
 {
@@ -37,86 +17,97 @@ class RemoteAudioPayloadException(
 ) : IllegalArgumentException("Remote-audio payload failure: $failure")
 
 /**
- * Defines the versioned phone-to-PC HTTP and binary-audio contract.
- * Five minutes matches the existing Android recording-session boundary and caps request allocation before decoding.
+ * Defines the sole versioned phone-to-PC transport: bounded framed mono PCM16 followed by an explicit release marker.
  */
 object RemoteDictationProtocol
 {
-    private const val HEADER_BYTE_COUNT = 16
-    private const val MAGIC = 0x43445241
-    private const val VERSION: Short = 1
+    private const val STREAM_MAGIC = 0x43445341
+    private const val STREAM_VERSION: Short = 1
     private const val PCM16_SAMPLE_FORMAT: Short = 1
-    private const val BYTES_PER_SAMPLE = 2
 
     const val DICTATION_PATH = "/v1/dictation"
     const val HEALTH_PATH = "/v1/health"
     const val HEALTH_STATE_HEADER = "X-ClearDictate-Service-State"
     const val HEALTH_STATE_READY = "ready"
     const val HEALTH_STATE_PREPARING_AI = "preparing-ai"
-    const val AUDIO_CONTENT_TYPE = "application/vnd.cleardictate.pcm16"
+    const val STREAM_AUDIO_CONTENT_TYPE = "application/vnd.cleardictate.pcm16-stream"
     const val TEXT_CONTENT_TYPE = "text/plain; charset=utf-8"
     const val SAMPLE_RATE_HERTZ = 16_000
     const val MAXIMUM_SAMPLE_COUNT = SAMPLE_RATE_HERTZ * 60 * 5
-    const val MAXIMUM_AUDIO_PAYLOAD_BYTES = HEADER_BYTE_COUNT + MAXIMUM_SAMPLE_COUNT * BYTES_PER_SAMPLE
     const val MAXIMUM_TRANSCRIPT_UTF8_BYTES = 32_000 * 4
 
     /**
-     * Encodes signed PCM16 samples in network byte order so Android and desktop implementations share exact bytes.
+     * Writes the fixed stream identity before any framed audio so the PC rejects incompatible senders before allocation.
      */
-    fun encodeAudio(audio: RemotePcmAudio): ByteArray
+    fun writeStreamHeader(output: DataOutput)
     {
-        val payload = ByteBuffer.allocate(HEADER_BYTE_COUNT + audio.samples.size * BYTES_PER_SAMPLE).order(ByteOrder.BIG_ENDIAN)
-        payload.putInt(MAGIC)
-        payload.putShort(VERSION)
-        payload.putShort(PCM16_SAMPLE_FORMAT)
-        payload.putInt(audio.sampleRateHertz)
-        payload.putInt(audio.samples.size)
-        audio.samples.forEach(payload::putShort)
-        return payload.array()
+        output.writeInt(STREAM_MAGIC)
+        output.writeShort(STREAM_VERSION.toInt())
+        output.writeShort(PCM16_SAMPLE_FORMAT.toInt())
+        output.writeInt(SAMPLE_RATE_HERTZ)
     }
 
     /**
-     * Validates the complete body before allocating its sample array.
+     * Validates stream identity before the server starts an utterance.
      */
-    fun decodeAudio(payload: ByteArray): RemotePcmAudio
+    fun readAndValidateStreamHeader(input: DataInput)
     {
-        if (payload.size < HEADER_BYTE_COUNT)
+        if (input.readInt() != STREAM_MAGIC)
         {
             throw RemoteAudioPayloadException(RemoteAudioPayloadFailure.INVALID_HEADER)
         }
-
-        val buffer = ByteBuffer.wrap(payload).order(ByteOrder.BIG_ENDIAN)
-        if (buffer.int != MAGIC)
-        {
-            throw RemoteAudioPayloadException(RemoteAudioPayloadFailure.INVALID_HEADER)
-        }
-        if (buffer.short != VERSION)
+        if (input.readShort() != STREAM_VERSION)
         {
             throw RemoteAudioPayloadException(RemoteAudioPayloadFailure.UNSUPPORTED_VERSION)
         }
-        if (buffer.short != PCM16_SAMPLE_FORMAT)
+        if (input.readShort() != PCM16_SAMPLE_FORMAT)
         {
             throw RemoteAudioPayloadException(RemoteAudioPayloadFailure.UNSUPPORTED_SAMPLE_FORMAT)
         }
-
-        val sampleRateHertz = buffer.int
-        if (sampleRateHertz != SAMPLE_RATE_HERTZ)
+        if (input.readInt() != SAMPLE_RATE_HERTZ)
         {
             throw RemoteAudioPayloadException(RemoteAudioPayloadFailure.INVALID_SAMPLE_RATE)
         }
+    }
 
-        val sampleCount = buffer.int
-        val expectedPayloadBytes = HEADER_BYTE_COUNT.toLong() + sampleCount.toLong() * BYTES_PER_SAMPLE
-        if (sampleCount !in 1..MAXIMUM_SAMPLE_COUNT || expectedPayloadBytes != payload.size.toLong())
+    /**
+     * Writes one microphone buffer while preserving request boundaries independently from HTTP chunking.
+     */
+    fun writeAudioFrame(output: DataOutput, samples: ShortArray, sampleCount: Int)
+    {
+        if (sampleCount !in 1..samples.size)
         {
             throw RemoteAudioPayloadException(RemoteAudioPayloadFailure.INVALID_SAMPLE_COUNT)
         }
-
-        val samples = ShortArray(sampleCount)
-        for (sampleIndex in samples.indices)
+        output.writeInt(sampleCount)
+        for (sampleIndex in 0 until sampleCount)
         {
-            samples[sampleIndex] = buffer.short
+            output.writeShort(samples[sampleIndex].toInt())
         }
-        return RemotePcmAudio(sampleRateHertz = sampleRateHertz, samples = samples)
+    }
+
+    /**
+     * Writes the explicit successful end marker so network EOF remains distinguishable from finger release.
+     */
+    fun writeStreamFinish(output: DataOutput)
+    {
+        output.writeInt(0)
+    }
+
+    /**
+     * Reads one allocation-bounded frame and returns null only for the explicit successful end marker.
+     */
+    fun readAudioFrame(input: DataInput, remainingSampleCount: Int = MAXIMUM_SAMPLE_COUNT): ShortArray?
+    {
+        val sampleCount = input.readInt()
+        if (sampleCount == 0)
+        {
+            return null
+        }
+        if (sampleCount !in 1..remainingSampleCount)
+        {
+            throw RemoteAudioPayloadException(RemoteAudioPayloadFailure.INVALID_SAMPLE_COUNT)
+        }
+        return ShortArray(sampleCount) { input.readShort() }
     }
 }

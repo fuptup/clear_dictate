@@ -1,7 +1,6 @@
 package com.cleardictate.inference.service
 
 import com.cleardictate.inference.remote.RemoteDictationProtocol
-import com.cleardictate.inference.remote.RemotePcmAudio
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -29,7 +28,7 @@ class PcEndpointVerifiedSpeechModelProvider(
 }
 
 /**
- * Reuses the foreground microphone session with a completed-audio PC recognition backend.
+ * Reuses the foreground microphone session with a live PC recognition backend.
  */
 class PcStreamingSpeechEngineFactory(
     private val audioSourceFactory: PcmAudioSourceFactory,
@@ -41,28 +40,28 @@ class PcStreamingSpeechEngineFactory(
     {
         return BufferedStreamingSpeechEngine(
             audioSourceFactory = audioSourceFactory,
-            recognitionBackend = PcCompletedAudioRecognitionBackend(endpointProvider, transport)
+            recognitionBackend = PcLiveAudioRecognitionBackend(endpointProvider, transport)
         )
     }
 }
 
 /**
- * Accumulates bounded PCM16 chunks, uploads only after release, and emits the PC-polished result as the operation transcript.
+ * Opens one authenticated request at microphone activation and forwards every bounded PCM16 chunk before release.
  */
-internal class PcCompletedAudioRecognitionBackend(
+internal class PcLiveAudioRecognitionBackend(
     private val endpointProvider: PcEndpointProvider,
     private val transport: PcDictationTransport
 ) : StreamingRecognitionBackend
 {
-    private val audioChunks = mutableListOf<ShortArray>()
     private var activeListener: StreamingSpeechEventListener? = null
-    private var activeEndpoint: PcDictationEndpoint? = null
+    private var activeStream: PcDictationStream? = null
     private var accumulatedSampleCount = 0
 
     override fun startSession(listener: StreamingSpeechEventListener)
     {
         check(activeListener == null) { "A PC dictation session is already active." }
-        activeEndpoint = checkNotNull(endpointProvider.load()) { "No PC endpoint is paired." }
+        val endpoint = checkNotNull(endpointProvider.load()) { "No PC endpoint is paired." }
+        activeStream = transport.openDictation(endpoint)
         activeListener = listener
         accumulatedSampleCount = 0
     }
@@ -75,66 +74,49 @@ internal class PcCompletedAudioRecognitionBackend(
         check(accumulatedSampleCount.toLong() + sampleCount <= RemoteDictationProtocol.MAXIMUM_SAMPLE_COUNT) {
             "The PC dictation recording exceeds the shared protocol boundary."
         }
-        audioChunks += samples.copyOf(sampleCount)
+        checkNotNull(activeStream) { "No PC dictation stream is active." }.sendPcm16(samples, sampleCount)
         accumulatedSampleCount += sampleCount
     }
 
     override fun stopAndFlush()
     {
         val listener = checkNotNull(activeListener) { "No PC dictation session is active." }
-        val endpoint = checkNotNull(activeEndpoint) { "No PC endpoint is paired." }
+        val stream = checkNotNull(activeStream) { "No PC dictation stream is active." }
         if (accumulatedSampleCount == 0)
         {
+            stream.cancel()
             clearSession()
             listener.onFailure()
             return
         }
 
-        val completedAudio = ShortArray(accumulatedSampleCount)
-        var destinationOffset = 0
         try
         {
-            audioChunks.forEach { chunk ->
-                chunk.copyInto(completedAudio, destinationOffset)
-                destinationOffset += chunk.size
-            }
-            scrubChunks()
-            val polishedTranscript = runBlocking {
-                transport.dictate(
-                    endpoint,
-                    RemotePcmAudio(RemoteDictationProtocol.SAMPLE_RATE_HERTZ, completedAudio)
-                )
-            }
+            val polishedTranscript = stream.finish()
             listener.onCompleted(1L, polishedTranscript)
         }
         finally
         {
-            completedAudio.fill(0)
             clearSession()
         }
     }
 
     override fun cancelAndFlush()
     {
+        activeStream?.cancel()
         clearSession()
     }
 
     override fun close()
     {
+        activeStream?.cancel()
         clearSession()
     }
 
     private fun clearSession()
     {
-        scrubChunks()
         activeListener = null
-        activeEndpoint = null
+        activeStream = null
         accumulatedSampleCount = 0
-    }
-
-    private fun scrubChunks()
-    {
-        audioChunks.forEach { chunk -> chunk.fill(0) }
-        audioChunks.clear()
     }
 }

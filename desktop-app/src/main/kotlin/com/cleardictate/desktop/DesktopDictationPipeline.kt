@@ -2,13 +2,14 @@ package com.cleardictate.desktop
 
 import com.cleardictate.desktop.inference.CapturedAudio
 import com.cleardictate.domain.TranscriptFallbackReason
-import com.cleardictate.inference.remote.RemotePcmAudio
+import com.cleardictate.inference.remote.RemoteDictationProtocol
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Captures one push-to-talk utterance without performing recognition while the control is held.
+ * Captures one desktop push-to-talk utterance before handing it to the shared streaming transcriber.
  */
 interface DesktopAudioRecorder : AutoCloseable
 {
@@ -18,17 +19,27 @@ interface DesktopAudioRecorder : AutoCloseable
 }
 
 /**
- * Converts one completed in-memory recording into a faithful raw transcript.
+ * Creates exclusive stateful ASR sessions over one persistent model worker.
  */
 interface DesktopSpeechTranscriber : AutoCloseable
 {
     suspend fun prepare()
     suspend fun warmUp() = Unit
-    suspend fun transcribe(capturedAudio: CapturedAudio): DesktopSpeechRecognition
+    suspend fun openSession(): DesktopSpeechTranscriptionSession
 }
 
 /**
- * Carries the transcript together with the worker-measured audio processing time.
+ * Advances one ASR utterance incrementally and exposes a transcript only at its terminal boundary.
+ */
+interface DesktopSpeechTranscriptionSession
+{
+    suspend fun accept(capturedAudio: CapturedAudio)
+    suspend fun finish(): DesktopSpeechRecognition
+    suspend fun cancel()
+}
+
+/**
+ * Carries the transcript together with cumulative worker-measured model compute time.
  */
 data class DesktopSpeechRecognition(val transcript: String, val processingMilliseconds: Long)
 
@@ -84,7 +95,17 @@ fun interface DesktopDictationHistory
 }
 
 /**
- * Owns the release-triggered sequence: stop capture, transcribe, rewrite, then scrub audio.
+ * Accepts PCM fragments from one authenticated remote request and owns its terminal cleanup.
+ */
+interface DesktopRemoteDictationSession
+{
+    suspend fun acceptPcm16(samples: ShortArray)
+    suspend fun finish(): DesktopDictationResult
+    suspend fun cancel()
+}
+
+/**
+ * Owns desktop release processing and phone streaming while serializing the two persistent GPU models.
  */
 class DesktopDictationPipeline(
     private val audioRecorder: DesktopAudioRecorder,
@@ -105,7 +126,7 @@ class DesktopDictationPipeline(
     }
 
     /**
-     * Exercises both loaded GPU paths behind the same operation mutex as real dictation, so warm-up never blocks phone connectivity or competes with a request.
+     * Exercises both GPU paths behind the same operation mutex as real dictation.
      */
     suspend fun warmUpModels()
     {
@@ -122,28 +143,29 @@ class DesktopDictationPipeline(
 
     suspend fun finishDictation(): DesktopDictationResult
     {
-        return processCapturedAudio(audioRecorder.stopRecording())
+        return processCompletedDesktopAudio(audioRecorder.stopRecording())
     }
 
     /**
-     * Converts one completed phone recording and runs it through the same serialized GPU pipeline as desktop capture.
+     * Reserves the single ASR stream at finger-down so incoming phone audio can be processed before release.
      */
-    suspend fun processRemoteDictation(remoteAudio: RemotePcmAudio): DesktopDictationResult
+    suspend fun openRemoteDictation(): DesktopRemoteDictationSession?
     {
-        val normalizedSamples = FloatArray(remoteAudio.samples.size)
-        try
+        val lockOwner = Any()
+        if (!inferenceMutex.tryLock(lockOwner))
         {
-            for (sampleIndex in remoteAudio.samples.indices)
-            {
-                normalizedSamples[sampleIndex] = remoteAudio.samples[sampleIndex] / 32_768.0F
-            }
-        }
-        finally
-        {
-            remoteAudio.samples.fill(0)
+            return null
         }
 
-        return processCapturedAudio(CapturedAudio(remoteAudio.sampleRateHertz, normalizedSamples))
+        return try
+        {
+            StreamingRemoteDictationSession(lockOwner, speechTranscriber.openSession())
+        }
+        catch (throwable: Throwable)
+        {
+            inferenceMutex.unlock(lockOwner)
+            throw throwable
+        }
     }
 
     suspend fun cancelDictation()
@@ -159,17 +181,21 @@ class DesktopDictationPipeline(
     }
 
     /**
-     * Serializes access to both persistent model workers and erases normalized audio on every terminal path.
+     * Feeds a completed desktop recording through the same stateful ASR API in one fragment.
      */
-    private suspend fun processCapturedAudio(capturedAudio: CapturedAudio): DesktopDictationResult
+    private suspend fun processCompletedDesktopAudio(capturedAudio: CapturedAudio): DesktopDictationResult
     {
         val recordedAt = Instant.now()
         val requestStartedNanoseconds = System.nanoTime()
         return inferenceMutex.withLock {
+            val session = speechTranscriber.openSession()
+            var finished = false
             try
             {
                 val processingStartedNanoseconds = System.nanoTime()
-                val recognition = speechTranscriber.transcribe(capturedAudio)
+                session.accept(capturedAudio)
+                val recognition = session.finish()
+                finished = true
                 val recognitionCompletedNanoseconds = System.nanoTime()
                 val rewrite = transcriptRewriter.rewrite(recognition.transcript)
                 val completedNanoseconds = System.nanoTime()
@@ -189,8 +215,147 @@ class DesktopDictationPipeline(
             }
             finally
             {
+                if (!finished)
+                {
+                    runCatching { session.cancel() }
+                }
                 capturedAudio.samples.fill(0.0F)
             }
+        }
+    }
+
+    /**
+     * Retains normalized fragments only for the successful history record while ASR advances incrementally.
+     */
+    private inner class StreamingRemoteDictationSession(
+        private val lockOwner: Any,
+        private val transcriptionSession: DesktopSpeechTranscriptionSession
+    ) : DesktopRemoteDictationSession
+    {
+        private val terminal = AtomicBoolean(false)
+        private val capturedChunks = mutableListOf<FloatArray>()
+        private val recordedAt = Instant.now()
+        private var totalSampleCount = 0
+
+        override suspend fun acceptPcm16(samples: ShortArray)
+        {
+            check(!terminal.get()) { "The remote dictation session is already finished." }
+            require(samples.isNotEmpty()) { "Remote audio fragments cannot be empty." }
+            require(totalSampleCount.toLong() + samples.size <= RemoteDictationProtocol.MAXIMUM_SAMPLE_COUNT) { "The remote recording is too long." }
+
+            val normalizedSamples = FloatArray(samples.size)
+            try
+            {
+                for (sampleIndex in samples.indices)
+                {
+                    normalizedSamples[sampleIndex] = samples[sampleIndex] / 32_768.0F
+                }
+                transcriptionSession.accept(CapturedAudio(RemoteDictationProtocol.SAMPLE_RATE_HERTZ, normalizedSamples))
+                capturedChunks += normalizedSamples
+                totalSampleCount += normalizedSamples.size
+            }
+            catch (throwable: Throwable)
+            {
+                normalizedSamples.fill(0.0F)
+                abortAfterFailure()
+                throw throwable
+            }
+            finally
+            {
+                samples.fill(0)
+            }
+        }
+
+        override suspend fun finish(): DesktopDictationResult
+        {
+            check(totalSampleCount > 0) { "Remote dictation requires audio." }
+            check(terminal.compareAndSet(false, true)) { "The remote dictation session is already finished." }
+            var capturedAudio: CapturedAudio? = null
+            var transcriptionFinished = false
+            return try
+            {
+                val completeAudio = combineCapturedAudio()
+                capturedAudio = completeAudio
+                val recognition = transcriptionSession.finish()
+                transcriptionFinished = true
+                val rewritingStartedNanoseconds = System.nanoTime()
+                val rewrite = transcriptRewriter.rewrite(recognition.transcript)
+                val rewritingMilliseconds = elapsedMilliseconds(rewritingStartedNanoseconds, System.nanoTime())
+                val result = DesktopDictationResult(
+                    rawTranscript = recognition.transcript,
+                    polishedTranscript = rewrite.selectedTranscript,
+                    timing = DesktopDictationTiming(
+                        queueMilliseconds = 0,
+                        recognitionMilliseconds = recognition.processingMilliseconds,
+                        rewritingMilliseconds = rewritingMilliseconds,
+                        totalMilliseconds = recognition.processingMilliseconds + rewritingMilliseconds
+                    ),
+                    polishingOutcome = rewrite.polishingOutcome
+                )
+                dictationHistory.record(recordedAt, completeAudio, result)
+                result
+            }
+            finally
+            {
+                if (!transcriptionFinished)
+                {
+                    runCatching { transcriptionSession.cancel() }
+                }
+                scrubChunks()
+                capturedAudio?.samples?.fill(0.0F)
+                inferenceMutex.unlock(lockOwner)
+            }
+        }
+
+        override suspend fun cancel()
+        {
+            if (terminal.compareAndSet(false, true))
+            {
+                try
+                {
+                    transcriptionSession.cancel()
+                }
+                finally
+                {
+                    scrubChunks()
+                    inferenceMutex.unlock(lockOwner)
+                }
+            }
+        }
+
+        private suspend fun abortAfterFailure()
+        {
+            if (terminal.compareAndSet(false, true))
+            {
+                try
+                {
+                    runCatching { transcriptionSession.cancel() }
+                }
+                finally
+                {
+                    scrubChunks()
+                    inferenceMutex.unlock(lockOwner)
+                }
+            }
+        }
+
+        private fun combineCapturedAudio(): CapturedAudio
+        {
+            val combined = FloatArray(totalSampleCount)
+            var destinationOffset = 0
+            for (chunk in capturedChunks)
+            {
+                chunk.copyInto(combined, destinationOffset)
+                destinationOffset += chunk.size
+            }
+            return CapturedAudio(RemoteDictationProtocol.SAMPLE_RATE_HERTZ, combined)
+        }
+
+        private fun scrubChunks()
+        {
+            capturedChunks.forEach { samples -> samples.fill(0.0F) }
+            capturedChunks.clear()
+            totalSampleCount = 0
         }
     }
 

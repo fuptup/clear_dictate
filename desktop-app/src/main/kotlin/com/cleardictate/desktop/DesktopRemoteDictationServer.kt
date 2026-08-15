@@ -1,14 +1,17 @@
 package com.cleardictate.desktop
 
 import com.cleardictate.inference.remote.RemoteAudioPayloadException
+import com.cleardictate.inference.remote.RemoteAudioPayloadFailure
 import com.cleardictate.inference.remote.RemoteDictationProtocol
-import com.cleardictate.inference.remote.RemotePcmAudio
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.BufferedInputStream
+import java.io.DataInputStream
+import java.io.EOFException
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.URI
@@ -21,11 +24,11 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Processes one completed phone recording without exposing HTTP details to the model pipeline.
+ * Opens one stateful model session before the server starts reading phone audio.
  */
 fun interface DesktopRemoteDictationProcessor
 {
-    suspend fun process(audio: RemotePcmAudio): DesktopDictationResult
+    suspend fun open(): DesktopRemoteDictationSession?
 }
 
 /**
@@ -42,7 +45,7 @@ enum class DesktopPhoneServerState
 
 /**
  * Hosts the first authenticated phone-to-PC transport boundary.
- * The service accepts only bounded completed recordings and never returns raw transcripts or internal failures.
+ * The service advances bounded authenticated audio streams and never returns raw transcripts or internal failures.
  */
 class DesktopRemoteDictationServer(
     private val bindAddress: InetSocketAddress,
@@ -167,7 +170,7 @@ class DesktopRemoteDictationServer(
     }
 
     /**
-     * Authenticates before reading audio, rejects oversized bodies before decoding, and scrubs accepted PCM samples.
+     * Authenticates before reading audio, then advances ASR for every framed PCM fragment before the explicit release marker arrives.
      */
     private fun handleDictation(exchange: HttpExchange)
     {
@@ -194,40 +197,58 @@ class DesktopRemoteDictationServer(
                 return
             }
 
-            val declaredLength = exchange.requestHeaders.getFirst("Content-Length")?.toLongOrNull()
-            if (declaredLength != null && declaredLength !in 1..RemoteDictationProtocol.MAXIMUM_AUDIO_PAYLOAD_BYTES.toLong())
+            val session = try
             {
-                sendText(exchange, 413, "Audio payload too large")
+                runBlocking { dictationProcessor.open() }
+            }
+            catch (_: Exception)
+            {
+                sendText(exchange, 500, "Dictation failed")
                 return
             }
-            val payload = exchange.requestBody.readNBytes(RemoteDictationProtocol.MAXIMUM_AUDIO_PAYLOAD_BYTES + 1)
-            if (payload.size > RemoteDictationProtocol.MAXIMUM_AUDIO_PAYLOAD_BYTES)
+            if (session == null)
             {
-                payload.fill(0)
-                sendText(exchange, 413, "Audio payload too large")
+                sendText(exchange, 409, "Dictation is busy")
                 return
             }
 
-            val audio = try
+            var finished = false
+            try
             {
-                RemoteDictationProtocol.decodeAudio(payload)
+                var receivedSampleCount = 0
+                DataInputStream(BufferedInputStream(exchange.requestBody)).use { input ->
+                    RemoteDictationProtocol.readAndValidateStreamHeader(input)
+                    while (true)
+                    {
+                        val samples = RemoteDictationProtocol.readAudioFrame(input, RemoteDictationProtocol.MAXIMUM_SAMPLE_COUNT - receivedSampleCount) ?: break
+                        try
+                        {
+                            runBlocking { session.acceptPcm16(samples) }
+                            receivedSampleCount += samples.size
+                        }
+                        finally
+                        {
+                            samples.fill(0)
+                        }
+                    }
+                }
+                if (receivedSampleCount == 0)
+                {
+                    throw RemoteAudioPayloadException(RemoteAudioPayloadFailure.INVALID_SAMPLE_COUNT)
+                }
+
+                val result = runBlocking { session.finish() }
+                finished = true
+                mutableLastSuccessfulTiming.value = result.timing
+                sendText(exchange, 200, result.polishedTranscript)
             }
             catch (_: RemoteAudioPayloadException)
             {
-                payload.fill(0)
                 sendText(exchange, 422, "Invalid audio payload")
-                return
             }
-            finally
+            catch (_: EOFException)
             {
-                payload.fill(0)
-            }
-
-            try
-            {
-                val result = runBlocking { dictationProcessor.process(audio) }
-                mutableLastSuccessfulTiming.value = result.timing
-                sendText(exchange, 200, result.polishedTranscript)
+                sendText(exchange, 422, "Invalid audio payload")
             }
             catch (_: Exception)
             {
@@ -235,7 +256,10 @@ class DesktopRemoteDictationServer(
             }
             finally
             {
-                audio.samples.fill(0)
+                if (!finished)
+                {
+                    runCatching { runBlocking { session.cancel() } }
+                }
             }
         }
     }
@@ -411,7 +435,7 @@ class DesktopRemoteDictationServer(
     private fun hasAudioContentType(exchange: HttpExchange): Boolean
     {
         val mediaType = exchange.requestHeaders.getFirst("Content-Type")?.substringBefore(';')?.trim()
-        return mediaType.equals(RemoteDictationProtocol.AUDIO_CONTENT_TYPE, ignoreCase = true)
+        return mediaType.equals(RemoteDictationProtocol.STREAM_AUDIO_CONTENT_TYPE, ignoreCase = true)
     }
 
     private fun sendText(exchange: HttpExchange, statusCode: Int, text: String)

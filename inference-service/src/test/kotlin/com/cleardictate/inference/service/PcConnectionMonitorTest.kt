@@ -1,6 +1,5 @@
 package com.cleardictate.inference.service
 
-import com.cleardictate.inference.remote.RemotePcmAudio
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -87,7 +86,7 @@ class PcConnectionMonitorTest
             return healthStatus
         }
 
-        override suspend fun dictate(endpoint: PcDictationEndpoint, audio: RemotePcmAudio): String
+        override fun openDictation(endpoint: PcDictationEndpoint): PcDictationStream
         {
             error("Dictation is outside this monitor test.")
         }

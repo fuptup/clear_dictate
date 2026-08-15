@@ -18,23 +18,64 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class QwenAsrWorkerConfiguration(
-    val pythonExecutable: Path,
+    val wslExecutable: Path,
+    val wslDistribution: String,
     val workerScript: Path,
-    val modelDirectory: Path,
     val modelLock: Path,
-    val startupTimeoutMilliseconds: Long = 180_000,
+    val startupTimeoutMilliseconds: Long = 240_000,
     val transcriptionTimeoutMilliseconds: Long = 120_000
 )
 
 /**
- * Separates model-reported speech processing time from transport, startup, and cleanup latency.
+ * Separates cumulative model compute from transport and release latency.
  */
 data class QwenAsrTranscription(val transcript: String, val processingMilliseconds: Long)
 
 /**
- * Owns one persistent CUDA Qwen3-ASR process and serializes release-triggered transcription requests.
+ * Owns exclusive access to one stateful utterance in the persistent Qwen worker.
+ */
+class QwenAsrWorkerSession internal constructor(private val client: QwenAsrWorkerClient, private val lockOwner: Any)
+{
+    private val terminal = AtomicBoolean(false)
+
+    /**
+     * Advances recognition with one mono 16 kHz fragment before the user releases push-to-talk.
+     */
+    suspend fun accept(capturedAudio: CapturedAudio)
+    {
+        check(!terminal.get()) { "The Qwen3-ASR session is already finished." }
+        if (capturedAudio.samples.isNotEmpty())
+        {
+            client.acceptAudio(lockOwner, capturedAudio)
+        }
+    }
+
+    /**
+     * Flushes the streaming tail and releases the worker for the next client.
+     */
+    suspend fun finish(): QwenAsrTranscription
+    {
+        check(terminal.compareAndSet(false, true)) { "The Qwen3-ASR session is already finished." }
+        return client.finishSession(lockOwner)
+    }
+
+    /**
+     * Drops buffered audio without producing a transcript.
+     */
+    suspend fun cancel()
+    {
+        if (terminal.compareAndSet(false, true))
+        {
+            client.cancelSession(lockOwner)
+        }
+    }
+}
+
+/**
+ * Owns one persistent WSL/CUDA Qwen3-ASR process and grants it to one streaming session at a time.
  */
 class QwenAsrWorkerClient private constructor(
     private val configuration: QwenAsrWorkerConfiguration,
@@ -57,57 +98,27 @@ class QwenAsrWorkerClient private constructor(
     }
 
     /**
-     * Sends one completed in-memory recording and waits for its final transcript.
+     * Reserves the single official Qwen streaming state until finish or cancellation.
      */
-    suspend fun transcribe(capturedAudio: CapturedAudio): QwenAsrTranscription
+    suspend fun startSession(): QwenAsrWorkerSession
     {
-        if (capturedAudio.samples.isEmpty())
+        val lockOwner = Any()
+        requestMutex.lock(lockOwner)
+        try
         {
-            return QwenAsrTranscription("", 0)
-        }
-
-        return requestMutex.withLock {
             ensureOpen()
-            val payload = CapturedAudioPayloadCodec.encode(capturedAudio)
-            try
-            {
-                withContext(Dispatchers.IO)
-                {
-                    writeFrame(REQUEST_TRANSCRIBE, payload)
-                    val response = readFrameWithTimeout(configuration.transcriptionTimeoutMilliseconds, "QWEN_ASR_TRANSCRIPTION_TIMEOUT")
-                    try
-                    {
-                        when (response.type)
-                        {
-                            RESPONSE_TRANSCRIPT -> decodeTranscription(response.payload)
-                            RESPONSE_ERROR -> throw LocalInferenceException(InferenceFailureCategory.NATIVE_FAILURE, "QWEN_ASR_INFERENCE_FAILED")
-                            else -> throw LocalInferenceException(InferenceFailureCategory.PROTOCOL_FAILURE, "UNEXPECTED_QWEN_ASR_RESPONSE")
-                        }
-                    }
-                    finally
-                    {
-                        response.payload.fill(0)
-                    }
-                }
-            }
-            catch (failure: LocalInferenceException)
-            {
-                throw failure
-            }
-            catch (_: Exception)
-            {
-                close()
-                throw LocalInferenceException(InferenceFailureCategory.PROCESS_DIED, "QWEN_ASR_WORKER_STOPPED")
-            }
-            finally
-            {
-                payload.fill(0)
-            }
+            exchangeEmptyRequest(REQUEST_BEGIN, RESPONSE_SESSION_STARTED, "QWEN_ASR_BEGIN_TIMEOUT")
+            return QwenAsrWorkerSession(this, lockOwner)
+        }
+        catch (throwable: Throwable)
+        {
+            requestMutex.unlock(lockOwner)
+            discardAfterFailure(throwable)
         }
     }
 
     /**
-     * Exercises ASR prefill and one decode step with synthetic worker-owned audio, avoiding a first-dictation CUDA penalty without retaining speech data.
+     * Exercises the same two-second streaming path used during a real utterance.
      */
     suspend fun warmUp()
     {
@@ -115,31 +126,84 @@ class QwenAsrWorkerClient private constructor(
             ensureOpen()
             try
             {
-                withContext(Dispatchers.IO)
+                exchangeEmptyRequest(REQUEST_WARM_UP, RESPONSE_WARMED, "QWEN_ASR_WARM_UP_TIMEOUT")
+            }
+            catch (throwable: Throwable)
+            {
+                discardAfterFailure(throwable)
+            }
+        }
+    }
+
+    internal suspend fun acceptAudio(lockOwner: Any, capturedAudio: CapturedAudio)
+    {
+        check(requestMutex.holdsLock(lockOwner)) { "The Qwen3-ASR session no longer owns the worker." }
+        val payload = CapturedAudioPayloadCodec.encode(capturedAudio)
+        try
+        {
+            exchangeRequest(REQUEST_AUDIO, payload, RESPONSE_AUDIO_ACCEPTED, "QWEN_ASR_AUDIO_TIMEOUT")
+        }
+        catch (throwable: Throwable)
+        {
+            requestMutex.unlock(lockOwner)
+            discardAfterFailure(throwable)
+        }
+        finally
+        {
+            payload.fill(0)
+        }
+    }
+
+    internal suspend fun finishSession(lockOwner: Any): QwenAsrTranscription
+    {
+        check(requestMutex.holdsLock(lockOwner)) { "The Qwen3-ASR session no longer owns the worker." }
+        return try
+        {
+            ensureOpen()
+            val response = exchange(REQUEST_FINISH, ByteArray(0), "QWEN_ASR_FINISH_TIMEOUT")
+            try
+            {
+                when (response.type)
                 {
-                    writeFrame(REQUEST_WARM_UP, ByteArray(0))
-                    val response = readFrameWithTimeout(configuration.transcriptionTimeoutMilliseconds, "QWEN_ASR_WARM_UP_TIMEOUT")
-                    try
-                    {
-                        if (response.type != RESPONSE_WARMED || response.payload.isNotEmpty())
-                        {
-                            throw LocalInferenceException(InferenceFailureCategory.PROTOCOL_FAILURE, "UNEXPECTED_QWEN_ASR_WARM_UP_RESPONSE")
-                        }
-                    }
-                    finally
-                    {
-                        response.payload.fill(0)
-                    }
+                    RESPONSE_TRANSCRIPT -> decodeTranscription(response.payload)
+                    RESPONSE_ERROR -> throw LocalInferenceException(InferenceFailureCategory.NATIVE_FAILURE, "QWEN_ASR_INFERENCE_FAILED")
+                    else -> throw LocalInferenceException(InferenceFailureCategory.PROTOCOL_FAILURE, "UNEXPECTED_QWEN_ASR_FINISH_RESPONSE")
                 }
             }
-            catch (failure: LocalInferenceException)
+            finally
             {
-                throw failure
+                response.payload.fill(0)
             }
-            catch (_: Exception)
+        }
+        catch (throwable: Throwable)
+        {
+            discardAfterFailure(throwable)
+        }
+        finally
+        {
+            if (requestMutex.holdsLock(lockOwner))
             {
-                close()
-                throw LocalInferenceException(InferenceFailureCategory.PROCESS_DIED, "QWEN_ASR_WARM_UP_STOPPED")
+                requestMutex.unlock(lockOwner)
+            }
+        }
+    }
+
+    internal suspend fun cancelSession(lockOwner: Any)
+    {
+        check(requestMutex.holdsLock(lockOwner)) { "The Qwen3-ASR session no longer owns the worker." }
+        try
+        {
+            exchangeEmptyRequest(REQUEST_CANCEL, RESPONSE_CANCELLED, "QWEN_ASR_CANCEL_TIMEOUT")
+        }
+        catch (throwable: Throwable)
+        {
+            discardAfterFailure(throwable)
+        }
+        finally
+        {
+            if (requestMutex.holdsLock(lockOwner))
+            {
+                requestMutex.unlock(lockOwner)
             }
         }
     }
@@ -166,6 +230,56 @@ class QwenAsrWorkerClient private constructor(
         }
         runCatching { workerOutput.close() }
         runCatching { workerInput.close() }
+    }
+
+    private suspend fun exchangeEmptyRequest(requestType: Int, expectedResponseType: Int, timeoutCode: String)
+    {
+        val response = exchange(requestType, ByteArray(0), timeoutCode)
+        try
+        {
+            if (response.type == RESPONSE_ERROR)
+            {
+                throw LocalInferenceException(InferenceFailureCategory.NATIVE_FAILURE, "QWEN_ASR_INFERENCE_FAILED")
+            }
+            if (response.type != expectedResponseType || response.payload.isNotEmpty())
+            {
+                throw LocalInferenceException(InferenceFailureCategory.PROTOCOL_FAILURE, "UNEXPECTED_QWEN_ASR_RESPONSE")
+            }
+        }
+        finally
+        {
+            response.payload.fill(0)
+        }
+    }
+
+    private suspend fun exchangeRequest(requestType: Int, payload: ByteArray, expectedResponseType: Int, timeoutCode: String)
+    {
+        val response = exchange(requestType, payload, timeoutCode)
+        try
+        {
+            if (response.type == RESPONSE_ERROR)
+            {
+                throw LocalInferenceException(InferenceFailureCategory.NATIVE_FAILURE, "QWEN_ASR_INFERENCE_FAILED")
+            }
+            if (response.type != expectedResponseType || response.payload.isNotEmpty())
+            {
+                throw LocalInferenceException(InferenceFailureCategory.PROTOCOL_FAILURE, "UNEXPECTED_QWEN_ASR_RESPONSE")
+            }
+        }
+        finally
+        {
+            response.payload.fill(0)
+        }
+    }
+
+    private suspend fun exchange(requestType: Int, payload: ByteArray, timeoutCode: String): QwenAsrFrame
+    {
+        ensureOpen()
+        return withContext(Dispatchers.IO)
+        {
+            writeFrame(requestType, payload)
+            readFrameWithTimeout(configuration.transcriptionTimeoutMilliseconds, timeoutCode)
+        }
     }
 
     private fun writeFrame(type: Int, payload: ByteArray)
@@ -196,7 +310,7 @@ class QwenAsrWorkerClient private constructor(
     }
 
     /**
-     * Bounds a blocking pipe read and tears down the worker if it stops producing protocol responses.
+     * Bounds a blocking pipe read and tears down the WSL process if it stops producing protocol responses.
      */
     private fun readFrameWithTimeout(timeoutMilliseconds: Long, diagnosticCode: String): QwenAsrFrame
     {
@@ -229,9 +343,6 @@ class QwenAsrWorkerClient private constructor(
         }
     }
 
-    /**
-     * Decodes the worker's monotonic processing duration followed by its UTF-8 transcript.
-     */
     private fun decodeTranscription(payload: ByteArray): QwenAsrTranscription
     {
         if (payload.size < PROCESSING_DURATION_BYTE_COUNT)
@@ -249,51 +360,72 @@ class QwenAsrWorkerClient private constructor(
         )
     }
 
+    private fun discardAfterFailure(throwable: Throwable): Nothing
+    {
+        close()
+        if (throwable is LocalInferenceException)
+        {
+            throw throwable
+        }
+        throw LocalInferenceException(InferenceFailureCategory.PROCESS_DIED, "QWEN_ASR_WORKER_STOPPED")
+    }
+
     private data class QwenAsrFrame(val type: Int, val payload: ByteArray)
 
     companion object
     {
         private const val PROTOCOL_MAGIC = 0x43445141
-        private const val PROTOCOL_VERSION = 2
-        private const val REQUEST_TRANSCRIBE = 1
-        private const val REQUEST_SHUTDOWN = 2
-        private const val REQUEST_WARM_UP = 3
+        private const val PROTOCOL_VERSION = 3
+        private const val REQUEST_BEGIN = 1
+        private const val REQUEST_AUDIO = 2
+        private const val REQUEST_FINISH = 3
+        private const val REQUEST_CANCEL = 4
+        private const val REQUEST_SHUTDOWN = 5
+        private const val REQUEST_WARM_UP = 6
         private const val RESPONSE_READY = 1
-        private const val RESPONSE_TRANSCRIPT = 2
-        private const val RESPONSE_ERROR = 3
-        private const val RESPONSE_WARMED = 4
+        private const val RESPONSE_SESSION_STARTED = 2
+        private const val RESPONSE_AUDIO_ACCEPTED = 3
+        private const val RESPONSE_TRANSCRIPT = 4
+        private const val RESPONSE_CANCELLED = 5
+        private const val RESPONSE_WARMED = 6
+        private const val RESPONSE_ERROR = 7
         private const val MAXIMUM_RESPONSE_BYTES = 64 * 1024
         private const val PROCESSING_DURATION_BYTE_COUNT = Long.SIZE_BYTES
         private const val NANOSECONDS_PER_MILLISECOND = 1_000_000L
+        private const val WSL_WORKER_LAUNCH_COMMAND = "exec \"\$HOME/.local/share/cleardictate/venv/bin/python\" \"\$@\""
 
         /**
-         * Starts the pinned worker and returns only after model verification and CUDA loading complete.
+         * Starts the pinned WSL worker and returns only after model verification and CUDA loading complete.
          */
         suspend fun start(configuration: QwenAsrWorkerConfiguration): QwenAsrWorkerClient
         {
-            val pythonExecutable = configuration.pythonExecutable.toAbsolutePath().normalize()
+            val wslExecutable = configuration.wslExecutable.toAbsolutePath().normalize()
             val workerScript = configuration.workerScript.toAbsolutePath().normalize()
-            val modelDirectory = configuration.modelDirectory.toAbsolutePath().normalize()
             val modelLock = configuration.modelLock.toAbsolutePath().normalize()
-            require(Files.isRegularFile(pythonExecutable)) { "The configured Python executable does not exist." }
+            require(Files.isRegularFile(wslExecutable)) { "The configured WSL executable does not exist." }
+            require(configuration.wslDistribution.isNotBlank()) { "The WSL distribution name is empty." }
             require(Files.isRegularFile(workerScript)) { "The Qwen3-ASR worker script does not exist." }
-            require(Files.isDirectory(modelDirectory)) { "The Qwen3-ASR model directory does not exist." }
             require(Files.isRegularFile(modelLock)) { "The Qwen3-ASR model lock does not exist." }
             require(configuration.startupTimeoutMilliseconds > 0) { "The Qwen3-ASR startup timeout must be positive." }
-            require(configuration.transcriptionTimeoutMilliseconds > 0) { "The Qwen3-ASR transcription timeout must be positive." }
+            require(configuration.transcriptionTimeoutMilliseconds > 0) { "The Qwen3-ASR request timeout must be positive." }
 
             return withContext(Dispatchers.IO)
             {
-                val process = ProcessBuilder(pythonExecutable.toString(), workerScript.toString(), modelDirectory.toString(), modelLock.toString()).start()
+                val process = ProcessBuilder(
+                    wslExecutable.toString(),
+                    "-d",
+                    configuration.wslDistribution,
+                    "--exec",
+                    "/bin/sh",
+                    "-lc",
+                    WSL_WORKER_LAUNCH_COMMAND,
+                    "cleardictate-asr-worker",
+                    windowsPathToWsl(workerScript),
+                    windowsPathToWsl(modelLock)
+                ).start()
                 val workerInput = DataInputStream(BufferedInputStream(process.inputStream))
                 val workerOutput = DataOutputStream(BufferedOutputStream(process.outputStream))
-                val normalizedConfiguration = configuration.copy(
-                    pythonExecutable = pythonExecutable,
-                    workerScript = workerScript,
-                    modelDirectory = modelDirectory,
-                    modelLock = modelLock
-                )
-                val client = QwenAsrWorkerClient(normalizedConfiguration, process, workerInput, workerOutput)
+                val client = QwenAsrWorkerClient(configuration.copy(wslExecutable = wslExecutable, workerScript = workerScript, modelLock = modelLock), process, workerInput, workerOutput)
                 try
                 {
                     val readyFrame = client.readFrameWithTimeout(configuration.startupTimeoutMilliseconds, "QWEN_ASR_STARTUP_TIMEOUT")
@@ -316,6 +448,17 @@ class QwenAsrWorkerClient private constructor(
                     throw throwable
                 }
             }
+        }
+
+        /**
+         * Converts a local drive path to WSL's standard mount without invoking a shell.
+         */
+        internal fun windowsPathToWsl(path: Path): String
+        {
+            val normalized = path.toAbsolutePath().normalize().toString()
+            require(normalized.length >= 3 && normalized[1] == ':' && normalized[2] == '\\') { "ClearDictate WSL files must be on a local Windows drive." }
+            val drive = normalized[0].lowercaseChar()
+            return "/mnt/$drive/" + normalized.substring(3).replace('\\', '/')
         }
     }
 }

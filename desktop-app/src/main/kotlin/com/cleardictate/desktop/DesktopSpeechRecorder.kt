@@ -192,7 +192,7 @@ class DesktopSpeechRecorder(
 }
 
 /**
- * Owns the persistent Qwen3-ASR process used after the user releases push-to-talk.
+ * Owns the persistent WSL Qwen3-ASR process and creates one stateful stream per utterance.
  */
 class QwenDesktopSpeechTranscriber(private val runtimeConfiguration: DesktopRuntimeConfiguration?) : DesktopSpeechTranscriber
 {
@@ -220,18 +220,65 @@ class QwenDesktopSpeechTranscriber(private val runtimeConfiguration: DesktopRunt
         acquireClient().warmUp()
     }
 
-    override suspend fun transcribe(capturedAudio: CapturedAudio): DesktopSpeechRecognition
+    override suspend fun openSession(): DesktopSpeechTranscriptionSession
     {
-        return try
+        val workerSession = try
         {
-            val recognition = acquireClient().transcribe(capturedAudio)
-            DesktopSpeechRecognition(recognition.transcript, recognition.processingMilliseconds)
+            acquireClient().startSession()
         }
         catch (throwable: Throwable)
         {
-            synchronized(ownershipLock) { activeClient.also { activeClient = null } }?.close()
+            discardActiveClient()
             throw throwable
         }
+
+        return object : DesktopSpeechTranscriptionSession
+        {
+            override suspend fun accept(capturedAudio: CapturedAudio)
+            {
+                try
+                {
+                    workerSession.accept(capturedAudio)
+                }
+                catch (throwable: Throwable)
+                {
+                    discardActiveClient()
+                    throw throwable
+                }
+            }
+
+            override suspend fun finish(): DesktopSpeechRecognition
+            {
+                return try
+                {
+                    val recognition = workerSession.finish()
+                    DesktopSpeechRecognition(recognition.transcript, recognition.processingMilliseconds)
+                }
+                catch (throwable: Throwable)
+                {
+                    discardActiveClient()
+                    throw throwable
+                }
+            }
+
+            override suspend fun cancel()
+            {
+                try
+                {
+                    workerSession.cancel()
+                }
+                catch (throwable: Throwable)
+                {
+                    discardActiveClient()
+                    throw throwable
+                }
+            }
+        }
+    }
+
+    private fun discardActiveClient()
+    {
+        synchronized(ownershipLock) { activeClient.also { activeClient = null } }?.close()
     }
 
     override fun close()
@@ -257,7 +304,7 @@ class QwenDesktopSpeechTranscriber(private val runtimeConfiguration: DesktopRunt
 
         val configuration = requireNotNull(runtimeConfiguration) { "Qwen3-ASR is unavailable until the local runtime is installed." }
         val startedClient = QwenAsrWorkerClient.start(
-            QwenAsrWorkerConfiguration(configuration.pythonExecutable, configuration.asrWorkerScript, configuration.asrModelDirectory, configuration.asrModelLock)
+            QwenAsrWorkerConfiguration(configuration.wslExecutable, configuration.wslDistribution, configuration.asrWorkerScript, configuration.asrModelLock)
         )
         try
         {

@@ -14,9 +14,9 @@ Current implemented capabilities, with verification boundaries listed below:
 - cryptographic model verification before same-handle loading;
 - a synchronous, drained cancellation contract in the Windows worker and asynchronous cancellation fencing on Android;
 - a real Kotlin-to-worker integration test through the semantic-safety pipeline;
-- a Windows push-to-talk preview with compact microphone selection, release-triggered Qwen3-ASR 1.7B recognition, automatic Qwen3.5 polishing, editable polished output, and clipboard copying;
+- a Windows push-to-talk preview with compact microphone selection, WSL/vLLM Qwen3-ASR 1.7B recognition, automatic Qwen3.5 polishing, editable polished output, and clipboard copying;
 - a local SQLite dictation history that retains completed audio as WAV, both model outputs, UTC capture time, and each PC pipeline stage duration, with a date-filtered Windows viewer and click-to-play rows;
-- a bounded PCM16 phone protocol, authenticated Windows developer endpoint, and Android transport client for sending completed recordings to the PC GPU pipeline.
+- a bounded framed PCM16 phone protocol, authenticated Windows endpoint, and Android client that streams audio into a stateful PC ASR session before release, then polishes once.
 
 Important current limitations:
 

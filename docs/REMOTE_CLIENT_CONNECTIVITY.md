@@ -7,15 +7,15 @@ Last physically verified: 2026-08-10 on a Motorola Edge+ (2022), Android 12, Tai
 
 ## Current architecture
 
-The Windows PC is the only inference server. Android records 16 kHz mono PCM16 audio, uploads the completed recording, and receives only the polished transcript.
-Speech recognition and rewriting remain on the PC.
+The Windows PC is the only inference server. Android streams 16 kHz mono PCM16 audio while push-to-talk is held and receives only the polished transcript after release.
+Speech recognition advances on the PC while audio arrives; rewriting remains on the PC and runs once after the explicit release marker.
 
 ```mermaid
 flowchart LR
     Phone["Android ClearDictate"] --> PhoneVpn["Tailscale Android VPN"]
     PhoneVpn -->|"encrypted WireGuard tunnel"| PcVpn["Tailscale on the server PC"]
     PcVpn -->|"TCP 8765"| Server["Authenticated ClearDictate HTTP service"]
-    Server --> Asr["Qwen3-ASR 1.7B"]
+    Server --> Asr["WSL/vLLM Qwen3-ASR 1.7B streaming state"]
     Asr --> Rewrite["Qwen3.5 9B rewriter"]
     Rewrite --> Phone
 ```
@@ -96,10 +96,14 @@ For normal operation:
 4. ClearDictate's Android inference service checks the authenticated health endpoint immediately, then every 30 seconds while the service is active. Each health request
    has a five-second deadline and contains no audio or transcript data.
 5. The floating microphone becomes available in supported, non-sensitive text fields.
-6. Holding the control records locally. Releasing it uploads the complete audio, waits for the serialized PC pipeline, and inserts the returned text only if the same field
-   remains focused.
+6. Finger-down opens one authenticated chunked request. Each microphone buffer is copied into a bounded transport frame and sent immediately; the PC's official Qwen
+   streaming state performs recognition whenever it has accumulated a two-second chunk.
+7. Finger-up writes the explicit finish marker. The PC flushes only the remaining ASR tail, polishes the final raw transcript once, stores successful history, and returns
+   the polished text. Android inserts it only if the same field remains focused. Cancellation or network EOF drops and scrubs the session without polishing, insertion, or
+   history.
 
-The desktop **Phone** dialog displays the queue, ASR, rewriting, and total PC-pipeline durations for the most recent successful phone dictation. These values contain no
+The desktop **Phone** dialog displays queue, cumulative ASR compute, rewriting, and total model-stage durations for the most recent successful phone dictation. ASR can now
+overlap speaking, so cumulative ASR compute is not the same as delay after finger-up. These values contain no
 audio, endpoint, token, or transcript data and are intended to distinguish model latency from network latency. The PC also stores every successful dictation locally in
 `%LOCALAPPDATA%\ClearDictate\dictation-history.sqlite`, including WAV audio, both model outputs, and any later human-reviewed correction; see `PRIVACY.md` before using the
 service with sensitive speech.
@@ -127,6 +131,11 @@ request and restored Wi-Fi afterward.
 On 2026-08-12, the periodic connection monitor was verified end to end on the Android 15 project emulator against the live RTX 3090 server. Blocking only the emulator's
 TCP 8765 route changed the focused-field overlay from the microphone to the no-entry icon after the next poll; restoring the route changed it back without restarting the
 app or accessibility service.
+
+On 2026-08-15, the streaming boundary was verified through a real chunked loopback connection: the PC-side ASR session received its first PCM frame before the client sent
+the finish marker. The Kotlin client was also run against the pinned WSL/vLLM worker and RTX 3090 with a 17.56-second local fixture split across multiple pre-release frames.
+The final transcript was non-empty, worker-measured ASR time was reported, and the worker and vLLM engine exited after the integration test. Physical-phone latency remains
+to be remeasured after installing this build.
 
 ## Reconnection and recovery
 

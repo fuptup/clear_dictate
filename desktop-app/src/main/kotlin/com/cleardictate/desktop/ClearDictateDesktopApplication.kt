@@ -46,8 +46,8 @@ private fun runClearDictateDesktopApplication()
         bindAddress = phoneAccessConfiguration.bindAddress,
         authorizationToken = phoneAccessConfiguration.authorizationToken,
         initiallyReady = false,
-        dictationProcessor = DesktopRemoteDictationProcessor { audio ->
-            dictationPipeline.processRemoteDictation(audio)
+        dictationProcessor = DesktopRemoteDictationProcessor {
+            dictationPipeline.openRemoteDictation()
         }
     )
     phoneServer.start()

@@ -2,13 +2,16 @@
 
 ## Implemented flow
 
-The Windows preview is an offline push-to-talk application. Holding the control records 16 kHz mono audio through the selected Windows capture endpoint. Releasing
-it stops capture, sends the completed in-memory recording to Qwen3-ASR 1.7B on CUDA, then sends the raw transcript to Qwen3.5 9B Q6_K for local polishing. Only the
-polished text is selected for copying or editing.
+The Windows preview is an offline push-to-talk application. Holding the desktop control records 16 kHz mono audio through the selected Windows capture endpoint. Releasing
+it feeds that completed recording to the shared stateful Qwen3-ASR 1.7B worker, then sends the raw transcript to Qwen3.5 9B Q6_K for local polishing. Android starts an
+authenticated chunked request at finger-down; the PC advances the official Qwen streaming state in two-second audio chunks while speech is still arriving. Release sends
+an explicit finish marker, flushes the remaining ASR tail, and runs Qwen3.5 exactly once. Only polished text is returned or selected for editing.
 
-Recognition never runs while the button is held. After a successful result, ClearDictate stores the audio as a mono PCM16 WAV BLOB together with both transcripts,
+Desktop recognition still begins on release because its native capture worker returns a completed recording. Phone recognition overlaps capture. After a successful result,
+ClearDictate stores the complete audio as a mono PCM16 WAV BLOB together with both transcripts,
 UTC capture datetime, queue/ASR/rewrite/total durations, and whether the selected text came from Qwen or deterministic fallback in
-`%LOCALAPPDATA%\ClearDictate\dictation-history.sqlite`; the in-memory capture samples are then overwritten. The native capture worker, Python ASR worker, and
+`%LOCALAPPDATA%\ClearDictate\dictation-history.sqlite`; the in-memory capture samples are then overwritten. Cancelled or interrupted streams are scrubbed without a history
+record. The native capture worker, WSL ASR worker, and
 llama.cpp text worker communicate through private pipes. The Kotlin domain owns the authoritative rewrite prompt and transports its system and user roles separately
 to the native worker. Process isolation is a crash and ownership boundary, not a hostile-code sandbox.
 
@@ -17,30 +20,33 @@ The system-wide shortcut, focused-application insertion, history export, install
 ## Locked inputs
 
 - llama.cpp release `b10189`, commit `b2f221684fcd898e947a121baeda80f345da3e6b`
-- Qwen3-ASR repository `Qwen/Qwen3-ASR-1.7B-hf`, revision `bcd2b5b7f32b480ab5790554cfa8347f246a14f3`
+- Qwen3-ASR repository `Qwen/Qwen3-ASR-1.7B`, revision `7278e1e70fe206f11671096ffdd38061171dd6e5`
 - Qwen3.5 GGUF repository `unsloth/Qwen3.5-9B-GGUF`, revision `3885219b6810b007914f3a7950a8d1b469d598a5`
 - Qwen3.5 file `Qwen3.5-9B-Q6_K.gguf`, 7,458,301,152 bytes, SHA-256 `91898433cf5ce0a8f45516a4cc3e9343b6e01d052d01f684309098c66a326c59`
-- Transformers `5.13.0` and Accelerate `1.10.1`
+- `qwen-asr[vllm]` `0.0.6`, including its exact `vllm` `0.14.0` dependency
 
-The native text worker verifies the GGUF length and digest before loading the same open file handle. The Python ASR worker verifies every required model file against `gpu-worker/qwen3-asr-1.7b-lock.json` before Transformers parses it.
+The native text worker verifies the GGUF length and digest before loading the same open file handle. The WSL ASR worker verifies every required model file against `gpu-worker/qwen3-asr-1.7b-lock.json` before Qwen or vLLM parses it.
 The text worker also applies Qwen3.5's non-thinking generation prefix so the fixed 256-token response budget is spent on the polished transcript rather than hidden reasoning.
 
-Both models require CUDA. Qwen3.5 is read through bounded staging buffers after verification, including its token embedding, so the complete model remains on the NVIDIA GPU without a retained GGUF memory mapping in system RAM. Qwen3-ASR rejects any CPU-placed parameter and returns inactive Python loading and inference pages to Windows after warm-up and each completed transcription.
+Both models require CUDA. Qwen3.5 is read through bounded staging buffers after verification, including its token embedding, so the complete model remains on the NVIDIA GPU without a retained GGUF memory mapping in system RAM. Qwen3-ASR runs under WSL 2 through vLLM with GPU memory utilization capped at 45% and a measured 30,000-token model context. ClearDictate uses vLLM's supported single-process mode and releases its clean model/dependency load pages after warm-up; framework state still requires host RAM, but model weights and inference remain on CUDA. The worker remains resident so later utterances avoid model startup.
 
 ## Local setup
 
-Run these commands from the repository root:
+Install Ubuntu under WSL 2 and NVIDIA's WSL-capable Windows driver. Download the pinned `uv` 0.12.5 installer from its official release, verify its published SHA-256 checksum, and run it inside Ubuntu. Then create the isolated ClearDictate runtime:
 
 ```powershell
-C:\Python313\python.exe -m venv --system-site-packages .tooling\qwen-python
-.tooling\qwen-python\Scripts\python.exe -m pip install transformers==5.13.0 accelerate==1.10.1
-.tooling\qwen-python\Scripts\hf.exe download Qwen/Qwen3-ASR-1.7B-hf --revision bcd2b5b7f32b480ab5790554cfa8347f246a14f3 --local-dir .tooling\models\qwen3-asr-1.7b
-.tooling\qwen-python\Scripts\hf.exe download unsloth/Qwen3.5-9B-GGUF Qwen3.5-9B-Q6_K.gguf --revision 3885219b6810b007914f3a7950a8d1b469d598a5 --local-dir .tooling\models\qwen3.5-9b
+wsl.exe --install -d Ubuntu
+wsl.exe -d Ubuntu -- bash -lc "~/.local/bin/uv python install 3.12.14"
+wsl.exe -d Ubuntu -- bash -lc "~/.local/bin/uv venv --python 3.12.14 ~/.local/share/cleardictate/venv"
+wsl.exe -d Ubuntu -- bash -lc '~/.local/bin/uv pip install --python ~/.local/share/cleardictate/venv/bin/python "qwen-asr[vllm]==0.0.6"'
+wsl.exe -d Ubuntu -- bash -lc "~/.local/share/cleardictate/venv/bin/hf download Qwen/Qwen3-ASR-1.7B --revision 7278e1e70fe206f11671096ffdd38061171dd6e5 --local-dir ~/.local/share/cleardictate/models/qwen3-asr-1.7b"
+wsl.exe -d Ubuntu -- bash -lc "~/.local/share/cleardictate/venv/bin/hf download unsloth/Qwen3.5-9B-GGUF Qwen3.5-9B-Q6_K.gguf --revision 3885219b6810b007914f3a7950a8d1b469d598a5 --local-dir /mnt/e/VoiceToText/.tooling/models/qwen3.5-9b"
 git clone --filter=blob:none --no-checkout https://github.com/ggml-org/llama.cpp.git .tooling\upstream\llama.cpp-cleardictate-cuda
 git -C .tooling\upstream\llama.cpp-cleardictate-cuda checkout b2f221684fcd898e947a121baeda80f345da3e6b
 ```
 
-The Python environment intentionally reuses the installed CUDA PyTorch build. Confirm that `torch.cuda.is_available()` is true before continuing.
+Adjust `/mnt/e/VoiceToText` if the checkout is on another drive or path. Confirm `wsl.exe -d Ubuntu -- nvidia-smi` sees the target NVIDIA GPU before continuing. The
+ClearDictate environment is isolated at `~/.local/share/cleardictate` and does not alter another project's Python environment.
 
 ## Native Debug build
 
@@ -68,15 +74,15 @@ ctest --test-dir native-worker/build-llama -C Debug --output-on-failure
 ## Model and Kotlin verification
 
 ```powershell
-.tooling\qwen-python\Scripts\python.exe gpu-worker\verify_qwen_asr.py .tooling\models\qwen3-asr-1.7b gpu-worker\qwen3-asr-1.7b-lock.json path\to\mono-16k-pcm16.wav
+wsl.exe -d Ubuntu -- bash -lc "~/.local/share/cleardictate/venv/bin/python /mnt/e/VoiceToText/gpu-worker/verify_qwen_asr_streaming.py ~/.local/share/cleardictate/models/qwen3-asr-1.7b /path/to/mono-16k.wav"
 $env:JAVA_HOME='C:\Program Files\Unity\Hub\Editor\6000.4.8f1\Editor\Data\PlaybackEngines\AndroidPlayer\OpenJDK'
 .\gradlew.bat :desktop-inference:test :desktop-app:test
 $env:GRADLE_OPTS='-DclearDictate.workerExecutable=E:/VoiceToText/native-worker/build-llama/Debug/clear_dictate_worker.exe -DclearDictate.textModel=E:/VoiceToText/.tooling/models/qwen3.5-9b/Qwen3.5-9B-Q6_K.gguf'
 .\gradlew.bat :desktop-inference:realWorkerIntegrationTest --rerun-tasks
 ```
 
-The ASR fixture check prints the recognized public fixture text. The desktop application never prints microphone transcripts; successful dictations are retained in the
-local SQLite history database described above.
+The ASR benchmark reports model-load, pre-release compute, and release-flush timings plus only transcript length and SHA-256. The desktop application never prints microphone
+transcripts; successful dictations are retained in the local SQLite history database described above.
 
 ## Run the preview
 
@@ -109,8 +115,9 @@ is open.
 ClearDictate starts a supervised listener on port `8765` before the models load. Authenticated health checks report **Preparing AI** until both models reach **Ready**; a
 temporary bind or listener failure is retried automatically without restarting the app. Open **Phone**, choose the address on the phone's
 Wi-Fi network when several are available, and scan its QR code from the Android application. The address and persistent bearer token remain selectable as a manual
-fallback. The service accepts authenticated 16 kHz mono PCM16 recordings at
-`/v1/dictation`, runs the same serialized Qwen3-ASR and Qwen3.5 pipeline used by desktop capture, and returns only the polished UTF-8 transcript.
+fallback. The service accepts one authenticated framed 16 kHz mono PCM16 stream at `/v1/dictation`. Every frame is bounded before allocation and forwarded to ASR
+immediately; zero is the explicit successful finish marker, whereas network EOF cancels the session. Qwen3.5 runs only after that marker, and the service returns only the
+polished UTF-8 transcript.
 
 The Android Debug recorder and keyboard use this endpoint after QR or manual pairing. The transport is authenticated but not encrypted, so use it only on a trusted
 private network. Certificate-based pairing remains required before production use.

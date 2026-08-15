@@ -4,10 +4,10 @@ ClearDictate's Android Debug application contains a standalone recorder, a float
 foreground microphone service. The phone does not download or run speech or text models. It retains one QR-scanned or manually entered PC address and bearer token in
 application-private storage.
 
-Recording uses 16 kHz mono PCM16 audio. While either control is held, ClearDictate shows live microphone energy. Release stops capture, uploads the completed in-memory
-recording to the paired Windows application, and shows an indeterminate processing indicator. The PC returns only the polished transcript. The floating control inserts
-that text into the same supported non-sensitive editor while leaving the selected keyboard unchanged. Cancellation closes an in-flight request and all owned audio arrays
-are overwritten after terminal handling.
+Recording uses 16 kHz mono PCM16 audio. Finger-down opens one authenticated chunked request; while either control is held, ClearDictate shows live microphone energy and
+sends each captured buffer to the PC's stateful ASR session. Release writes the explicit finish marker and shows an indeterminate processing indicator while the PC flushes
+the remaining ASR tail and polishes once. The PC returns only the polished transcript. The floating control inserts that text into the same supported non-sensitive editor
+while leaving the selected keyboard unchanged. Cancellation closes the request, creates no result, and all owned audio arrays are overwritten after terminal handling.
 
 ## Build
 

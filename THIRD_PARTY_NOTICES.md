@@ -24,11 +24,14 @@ Its license text and pinned provenance are retained under `third_party/qwen`.
 
 ## Qwen3-ASR 1.7B model
 
-- Source: `Qwen/Qwen3-ASR-1.7B-hf`
-- Pinned revision: `bcd2b5b7f32b480ab5790554cfa8347f246a14f3`
+- Source: `Qwen/Qwen3-ASR-1.7B`
+- Pinned revision: `7278e1e70fe206f11671096ffdd38061171dd6e5`
 - Licence identifier: Apache-2.0
 
-The model is downloaded into the ignored local tooling directory. Runtime file lengths and digests are pinned in `gpu-worker/qwen3-asr-1.7b-lock.json`.
+The model is downloaded into the isolated WSL ClearDictate directory. Runtime file lengths and digests are pinned in `gpu-worker/qwen3-asr-1.7b-lock.json`.
+
+The development runtime uses `qwen-asr` 0.0.6 and `vllm` 0.14.0 under their published Apache License 2.0 terms. They and their Python/CUDA dependencies are installed into
+the local WSL environment and are not bundled in the current Windows application image.
 
 ## Qwen3.5 9B Q6_K model
 

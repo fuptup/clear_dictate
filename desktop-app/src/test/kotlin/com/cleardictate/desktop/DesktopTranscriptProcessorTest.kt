@@ -127,11 +127,11 @@ class DesktopTranscriptProcessorTest
             audioCaptureWorkerExecutable = Path.of("C:/ClearDictate/clear_dictate_audio_capture_worker.exe"),
             audioDeviceEnumeratorExecutable = Path.of("C:/ClearDictate/clear_dictate_audio_device_enumerator.exe"),
             workerLauncherExecutable = Path.of("C:/ClearDictate/clear_dictate_worker_launcher.exe"),
-            pythonExecutable = Path.of("C:/ClearDictate/python.exe"),
+            wslExecutable = Path.of("C:/Windows/System32/wsl.exe"),
+            wslDistribution = "Ubuntu",
             asrWorkerScript = Path.of("C:/ClearDictate/qwen_asr_worker.py"),
             asrModelLock = Path.of("C:/ClearDictate/qwen3-asr-lock.json"),
-            textModelPath = Path.of("C:/ClearDictate/qwen3.5.gguf"),
-            asrModelDirectory = Path.of("C:/ClearDictate/qwen3-asr")
+            textModelPath = Path.of("C:/ClearDictate/qwen3.5.gguf")
         )
     }
 

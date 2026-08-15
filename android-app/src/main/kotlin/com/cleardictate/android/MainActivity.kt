@@ -370,7 +370,7 @@ private fun ScreenContent(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text("ClearDictate", style = MaterialTheme.typography.headlineLarge)
-            Text("Speak on this phone. Your completed recording is transcribed and polished by your PC.")
+            Text("Speak on this phone. Audio streams to your PC while held, then the final transcript is polished on release.")
             PairingCard(baseUrl, authorizationToken, state, onBaseUrlChanged, onAuthorizationTokenChanged, actions.connect, actions.scanPairing)
             SetupCard(state, actions)
             RecordingCard(state, actions)

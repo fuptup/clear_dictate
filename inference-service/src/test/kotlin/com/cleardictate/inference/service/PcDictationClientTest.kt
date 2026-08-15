@@ -1,23 +1,18 @@
 package com.cleardictate.inference.service
 
 import com.cleardictate.inference.remote.RemoteDictationProtocol
-import com.cleardictate.inference.remote.RemotePcmAudio
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.yield
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
-import java.util.concurrent.TimeUnit
+import java.io.DataInputStream
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertNotNull
 
 /**
- * Locks the Android request headers, shared audio bytes, response handling, and caller-audio scrubbing.
+ * Locks the Android streaming request headers, incremental audio frames, response handling, and cancellation.
  */
 class PcDictationClientTest
 {
@@ -40,7 +35,7 @@ class PcDictationClientTest
     }
 
     @Test
-    fun `completed audio reaches the paired PC and returns polished text`()
+    fun `audio frames reach the paired PC in one stream and release returns polished text`()
     {
         val server = MockWebServer()
         server.enqueue(MockResponse().setResponseCode(200).setBody("Send the report tomorrow."))
@@ -49,20 +44,23 @@ class PcDictationClientTest
         server.use {
             server.start()
             val endpoint = PcDictationEndpoint(server.url("/").toString(), "paired-token")
-            val transcript = runBlocking {
-                PcDictationClient().dictate(endpoint, RemotePcmAudio(16_000, samples))
-            }
+            val stream = PcDictationClient().openDictation(endpoint)
+            stream.sendPcm16(samples, 2)
+            stream.sendPcm16(samples.copyOfRange(2, 3), 1)
+            val transcript = stream.finish()
             val request = server.takeRequest()
 
             assertEquals("Send the report tomorrow.", transcript)
             assertEquals(RemoteDictationProtocol.DICTATION_PATH, request.path)
             assertEquals("Bearer paired-token", request.getHeader("Authorization"))
-            assertEquals(RemoteDictationProtocol.AUDIO_CONTENT_TYPE, request.getHeader("Content-Type"))
-            assertContentEquals(
-                shortArrayOf(0, 12_345, -23_456),
-                RemoteDictationProtocol.decodeAudio(request.body.readByteArray()).samples
-            )
-            assertContentEquals(shortArrayOf(0, 0, 0), samples)
+            assertEquals(RemoteDictationProtocol.STREAM_AUDIO_CONTENT_TYPE, request.getHeader("Content-Type"))
+            DataInputStream(request.body.inputStream()).use { input ->
+                RemoteDictationProtocol.readAndValidateStreamHeader(input)
+                assertContentEquals(shortArrayOf(0, 12_345), RemoteDictationProtocol.readAudioFrame(input))
+                assertContentEquals(shortArrayOf(-23_456), RemoteDictationProtocol.readAudioFrame(input))
+                assertEquals(null, RemoteDictationProtocol.readAudioFrame(input))
+            }
+            assertContentEquals(shortArrayOf(0, 12_345, -23_456), samples)
         }
     }
 
@@ -75,12 +73,9 @@ class PcDictationClientTest
         server.use {
             server.start()
             val exception = assertFailsWith<PcDictationException> {
-                runBlocking {
-                    PcDictationClient().dictate(
-                        PcDictationEndpoint(server.url("/").toString(), "wrong-token"),
-                        RemotePcmAudio(16_000, shortArrayOf(1))
-                    )
-                }
+                val stream = PcDictationClient().openDictation(PcDictationEndpoint(server.url("/").toString(), "wrong-token"))
+                stream.sendPcm16(shortArrayOf(1), 1)
+                stream.finish()
             }
 
             assertEquals(PcDictationFailure.HTTP_FAILURE, exception.failure)
@@ -90,7 +85,7 @@ class PcDictationClientTest
     }
 
     @Test
-    fun `cancelling an in flight request cancels transport ownership and scrubs audio`()
+    fun `cancelling an in flight stream closes its request without a result`()
     {
         val server = MockWebServer()
         server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
@@ -98,19 +93,11 @@ class PcDictationClientTest
 
         server.use {
             server.start()
-            runBlocking {
-                val request = launch {
-                    PcDictationClient().dictate(
-                        PcDictationEndpoint(server.url("/").toString(), "paired-token"),
-                        RemotePcmAudio(16_000, samples)
-                    )
-                }
-                yield()
-                assertNotNull(server.takeRequest(5, TimeUnit.SECONDS))
-                request.cancelAndJoin()
-            }
+            val stream = PcDictationClient().openDictation(PcDictationEndpoint(server.url("/").toString(), "paired-token"))
+            stream.sendPcm16(samples, samples.size)
+            stream.cancel()
 
-            assertContentEquals(shortArrayOf(0, 0, 0), samples)
+            assertContentEquals(shortArrayOf(1, 2, 3), samples)
         }
     }
 }

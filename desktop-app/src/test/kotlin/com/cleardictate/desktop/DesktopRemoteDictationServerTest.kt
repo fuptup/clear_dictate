@@ -1,8 +1,9 @@
 package com.cleardictate.desktop
 
-import com.cleardictate.inference.remote.RemoteDictationProtocol
-import com.cleardictate.inference.remote.RemotePcmAudio
 import com.cleardictate.domain.TranscriptFallbackReason
+import com.cleardictate.inference.remote.RemoteDictationProtocol
+import java.io.DataOutputStream
+import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
@@ -10,25 +11,27 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Proves authentication and exact audio interoperability through a real loopback HTTP server.
+ * Proves authentication and live frame delivery through a real chunked loopback HTTP connection.
  */
 class DesktopRemoteDictationServerTest
 {
     @Test
-    fun `temporary bind conflict recovers without restarting the application`()
+    fun temporaryBindConflictRecoversWithoutRestartingTheApplication()
     {
         val loopback = InetAddress.getLoopbackAddress()
         val blocker = ServerSocket(0, 1, loopback)
         val server = DesktopRemoteDictationServer(
             bindAddress = InetSocketAddress(loopback, blocker.localPort),
             authorizationToken = "test-token",
-            dictationProcessor = DesktopRemoteDictationProcessor { result("unused") }
+            dictationProcessor = processor()
         )
 
         try
@@ -48,7 +51,7 @@ class DesktopRemoteDictationServerTest
     }
 
     @Test
-    fun `health reports model preparation while the supervised endpoint remains reachable`()
+    fun healthReportsModelPreparationWhileEndpointRemainsReachable()
     {
         var processingAttempted = false
         val server = DesktopRemoteDictationServer(
@@ -57,117 +60,168 @@ class DesktopRemoteDictationServerTest
             initiallyReady = false,
             dictationProcessor = DesktopRemoteDictationProcessor {
                 processingAttempted = true
-                result("unexpected")
+                session()
             }
         )
 
         server.use {
             server.start()
-
             val preparingHealth = sendHealth(server, "test-token")
-            val preparingDictation = sendDictation(server, "test-token", shortArrayOf(1))
-            assertEquals(DesktopPhoneServerState.PREPARING_AI, server.state.value)
+            val preparingDictation = sendCompletedDictation(server, "test-token", shortArrayOf(1))
             server.setDictationReady(true)
             val readyHealth = sendHealth(server, "test-token")
 
             assertEquals(503, preparingHealth.statusCode())
-            assertEquals(RemoteDictationProtocol.HEALTH_STATE_PREPARING_AI, preparingHealth.headers().firstValue(RemoteDictationProtocol.HEALTH_STATE_HEADER).orElse(null))
             assertEquals(503, preparingDictation.statusCode())
             assertEquals(false, processingAttempted)
             assertEquals(200, readyHealth.statusCode())
             assertEquals(RemoteDictationProtocol.HEALTH_STATE_READY, readyHealth.headers().firstValue(RemoteDictationProtocol.HEALTH_STATE_HEADER).orElse(null))
-            assertEquals(DesktopPhoneServerState.READY, server.state.value)
         }
     }
 
     @Test
-    fun `authenticated request receives polished text and server scrubs decoded audio`()
+    fun firstFrameReachesAsrBeforePhoneSendsRelease()
     {
-        var receivedSamples = shortArrayOf()
-        var ownedSamples: ShortArray? = null
+        val firstFrameAccepted = CountDownLatch(1)
+        val receivedFrames = mutableListOf<ShortArray>()
+        var finishCount = 0
         val server = DesktopRemoteDictationServer(
             bindAddress = InetSocketAddress(InetAddress.getLoopbackAddress(), 0),
             authorizationToken = "test-token",
-            dictationProcessor = DesktopRemoteDictationProcessor { audio ->
-                ownedSamples = audio.samples
-                receivedSamples = audio.samples.copyOf()
-                result("Send the report tomorrow.")
-            }
+            dictationProcessor = processor(
+                onAccept = { samples ->
+                    receivedFrames += samples.copyOf()
+                    firstFrameAccepted.countDown()
+                },
+                onFinish = {
+                    finishCount += 1
+                    result("Send the report tomorrow.")
+                }
+            )
         )
 
         server.use {
             server.start()
-            val response = sendDictation(server, "test-token", shortArrayOf(0, 12_345, -23_456))
+            val connection = openStreamingConnection(server, "test-token")
+            val output = DataOutputStream(connection.outputStream)
+            RemoteDictationProtocol.writeStreamHeader(output)
+            RemoteDictationProtocol.writeAudioFrame(output, shortArrayOf(0, 12_345), 2)
+            output.flush()
 
-            assertEquals(200, response.statusCode())
-            assertEquals("Send the report tomorrow.", response.body())
-            assertEquals(18, requireNotNull(server.lastSuccessfulTiming.value).totalMilliseconds)
+            assertTrue(firstFrameAccepted.await(2, TimeUnit.SECONDS), "The server buffered audio until release.")
+            assertEquals(0, finishCount)
+
+            RemoteDictationProtocol.writeAudioFrame(output, shortArrayOf(-23_456), 1)
+            RemoteDictationProtocol.writeStreamFinish(output)
+            output.close()
+            assertEquals(200, connection.responseCode)
+            assertEquals("Send the report tomorrow.", connection.inputStream.bufferedReader().readText())
+            connection.disconnect()
+            assertEquals(1, finishCount)
+            assertContentEquals(shortArrayOf(0, 12_345), receivedFrames[0])
+            assertContentEquals(shortArrayOf(-23_456), receivedFrames[1])
+            assertEquals(18, server.lastSuccessfulTiming.value?.totalMilliseconds)
         }
-
-        assertContentEquals(shortArrayOf(0, 12_345, -23_456), receivedSamples)
-        assertContentEquals(shortArrayOf(0, 0, 0), ownedSamples)
     }
 
     @Test
-    fun `missing authorization is rejected before audio processing`()
+    fun missingAuthorizationIsRejectedBeforeOpeningAsr()
     {
-        var processingAttempted = false
+        var opened = false
         val server = DesktopRemoteDictationServer(
             bindAddress = InetSocketAddress(InetAddress.getLoopbackAddress(), 0),
             authorizationToken = "test-token",
             dictationProcessor = DesktopRemoteDictationProcessor {
-                processingAttempted = true
-                result("unexpected")
+                opened = true
+                session()
             }
         )
 
         server.use {
             server.start()
-            val response = sendDictation(server, null, shortArrayOf(1))
-
+            val response = sendCompletedDictation(server, null, shortArrayOf(1))
             assertEquals(401, response.statusCode())
         }
-        assertEquals(false, processingAttempted)
+        assertEquals(false, opened)
     }
 
     @Test
-    fun `malformed audio is rejected before processing`()
+    fun malformedStreamCancelsTheOpenedAsrSession()
     {
-        var processingAttempted = false
+        var cancelCount = 0
         val server = DesktopRemoteDictationServer(
             bindAddress = InetSocketAddress(InetAddress.getLoopbackAddress(), 0),
             authorizationToken = "test-token",
-            dictationProcessor = DesktopRemoteDictationProcessor {
-                processingAttempted = true
-                result("unexpected")
-            }
+            dictationProcessor = processor(onCancel = { cancelCount += 1 })
         )
 
         server.use {
             server.start()
             val address = requireNotNull(server.localAddress)
             val request = HttpRequest.newBuilder()
-                .uri(URI("http://${address.hostString}:${address.port}${RemoteDictationProtocol.DICTATION_PATH}"))
+                .uri(URI("http://" + address.hostString + ":" + address.port + RemoteDictationProtocol.DICTATION_PATH))
                 .header("Authorization", "Bearer test-token")
-                .header("Content-Type", RemoteDictationProtocol.AUDIO_CONTENT_TYPE)
+                .header("Content-Type", RemoteDictationProtocol.STREAM_AUDIO_CONTENT_TYPE)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(byteArrayOf(1, 2, 3)))
                 .build()
             val response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
 
             assertEquals(422, response.statusCode())
+            assertTrue(awaitCondition { cancelCount == 1 }, "The malformed stream was not cancelled.")
         }
-        assertEquals(false, processingAttempted)
     }
 
-    private fun sendDictation(server: DesktopRemoteDictationServer, token: String?, samples: ShortArray): HttpResponse<String>
+    private fun processor(
+        onAccept: suspend (ShortArray) -> Unit = {},
+        onFinish: suspend () -> DesktopDictationResult = { result("unused") },
+        onCancel: suspend () -> Unit = {}
+    ): DesktopRemoteDictationProcessor
+    {
+        return DesktopRemoteDictationProcessor { session(onAccept, onFinish, onCancel) }
+    }
+
+    private fun session(
+        onAccept: suspend (ShortArray) -> Unit = {},
+        onFinish: suspend () -> DesktopDictationResult = { result("unused") },
+        onCancel: suspend () -> Unit = {}
+    ): DesktopRemoteDictationSession
+    {
+        return object : DesktopRemoteDictationSession
+        {
+            override suspend fun acceptPcm16(samples: ShortArray) = onAccept(samples)
+            override suspend fun finish(): DesktopDictationResult = onFinish()
+            override suspend fun cancel() = onCancel()
+        }
+    }
+
+    private fun openStreamingConnection(server: DesktopRemoteDictationServer, token: String?): HttpURLConnection
     {
         val address = requireNotNull(server.localAddress)
-        val audio = RemotePcmAudio(RemoteDictationProtocol.SAMPLE_RATE_HERTZ, samples)
+        val connection = URI("http://" + address.hostString + ":" + address.port + RemoteDictationProtocol.DICTATION_PATH).toURL().openConnection() as HttpURLConnection
+        connection.requestMethod = "POST"
+        connection.doOutput = true
+        connection.setChunkedStreamingMode(1_024)
+        connection.setRequestProperty("Content-Type", RemoteDictationProtocol.STREAM_AUDIO_CONTENT_TYPE)
+        token?.let { connection.setRequestProperty("Authorization", "Bearer " + it) }
+        return connection
+    }
+
+    private fun sendCompletedDictation(server: DesktopRemoteDictationServer, token: String?, samples: ShortArray): HttpResponse<String>
+    {
+        val payload = java.io.ByteArrayOutputStream().use { bytes ->
+            DataOutputStream(bytes).use { output ->
+                RemoteDictationProtocol.writeStreamHeader(output)
+                RemoteDictationProtocol.writeAudioFrame(output, samples, samples.size)
+                RemoteDictationProtocol.writeStreamFinish(output)
+            }
+            bytes.toByteArray()
+        }
+        val address = requireNotNull(server.localAddress)
         val requestBuilder = HttpRequest.newBuilder()
-            .uri(URI("http://${address.hostString}:${address.port}${RemoteDictationProtocol.DICTATION_PATH}"))
-            .header("Content-Type", RemoteDictationProtocol.AUDIO_CONTENT_TYPE)
-            .POST(HttpRequest.BodyPublishers.ofByteArray(RemoteDictationProtocol.encodeAudio(audio)))
-        token?.let { requestBuilder.header("Authorization", "Bearer $it") }
+            .uri(URI("http://" + address.hostString + ":" + address.port + RemoteDictationProtocol.DICTATION_PATH))
+            .header("Content-Type", RemoteDictationProtocol.STREAM_AUDIO_CONTENT_TYPE)
+            .POST(HttpRequest.BodyPublishers.ofByteArray(payload))
+        token?.let { requestBuilder.header("Authorization", "Bearer " + it) }
         return HttpClient.newHttpClient().send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString())
     }
 
@@ -175,9 +229,9 @@ class DesktopRemoteDictationServerTest
     {
         val address = requireNotNull(server.localAddress)
         val requestBuilder = HttpRequest.newBuilder()
-            .uri(URI("http://${address.hostString}:${address.port}${RemoteDictationProtocol.HEALTH_PATH}"))
+            .uri(URI("http://" + address.hostString + ":" + address.port + RemoteDictationProtocol.HEALTH_PATH))
             .GET()
-        token?.let { requestBuilder.header("Authorization", "Bearer $it") }
+        token?.let { requestBuilder.header("Authorization", "Bearer " + it) }
         return HttpClient.newHttpClient().send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString())
     }
 
