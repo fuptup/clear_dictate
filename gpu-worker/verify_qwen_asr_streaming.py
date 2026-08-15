@@ -13,9 +13,11 @@ import soundfile
 from qwen_asr import Qwen3ASRModel
 
 
-GPU_MEMORY_UTILIZATION = 0.45
+GPU_MEMORY_UTILIZATION = 0.30
 MAXIMUM_NEW_TOKENS = 256
-MAXIMUM_MODEL_LENGTH = 30_000
+MAXIMUM_MODEL_LENGTH = 6_000
+MAXIMUM_CONCURRENT_SEQUENCES = 1
+MAXIMUM_BATCHED_TOKENS = 1_024
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -67,6 +69,8 @@ def main() -> int:
         model=str(arguments.model_directory.resolve()),
         gpu_memory_utilization=GPU_MEMORY_UTILIZATION,
         max_model_len=MAXIMUM_MODEL_LENGTH,
+        max_num_batched_tokens=MAXIMUM_BATCHED_TOKENS,
+        max_num_seqs=MAXIMUM_CONCURRENT_SEQUENCES,
         max_new_tokens=MAXIMUM_NEW_TOKENS,
     )
     loading_seconds = time.perf_counter() - loading_started

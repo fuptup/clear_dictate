@@ -36,9 +36,11 @@ CAPTURED_AUDIO_VERSION = 1
 FLOAT32_SAMPLE_FORMAT = 1
 SAMPLE_RATE_HERTZ = 16_000
 STREAM_CHUNK_SECONDS = 2.0
-GPU_MEMORY_UTILIZATION = 0.45
-MAXIMUM_MODEL_LENGTH = 30_000
+GPU_MEMORY_UTILIZATION = 0.30
+MAXIMUM_MODEL_LENGTH = 6_000
 MAXIMUM_NEW_TOKENS = 256
+MAXIMUM_CONCURRENT_SEQUENCES = 1
+MAXIMUM_BATCHED_TOKENS = 1_024
 MODEL_DIRECTORY = Path.home() / ".local/share/cleardictate/models/qwen3-asr-1.7b"
 RUNTIME_DIRECTORY = Path(sys.prefix).resolve()
 os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
@@ -128,6 +130,8 @@ class QwenAsrEngine:
             model=str(model_directory),
             gpu_memory_utilization=GPU_MEMORY_UTILIZATION,
             max_model_len=MAXIMUM_MODEL_LENGTH,
+            max_num_batched_tokens=MAXIMUM_BATCHED_TOKENS,
+            max_num_seqs=MAXIMUM_CONCURRENT_SEQUENCES,
             max_new_tokens=MAXIMUM_NEW_TOKENS,
         )
         self.state = None
