@@ -16,6 +16,7 @@ import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityManager
@@ -49,6 +50,10 @@ class ClearDictateAccessibilityService : AccessibilityService()
     private lateinit var floatingControl: FloatingDictationControlView
     private lateinit var floatingUndoControl: FloatingUndoControlView
     private lateinit var windowManager: WindowManager
+    private lateinit var floatingControlLayoutParameters: WindowManager.LayoutParams
+    private lateinit var floatingControlDragTracker: FloatingControlDragTracker
+    private lateinit var floatingControlPositionStore: FloatingControlPositionStore
+    private var floatingControlPosition = FloatingControlPosition(0, 0)
     private var latestClientState = InferenceClientState()
     private var focusedEditorIdentity: AccessibilityFieldIdentity? = null
     private var recordingField: AccessibilityFieldIdentity? = null
@@ -126,18 +131,29 @@ class ClearDictateAccessibilityService : AccessibilityService()
             setOnTouchListener { _, event -> handleControlTouch(event) }
         }
         val size = densityIndependentPixels(68)
-        val layoutParameters = WindowManager.LayoutParams(
+        val displayWidth = resources.displayMetrics.widthPixels
+        val displayHeight = resources.displayMetrics.heightPixels
+        floatingControlPositionStore = FloatingControlPositionStore(this)
+        floatingControlDragTracker = FloatingControlDragTracker(ViewConfiguration.get(this).scaledTouchSlop)
+        floatingControlPosition = clampFloatingControlPosition(
+            floatingControlPositionStore.load() ?: FloatingControlPosition(displayWidth - size - densityIndependentPixels(10), (displayHeight - size) / 2),
+            displayWidth,
+            displayHeight,
+            size
+        )
+        floatingControlLayoutParameters = WindowManager.LayoutParams(
             size,
             size,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            x = densityIndependentPixels(10)
+            gravity = Gravity.START or Gravity.TOP
+            x = floatingControlPosition.x
+            y = floatingControlPosition.y
             title = "ClearDictate floating microphone"
         }
-        windowManager.addView(floatingControl, layoutParameters)
+        windowManager.addView(floatingControl, floatingControlLayoutParameters)
 
         floatingUndoControl = FloatingUndoControlView(this).apply {
             visibility = View.GONE
@@ -167,16 +183,29 @@ class ClearDictateAccessibilityService : AccessibilityService()
         {
             MotionEvent.ACTION_DOWN ->
             {
+                floatingControlDragTracker.start(event.rawX, event.rawY, floatingControlPosition)
                 recordingTouchActive = beginRecording()
                 if (recordingTouchActive)
                 {
                     floatingControl.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                 }
-                recordingTouchActive
+                true
+            }
+            MotionEvent.ACTION_MOVE ->
+            {
+                moveFloatingControl(event)
+                true
             }
             MotionEvent.ACTION_UP ->
             {
-                if (recordingTouchActive)
+                moveFloatingControl(event)
+                if (floatingControlDragTracker.finish())
+                {
+                    floatingControlPositionStore.save(floatingControlPosition)
+                    floatingControl.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY_RELEASE)
+                    true
+                }
+                else if (recordingTouchActive)
                 {
                     recordingTouchActive = false
                     floatingControl.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY_RELEASE)
@@ -186,23 +215,42 @@ class ClearDictateAccessibilityService : AccessibilityService()
                 }
                 else
                 {
-                    false
+                    true
                 }
             }
             MotionEvent.ACTION_CANCEL ->
             {
+                floatingControlDragTracker.finish()
                 if (recordingTouchActive)
                 {
                     cancelRecording()
-                    true
                 }
-                else
-                {
-                    false
-                }
+                true
             }
-            else -> recordingTouchActive
+            else -> true
         }
+    }
+
+    /**
+     * Converts a deliberate drag into a clamped overlay update and cancels the provisional recording exactly once when dragging begins.
+     */
+    private fun moveFloatingControl(event: MotionEvent)
+    {
+        val wasDragging = floatingControlDragTracker.isDragging
+        val requestedPosition = floatingControlDragTracker.move(event.rawX, event.rawY) ?: return
+        if (!wasDragging && recordingTouchActive)
+        {
+            cancelRecording()
+        }
+        floatingControlPosition = clampFloatingControlPosition(
+            requestedPosition,
+            resources.displayMetrics.widthPixels,
+            resources.displayMetrics.heightPixels,
+            floatingControlLayoutParameters.width
+        )
+        floatingControlLayoutParameters.x = floatingControlPosition.x
+        floatingControlLayoutParameters.y = floatingControlPosition.y
+        windowManager.updateViewLayout(floatingControl, floatingControlLayoutParameters)
     }
 
     /**
