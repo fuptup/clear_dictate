@@ -49,6 +49,16 @@ enum class PcDictationFailure
     RESPONSE_TOO_LARGE
 }
 
+/**
+ * Separates a reachable PC that is still loading AI from a network or authentication failure.
+ */
+enum class PcHealthStatus
+{
+    READY,
+    PREPARING_AI,
+    UNAVAILABLE
+}
+
 class PcDictationException(
     val failure: PcDictationFailure,
     val statusCode: Int? = null
@@ -59,7 +69,7 @@ class PcDictationException(
  */
 interface PcDictationTransport
 {
-    suspend fun checkHealth(endpoint: PcDictationEndpoint): Boolean
+    suspend fun checkHealth(endpoint: PcDictationEndpoint): PcHealthStatus
     suspend fun dictate(endpoint: PcDictationEndpoint, audio: RemotePcmAudio): String
 }
 
@@ -73,12 +83,20 @@ class PcDictationClient(
     /**
      * Verifies the paired service without uploading audio.
      */
-    override suspend fun checkHealth(endpoint: PcDictationEndpoint): Boolean = withContext(Dispatchers.IO)
+    override suspend fun checkHealth(endpoint: PcDictationEndpoint): PcHealthStatus = withContext(Dispatchers.IO)
     {
         val request = authenticatedRequest(endpoint, RemoteDictationProtocol.HEALTH_PATH).get().build()
         val call = httpClient.newCall(request)
         call.timeout().timeout(HEALTH_CHECK_TIMEOUT_MILLISECONDS, TimeUnit.MILLISECONDS)
-        call.await().use { response -> response.isSuccessful }
+        call.await().use { response ->
+            val healthState = response.header(RemoteDictationProtocol.HEALTH_STATE_HEADER)
+            when
+            {
+                response.isSuccessful && healthState == RemoteDictationProtocol.HEALTH_STATE_READY -> PcHealthStatus.READY
+                response.code == 503 && healthState == RemoteDictationProtocol.HEALTH_STATE_PREPARING_AI -> PcHealthStatus.PREPARING_AI
+                else -> PcHealthStatus.UNAVAILABLE
+            }
+        }
     }
 
     /**

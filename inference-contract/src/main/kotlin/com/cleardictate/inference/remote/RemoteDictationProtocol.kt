@@ -50,6 +50,9 @@ object RemoteDictationProtocol
 
     const val DICTATION_PATH = "/v1/dictation"
     const val HEALTH_PATH = "/v1/health"
+    const val HEALTH_STATE_HEADER = "X-ClearDictate-Service-State"
+    const val HEALTH_STATE_READY = "ready"
+    const val HEALTH_STATE_PREPARING_AI = "preparing-ai"
     const val AUDIO_CONTENT_TYPE = "application/vnd.cleardictate.pcm16"
     const val TEXT_CONTENT_TYPE = "text/plain; charset=utf-8"
     const val SAMPLE_RATE_HERTZ = 16_000

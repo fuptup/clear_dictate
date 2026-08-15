@@ -5,6 +5,7 @@ import com.cleardictate.inference.remote.RemotePcmAudio
 import com.cleardictate.domain.TranscriptFallbackReason
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.ServerSocket
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -12,12 +13,73 @@ import java.net.http.HttpResponse
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * Proves authentication and exact audio interoperability through a real loopback HTTP server.
  */
 class DesktopRemoteDictationServerTest
 {
+    @Test
+    fun `temporary bind conflict recovers without restarting the application`()
+    {
+        val loopback = InetAddress.getLoopbackAddress()
+        val blocker = ServerSocket(0, 1, loopback)
+        val server = DesktopRemoteDictationServer(
+            bindAddress = InetSocketAddress(loopback, blocker.localPort),
+            authorizationToken = "test-token",
+            dictationProcessor = DesktopRemoteDictationProcessor { result("unused") }
+        )
+
+        try
+        {
+            server.start()
+            assertEquals(DesktopPhoneServerState.RECOVERING, server.state.value)
+            blocker.close()
+
+            assertTrue(awaitCondition { server.localAddress != null }, "The server did not retry after the temporary port conflict cleared.")
+            assertEquals(DesktopPhoneServerState.READY, server.state.value)
+        }
+        finally
+        {
+            blocker.close()
+            server.close()
+        }
+    }
+
+    @Test
+    fun `health reports model preparation while the supervised endpoint remains reachable`()
+    {
+        var processingAttempted = false
+        val server = DesktopRemoteDictationServer(
+            bindAddress = InetSocketAddress(InetAddress.getLoopbackAddress(), 0),
+            authorizationToken = "test-token",
+            initiallyReady = false,
+            dictationProcessor = DesktopRemoteDictationProcessor {
+                processingAttempted = true
+                result("unexpected")
+            }
+        )
+
+        server.use {
+            server.start()
+
+            val preparingHealth = sendHealth(server, "test-token")
+            val preparingDictation = sendDictation(server, "test-token", shortArrayOf(1))
+            assertEquals(DesktopPhoneServerState.PREPARING_AI, server.state.value)
+            server.setDictationReady(true)
+            val readyHealth = sendHealth(server, "test-token")
+
+            assertEquals(503, preparingHealth.statusCode())
+            assertEquals(RemoteDictationProtocol.HEALTH_STATE_PREPARING_AI, preparingHealth.headers().firstValue(RemoteDictationProtocol.HEALTH_STATE_HEADER).orElse(null))
+            assertEquals(503, preparingDictation.statusCode())
+            assertEquals(false, processingAttempted)
+            assertEquals(200, readyHealth.statusCode())
+            assertEquals(RemoteDictationProtocol.HEALTH_STATE_READY, readyHealth.headers().firstValue(RemoteDictationProtocol.HEALTH_STATE_HEADER).orElse(null))
+            assertEquals(DesktopPhoneServerState.READY, server.state.value)
+        }
+    }
+
     @Test
     fun `authenticated request receives polished text and server scrubs decoded audio`()
     {
@@ -109,6 +171,16 @@ class DesktopRemoteDictationServerTest
         return HttpClient.newHttpClient().send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString())
     }
 
+    private fun sendHealth(server: DesktopRemoteDictationServer, token: String?): HttpResponse<String>
+    {
+        val address = requireNotNull(server.localAddress)
+        val requestBuilder = HttpRequest.newBuilder()
+            .uri(URI("http://${address.hostString}:${address.port}${RemoteDictationProtocol.HEALTH_PATH}"))
+            .GET()
+        token?.let { requestBuilder.header("Authorization", "Bearer $it") }
+        return HttpClient.newHttpClient().send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString())
+    }
+
     private fun result(transcript: String): DesktopDictationResult
     {
         return DesktopDictationResult(
@@ -117,5 +189,19 @@ class DesktopRemoteDictationServerTest
             timing = DesktopDictationTiming(queueMilliseconds = 0, recognitionMilliseconds = 11, rewritingMilliseconds = 7, totalMilliseconds = 18),
             polishingOutcome = DesktopPolishingOutcome(false, TranscriptFallbackReason.NONE)
         )
+    }
+
+    private fun awaitCondition(timeoutMilliseconds: Long = 3_000L, condition: () -> Boolean): Boolean
+    {
+        val deadline = System.nanoTime() + timeoutMilliseconds * 1_000_000L
+        while (System.nanoTime() < deadline)
+        {
+            if (condition())
+            {
+                return true
+            }
+            Thread.sleep(20L)
+        }
+        return condition()
     }
 }

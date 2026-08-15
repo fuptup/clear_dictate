@@ -746,6 +746,10 @@ internal fun InferenceClientState.visualState(): FloatingDictationVisualState
     {
         return FloatingDictationVisualState.DISCONNECTED
     }
+    if (pcConnectionState != PcConnectionState.CONNECTED)
+    {
+        return FloatingDictationVisualState.UNAVAILABLE
+    }
     return when (recordingState)
     {
         ClientRecordingState.PREPARING, ClientRecordingState.LISTENING, ClientRecordingState.SPEECH_DETECTED -> FloatingDictationVisualState.RECORDING

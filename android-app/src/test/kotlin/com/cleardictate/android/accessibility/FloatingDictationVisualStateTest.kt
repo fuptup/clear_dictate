@@ -50,9 +50,11 @@ class FloatingDictationVisualStateTest
         )
         val modelUnavailableState = readyState.copy(speechModelState = SpeechModelState.VERIFYING_AND_LOADING)
         val connectionCheckState = readyState.copy(pcConnectionState = PcConnectionState.CHECKING)
+        val pcPreparingState = readyState.copy(pcConnectionState = PcConnectionState.PREPARING_AI, recordingState = ClientRecordingState.LISTENING)
 
         assertEquals(FloatingDictationVisualState.READY, readyState.visualState())
         assertEquals(FloatingDictationVisualState.UNAVAILABLE, modelUnavailableState.visualState())
         assertEquals(FloatingDictationVisualState.UNAVAILABLE, connectionCheckState.visualState())
+        assertEquals(FloatingDictationVisualState.UNAVAILABLE, pcPreparingState.visualState())
     }
 }

@@ -69,6 +69,7 @@ import com.cleardictate.inference.service.InferenceConnectionState
 import com.cleardictate.inference.service.InferenceServiceClient
 import com.cleardictate.inference.service.PcDictationClient
 import com.cleardictate.inference.service.PcDictationEndpoint
+import com.cleardictate.inference.service.PcHealthStatus
 import com.cleardictate.inference.service.PcConnectionState
 import com.cleardictate.inference.service.PcEndpointPreferences
 import com.cleardictate.inference.service.SpeechModelState
@@ -185,6 +186,7 @@ private fun ClearDictateScreen(inferenceServiceClient: InferenceServiceClient)
             connectionMessage = when (clientState.pcConnectionState)
             {
                 PcConnectionState.CHECKING -> "Checking paired PC…"
+                PcConnectionState.PREPARING_AI -> "PC connected; preparing AI…"
                 PcConnectionState.DISCONNECTED -> "The paired PC is not reachable."
                 PcConnectionState.CONNECTED -> when (clientState.speechModelState)
                 {
@@ -203,13 +205,14 @@ private fun ClearDictateScreen(inferenceServiceClient: InferenceServiceClient)
         connectionCheckRunning = true
         connectionMessage = "Connecting…"
         coroutineScope.launch {
-            if (runCatching { transport.checkHealth(endpoint) }.getOrDefault(false))
+            val healthStatus = runCatching { transport.checkHealth(endpoint) }.getOrDefault(PcHealthStatus.UNAVAILABLE)
+            if (healthStatus != PcHealthStatus.UNAVAILABLE)
             {
                 endpointPreferences.save(endpoint.baseUrl, endpoint.authorizationToken)
                 pairedEndpointExists = true
                 connectionMessage = if (inferenceServiceClient.configurePcEndpoint(endpoint))
                 {
-                    "PC connected."
+                    if (healthStatus == PcHealthStatus.READY) "PC connected." else "PC connected; preparing AI…"
                 }
                 else
                 {
@@ -611,6 +614,7 @@ private fun PcConnectionState.readableName(): String
     return when (this)
     {
         PcConnectionState.CHECKING -> "Checking…"
+        PcConnectionState.PREPARING_AI -> "Preparing AI…"
         PcConnectionState.CONNECTED -> "Connected"
         PcConnectionState.DISCONNECTED -> "Not connected"
     }

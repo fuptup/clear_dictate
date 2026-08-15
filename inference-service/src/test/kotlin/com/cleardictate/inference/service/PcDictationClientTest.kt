@@ -22,6 +22,24 @@ import kotlin.test.assertNotNull
 class PcDictationClientTest
 {
     @Test
+    fun `health distinguishes ready preparation and unavailable responses`()
+    {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(200).setHeader(RemoteDictationProtocol.HEALTH_STATE_HEADER, RemoteDictationProtocol.HEALTH_STATE_READY))
+        server.enqueue(MockResponse().setResponseCode(503).setHeader(RemoteDictationProtocol.HEALTH_STATE_HEADER, RemoteDictationProtocol.HEALTH_STATE_PREPARING_AI))
+        server.enqueue(MockResponse().setResponseCode(401))
+
+        server.use {
+            server.start()
+            val endpoint = PcDictationEndpoint(server.url("/").toString(), "paired-token")
+
+            assertEquals(PcHealthStatus.READY, runBlocking { PcDictationClient().checkHealth(endpoint) })
+            assertEquals(PcHealthStatus.PREPARING_AI, runBlocking { PcDictationClient().checkHealth(endpoint) })
+            assertEquals(PcHealthStatus.UNAVAILABLE, runBlocking { PcDictationClient().checkHealth(endpoint) })
+        }
+    }
+
+    @Test
     fun `completed audio reaches the paired PC and returns polished text`()
     {
         val server = MockWebServer()

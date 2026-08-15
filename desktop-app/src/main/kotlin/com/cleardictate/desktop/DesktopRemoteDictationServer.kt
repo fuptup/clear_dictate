@@ -9,11 +9,16 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.net.HttpURLConnection
 import java.net.InetSocketAddress
+import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Processes one completed phone recording without exposing HTTP details to the model pipeline.
@@ -24,20 +29,39 @@ fun interface DesktopRemoteDictationProcessor
 }
 
 /**
+ * Describes the supervised endpoint independently from AI readiness so temporary network failures remain recoverable.
+ */
+enum class DesktopPhoneServerState
+{
+    STARTING,
+    PREPARING_AI,
+    READY,
+    RECOVERING,
+    STOPPED
+}
+
+/**
  * Hosts the first authenticated phone-to-PC transport boundary.
  * The service accepts only bounded completed recordings and never returns raw transcripts or internal failures.
  */
 class DesktopRemoteDictationServer(
     private val bindAddress: InetSocketAddress,
     authorizationToken: String,
-    private val dictationProcessor: DesktopRemoteDictationProcessor
+    private val dictationProcessor: DesktopRemoteDictationProcessor,
+    initiallyReady: Boolean = true
 ) : AutoCloseable
 {
     private val expectedAuthorization = "Bearer $authorizationToken".toByteArray(StandardCharsets.UTF_8)
     private val ownershipLock = Any()
+    private val dictationReady = AtomicBoolean(initiallyReady)
     private val mutableLastSuccessfulTiming = MutableStateFlow<DesktopDictationTiming?>(null)
+    private val mutableState = MutableStateFlow(DesktopPhoneServerState.STOPPED)
+    private var supervisor: ScheduledExecutorService? = null
     private var activeServer: HttpServer? = null
     private var activeExecutor: ExecutorService? = null
+    private var consecutiveProbeFailures = 0
+    private var nextProbeNanoseconds = 0L
+    private var closed = false
 
     init
     {
@@ -47,37 +71,45 @@ class DesktopRemoteDictationServer(
     val localAddress: InetSocketAddress?
         get() = synchronized(ownershipLock) { activeServer?.address }
 
+    val state: StateFlow<DesktopPhoneServerState> = mutableState.asStateFlow()
+
     /**
      * Exposes only timing for the most recent successful phone request; it deliberately retains neither audio nor text.
      */
     val lastSuccessfulTiming: StateFlow<DesktopDictationTiming?> = mutableLastSuccessfulTiming.asStateFlow()
 
     /**
-     * Binds both endpoints once. Two daemon threads allow health checks while the serialized GPU operation is running.
+     * Starts one daemon supervisor that retries a failed bind and repairs an endpoint that no longer answers local liveness checks.
      */
     fun start()
     {
+        val startedSupervisor = synchronized(ownershipLock)
+        {
+            check(!closed) { "The phone dictation server is closed." }
+            check(supervisor == null) { "The phone dictation server supervisor is already running." }
+            Executors.newSingleThreadScheduledExecutor { runnable ->
+                Thread(runnable, "cleardictate-phone-supervisor").apply { isDaemon = true }
+            }.also { createdSupervisor ->
+                supervisor = createdSupervisor
+                mutableState.value = DesktopPhoneServerState.STARTING
+            }
+        }
+
+        reconcileEndpoint()
+        startedSupervisor.scheduleWithFixedDelay(::reconcileEndpointSafely, SUPERVISION_INTERVAL_MILLISECONDS, SUPERVISION_INTERVAL_MILLISECONDS, TimeUnit.MILLISECONDS)
+    }
+
+    /**
+     * Changes what authenticated clients may do without disturbing the independently supervised listening socket.
+     */
+    fun setDictationReady(ready: Boolean)
+    {
+        dictationReady.set(ready)
         synchronized(ownershipLock)
         {
-            check(activeServer == null) { "The phone dictation server is already running." }
-            val server = HttpServer.create(bindAddress, 0)
-            val executor = Executors.newFixedThreadPool(2) { runnable ->
-                Thread(runnable, "cleardictate-phone-request").apply { isDaemon = true }
-            }
-            try
+            if (activeServer != null)
             {
-                server.executor = executor
-                server.createContext(RemoteDictationProtocol.HEALTH_PATH, ::handleHealth)
-                server.createContext(RemoteDictationProtocol.DICTATION_PATH, ::handleDictation)
-                server.start()
-                activeExecutor = executor
-                activeServer = server
-            }
-            catch (throwable: Throwable)
-            {
-                server.stop(0)
-                executor.shutdownNow()
-                throw throwable
+                mutableState.value = if (ready) DesktopPhoneServerState.READY else DesktopPhoneServerState.PREPARING_AI
             }
         }
     }
@@ -86,10 +118,22 @@ class DesktopRemoteDictationServer(
     {
         val resources = synchronized(ownershipLock)
         {
-            Pair(activeServer.also { activeServer = null }, activeExecutor.also { activeExecutor = null })
+            if (closed)
+            {
+                return
+            }
+            closed = true
+            mutableState.value = DesktopPhoneServerState.STOPPED
+            Triple(
+                supervisor.also { supervisor = null },
+                activeServer.also { activeServer = null },
+                activeExecutor.also { activeExecutor = null }
+            )
         }
-        resources.first?.stop(0)
-        resources.second?.shutdownNow()
+        resources.first?.shutdownNow()
+        resources.second?.stop(0)
+        resources.third?.shutdownNow()
+        expectedAuthorization.fill(0)
     }
 
     /**
@@ -109,7 +153,16 @@ class DesktopRemoteDictationServer(
                 sendText(exchange, 405, "Method not allowed")
                 return
             }
-            sendText(exchange, 200, "Ready")
+            if (dictationReady.get())
+            {
+                exchange.responseHeaders.set(RemoteDictationProtocol.HEALTH_STATE_HEADER, RemoteDictationProtocol.HEALTH_STATE_READY)
+                sendText(exchange, 200, "Ready")
+            }
+            else
+            {
+                exchange.responseHeaders.set(RemoteDictationProtocol.HEALTH_STATE_HEADER, RemoteDictationProtocol.HEALTH_STATE_PREPARING_AI)
+                sendText(exchange, 503, "Preparing AI")
+            }
         }
     }
 
@@ -128,6 +181,11 @@ class DesktopRemoteDictationServer(
             {
                 exchange.responseHeaders.set("Allow", "POST")
                 sendText(exchange, 405, "Method not allowed")
+                return
+            }
+            if (!dictationReady.get())
+            {
+                sendText(exchange, 503, "Preparing AI")
                 return
             }
             if (!hasAudioContentType(exchange))
@@ -182,6 +240,159 @@ class DesktopRemoteDictationServer(
         }
     }
 
+    /**
+     * Contains every scheduled probe failure so one transient network or HTTP error cannot kill future recovery attempts.
+     */
+    private fun reconcileEndpointSafely()
+    {
+        runCatching(::reconcileEndpoint)
+    }
+
+    /**
+     * Binds when absent and replaces an endpoint only after two consecutive failed local probes, avoiding restarts during one transient timeout.
+     */
+    private fun reconcileEndpoint()
+    {
+        val server = synchronized(ownershipLock)
+        {
+            if (closed)
+            {
+                return
+            }
+            activeServer
+        }
+
+        if (server == null)
+        {
+            tryBindEndpoint()
+            return
+        }
+
+        val probeIsDue = synchronized(ownershipLock)
+        {
+            if (activeServer !== server || closed)
+            {
+                return
+            }
+            val currentNanoseconds = System.nanoTime()
+            if (currentNanoseconds < nextProbeNanoseconds)
+            {
+                false
+            }
+            else
+            {
+                nextProbeNanoseconds = currentNanoseconds + TimeUnit.MILLISECONDS.toNanos(PROBE_INTERVAL_MILLISECONDS)
+                true
+            }
+        }
+        if (!probeIsDue)
+        {
+            return
+        }
+
+        if (probeEndpoint(server.address))
+        {
+            synchronized(ownershipLock)
+            {
+                if (activeServer === server)
+                {
+                    consecutiveProbeFailures = 0
+                    mutableState.value = readyState()
+                }
+            }
+            return
+        }
+
+        val resourcesToReplace = synchronized(ownershipLock)
+        {
+            if (activeServer !== server || closed)
+            {
+                return
+            }
+            consecutiveProbeFailures += 1
+            if (consecutiveProbeFailures < REQUIRED_PROBE_FAILURES)
+            {
+                return
+            }
+            consecutiveProbeFailures = 0
+            mutableState.value = DesktopPhoneServerState.RECOVERING
+            Pair(activeServer.also { activeServer = null }, activeExecutor.also { activeExecutor = null })
+        }
+        resourcesToReplace.first?.stop(0)
+        resourcesToReplace.second?.shutdownNow()
+        tryBindEndpoint()
+    }
+
+    /**
+     * Attempts one complete bind while retaining the supervisor after failure so the next scheduled pass can retry.
+     */
+    private fun tryBindEndpoint()
+    {
+        synchronized(ownershipLock)
+        {
+            if (closed || activeServer != null)
+            {
+                return
+            }
+
+            val requestExecutor = Executors.newFixedThreadPool(2) { runnable ->
+                Thread(runnable, "cleardictate-phone-request").apply { isDaemon = true }
+            }
+            var createdServer: HttpServer? = null
+            val server = try
+            {
+                HttpServer.create(bindAddress, 0).also { createdServer = it }.apply {
+                    executor = requestExecutor
+                    createContext(RemoteDictationProtocol.HEALTH_PATH, ::handleHealth)
+                    createContext(RemoteDictationProtocol.DICTATION_PATH, ::handleDictation)
+                    start()
+                }
+            }
+            catch (_: Exception)
+            {
+                createdServer?.stop(0)
+                requestExecutor.shutdownNow()
+                mutableState.value = DesktopPhoneServerState.RECOVERING
+                return
+            }
+
+            activeExecutor = requestExecutor
+            activeServer = server
+            consecutiveProbeFailures = 0
+            nextProbeNanoseconds = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(PROBE_INTERVAL_MILLISECONDS)
+            mutableState.value = readyState()
+        }
+    }
+
+    /**
+     * Uses the authenticated boundary's deliberate 401 response as a content-free local liveness signal.
+     */
+    private fun probeEndpoint(address: InetSocketAddress): Boolean
+    {
+        val probeHost = if (address.address.isAnyLocalAddress) "127.0.0.1" else address.address.hostAddress
+        val connection = URI("http", null, probeHost, address.port, RemoteDictationProtocol.HEALTH_PATH, null, null).toURL().openConnection() as HttpURLConnection
+        return try
+        {
+            connection.connectTimeout = PROBE_TIMEOUT_MILLISECONDS
+            connection.readTimeout = PROBE_TIMEOUT_MILLISECONDS
+            connection.requestMethod = "GET"
+            connection.responseCode == 401
+        }
+        catch (_: Exception)
+        {
+            false
+        }
+        finally
+        {
+            connection.disconnect()
+        }
+    }
+
+    private fun readyState(): DesktopPhoneServerState
+    {
+        return if (dictationReady.get()) DesktopPhoneServerState.READY else DesktopPhoneServerState.PREPARING_AI
+    }
+
     private fun authorize(exchange: HttpExchange): Boolean
     {
         val suppliedAuthorization = exchange.requestHeaders.getFirst("Authorization")
@@ -217,5 +428,13 @@ class DesktopRemoteDictationServer(
         {
             body.fill(0)
         }
+    }
+
+    private companion object
+    {
+        const val SUPERVISION_INTERVAL_MILLISECONDS = 1_000L
+        const val PROBE_INTERVAL_MILLISECONDS = 5_000L
+        const val PROBE_TIMEOUT_MILLISECONDS = 1_000
+        const val REQUIRED_PROBE_FAILURES = 2
     }
 }

@@ -22,7 +22,7 @@ class PcStreamingSpeechEngineTest
             endpointProvider = PcEndpointProvider { endpoint },
             transport = object : PcDictationTransport
             {
-                override suspend fun checkHealth(endpoint: PcDictationEndpoint) = true
+                override suspend fun checkHealth(endpoint: PcDictationEndpoint) = PcHealthStatus.READY
 
                 override suspend fun dictate(endpoint: PcDictationEndpoint, audio: RemotePcmAudio): String
                 {
@@ -51,7 +51,7 @@ class PcStreamingSpeechEngineTest
             endpointProvider = PcEndpointProvider { PcDictationEndpoint("http://192.168.1.10:8765", "token") },
             transport = object : PcDictationTransport
             {
-                override suspend fun checkHealth(endpoint: PcDictationEndpoint) = true
+                override suspend fun checkHealth(endpoint: PcDictationEndpoint) = PcHealthStatus.READY
 
                 override suspend fun dictate(endpoint: PcDictationEndpoint, audio: RemotePcmAudio): String
                 {

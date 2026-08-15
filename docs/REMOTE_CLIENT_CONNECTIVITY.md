@@ -90,8 +90,8 @@ For normal operation:
 - Run only one ClearDictate desktop instance. The app enforces this per Windows session; another launch activates the existing window and exits before starting model workers or a second listener.
 
 1. The PC boots and Tailscale connects.
-2. ClearDictate starts, loads both GPU workers, detects the Tailscale address, and binds TCP 8765 only to that address. It then warms the GPU paths in the background
-   with local synthetic silence and a fixed trusted phrase. The endpoint remains available while warm-up runs, so it cannot block phone reconnection.
+2. ClearDictate detects the Tailscale address and immediately starts a supervised TCP 8765 listener on that address, independently of model loading. Authenticated health
+   requests return **Preparing AI** until both GPU workers are ready, then the app warms the GPU paths in the background with local synthetic silence and a fixed trusted phrase.
 3. The phone's Tailscale VPN connects over Wi-Fi or mobile data.
 4. ClearDictate's Android inference service checks the authenticated health endpoint immediately, then every 30 seconds while the service is active. Each health request
    has a five-second deadline and contains no audio or transcript data.
@@ -114,7 +114,8 @@ Perform these checks without exposing the bearer token:
 2. Confirm the PC listener's local address is the Tailscale address and its port is 8765.
 3. From the phone, confirm the PC's Tailscale address responds.
 4. Request `/v1/health` without authorization and expect `401 Unauthorized`.
-5. Request `/v1/health` using the token retained inside the Android app's private storage and expect `200 OK`.
+5. Request `/v1/health` using the token retained inside the Android app's private storage. Expect `503 Preparing AI` with the ClearDictate preparation header while models
+   load, followed by `200 OK` with the ready header. A dictation upload also receives `503` until the models are ready.
 6. Confirm that the same request to the PC's LAN address is unreachable while the server is bound to Tailscale.
 7. Disable phone Wi-Fi temporarily, allow Tailscale to move to mobile data, and repeat the authenticated health check. Restore Wi-Fi immediately afterward.
 8. Open ClearDictate and confirm **PC connected**, **PC service: Connected**, **Microphone: Allowed**, and **Floating microphone: Enabled**.
@@ -133,7 +134,14 @@ The Android inference process owns one authenticated connection monitor shared b
 startup and every 30 seconds rather than allowing each surface to create its own network loop. A failed check changes the floating control to a no-entry icon and blocks new
 recordings. A later successful check restores the microphone automatically; the user does not need to reopen ClearDictate or toggle the accessibility service.
 
-A grey microphone means the connection is still being checked, the PC model is not ready, the focused field is sensitive, or a recording error is awaiting recovery. The
+The Windows process owns a separate server supervisor. A temporary port conflict no longer leaves the phone endpoint permanently unavailable: the supervisor retries the
+bind every second until it succeeds. Once listening, it probes every five seconds; the expected local unauthenticated `401` response proves that the authenticated boundary
+is alive without exposing the bearer token. Two consecutive failed probes cause the listener to be rebuilt. Closing ClearDictate is the only action that stops supervision.
+
+Android represents an authenticated `503 Preparing AI` response as **PC connected; preparing AI** rather than as a network outage. The microphone stays unavailable until
+the next health poll observes `200 Ready`; pairing data and the accessibility service remain intact throughout preparation and server recovery.
+
+A grey microphone means the connection is still being checked, the PC is preparing its models, the focused field is sensitive, or a recording error is awaiting recovery. The
 message **ClearDictate is reconnecting to the paired PC** accompanies connection loss but does not by itself prove that the Tailscale route has failed. Loss may take up to
 approximately 35 seconds to appear: one 30-second polling interval plus the health request's five-second deadline.
 

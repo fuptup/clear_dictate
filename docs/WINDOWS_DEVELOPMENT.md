@@ -106,7 +106,8 @@ is open.
 
 ## Developer phone endpoint
 
-After both models reach **Ready**, ClearDictate listens on port `8765` for the versioned completed-audio protocol. Open **Phone**, choose the address on the phone's
+ClearDictate starts a supervised listener on port `8765` before the models load. Authenticated health checks report **Preparing AI** until both models reach **Ready**; a
+temporary bind or listener failure is retried automatically without restarting the app. Open **Phone**, choose the address on the phone's
 Wi-Fi network when several are available, and scan its QR code from the Android application. The address and persistent bearer token remain selectable as a manual
 fallback. The service accepts authenticated 16 kHz mono PCM16 recordings at
 `/v1/dictation`, runs the same serialized Qwen3-ASR and Qwen3.5 pipeline used by desktop capture, and returns only the polished UTF-8 transcript.

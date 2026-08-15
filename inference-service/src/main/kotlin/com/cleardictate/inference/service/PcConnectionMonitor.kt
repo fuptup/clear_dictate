@@ -17,6 +17,7 @@ import kotlinx.coroutines.sync.withLock
 enum class PcConnectionState
 {
     CHECKING,
+    PREPARING_AI,
     CONNECTED,
     DISCONNECTED
 }
@@ -85,14 +86,21 @@ internal class PcConnectionMonitor(
                 return
             }
 
-            val reachable = runCatching { transport.checkHealth(endpoint) }.getOrDefault(false)
+            val healthStatus = runCatching { transport.checkHealth(endpoint) }.getOrDefault(PcHealthStatus.UNAVAILABLE)
             if (endpointProvider.load() != endpoint)
             {
                 scope.launch { pollOnce() }
                 return
             }
 
-            publish(if (reachable) PcConnectionState.CONNECTED else PcConnectionState.DISCONNECTED)
+            publish(
+                when (healthStatus)
+                {
+                    PcHealthStatus.READY -> PcConnectionState.CONNECTED
+                    PcHealthStatus.PREPARING_AI -> PcConnectionState.PREPARING_AI
+                    PcHealthStatus.UNAVAILABLE -> PcConnectionState.DISCONNECTED
+                }
+            )
         }
     }
 

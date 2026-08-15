@@ -15,7 +15,7 @@ class PcConnectionMonitorTest
     {
         runBlocking {
             val endpoint = PcDictationEndpoint("http://127.0.0.1:8765", "test-token")
-            val transport = ControllableHealthTransport(reachable = true)
+            val transport = ControllableHealthTransport(PcHealthStatus.READY)
             val observedStates = mutableListOf<PcConnectionState>()
             val monitor = PcConnectionMonitor(
                 endpointProvider = PcEndpointProvider { endpoint },
@@ -27,13 +27,15 @@ class PcConnectionMonitorTest
             try
             {
                 monitor.pollOnce()
-                transport.reachable = false
+                transport.healthStatus = PcHealthStatus.UNAVAILABLE
                 monitor.pollOnce()
-                transport.reachable = true
+                transport.healthStatus = PcHealthStatus.PREPARING_AI
+                monitor.pollOnce()
+                transport.healthStatus = PcHealthStatus.READY
                 monitor.pollOnce()
 
                 assertEquals(
-                    listOf(PcConnectionState.CONNECTED, PcConnectionState.DISCONNECTED, PcConnectionState.CONNECTED),
+                    listOf(PcConnectionState.CONNECTED, PcConnectionState.DISCONNECTED, PcConnectionState.PREPARING_AI, PcConnectionState.CONNECTED),
                     observedStates
                 )
             }
@@ -48,7 +50,7 @@ class PcConnectionMonitorTest
     fun `missing pairing reports disconnected without a network request`()
     {
         runBlocking {
-            val transport = ControllableHealthTransport(reachable = true)
+            val transport = ControllableHealthTransport(PcHealthStatus.READY)
             val observedStates = mutableListOf<PcConnectionState>()
             val monitor = PcConnectionMonitor(
                 endpointProvider = PcEndpointProvider { null },
@@ -74,15 +76,15 @@ class PcConnectionMonitorTest
     /**
      * Exposes deterministic reachability changes while rejecting unrelated dictation calls.
      */
-    private class ControllableHealthTransport(var reachable: Boolean) : PcDictationTransport
+    private class ControllableHealthTransport(var healthStatus: PcHealthStatus) : PcDictationTransport
     {
         var healthCheckCount = 0
             private set
 
-        override suspend fun checkHealth(endpoint: PcDictationEndpoint): Boolean
+        override suspend fun checkHealth(endpoint: PcDictationEndpoint): PcHealthStatus
         {
             healthCheckCount += 1
-            return reachable
+            return healthStatus
         }
 
         override suspend fun dictate(endpoint: PcDictationEndpoint, audio: RemotePcmAudio): String

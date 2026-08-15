@@ -691,6 +691,7 @@ private fun parsePcConnectionState(code: Int): PcConnectionState
     {
         InferenceProtocolCodes.PC_CONNECTION_CONNECTED -> PcConnectionState.CONNECTED
         InferenceProtocolCodes.PC_CONNECTION_DISCONNECTED -> PcConnectionState.DISCONNECTED
+        InferenceProtocolCodes.PC_CONNECTION_PREPARING_AI -> PcConnectionState.PREPARING_AI
         else -> PcConnectionState.CHECKING
     }
 }

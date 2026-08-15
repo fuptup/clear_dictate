@@ -15,6 +15,7 @@ object InferenceProtocolCodes
     const val PC_CONNECTION_CHECKING = 0
     const val PC_CONNECTION_CONNECTED = 1
     const val PC_CONNECTION_DISCONNECTED = 2
+    const val PC_CONNECTION_PREPARING_AI = 3
 
     const val MODEL_NOT_PREPARED = 0
     const val MODEL_VERIFYING_AND_LOADING = 1

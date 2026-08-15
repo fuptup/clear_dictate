@@ -924,6 +924,7 @@ private fun PcConnectionState.toProtocolCode(): Int
     return when (this)
     {
         PcConnectionState.CHECKING -> InferenceProtocolCodes.PC_CONNECTION_CHECKING
+        PcConnectionState.PREPARING_AI -> InferenceProtocolCodes.PC_CONNECTION_PREPARING_AI
         PcConnectionState.CONNECTED -> InferenceProtocolCodes.PC_CONNECTION_CONNECTED
         PcConnectionState.DISCONNECTED -> InferenceProtocolCodes.PC_CONNECTION_DISCONNECTED
     }

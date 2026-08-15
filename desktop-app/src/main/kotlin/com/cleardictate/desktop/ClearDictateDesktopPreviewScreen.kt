@@ -91,6 +91,7 @@ internal fun ClearDictateDesktopPreviewScreen(
             val ready = runtimeReadiness is DesktopRuntimeReadiness.Ready
             val microphoneActivity by speechRecorder.microphoneActivity.collectAsState()
             val latestPhoneTiming by phoneServer.lastSuccessfulTiming.collectAsState()
+            val phoneServerState by phoneServer.state.collectAsState()
             var captureDevices by remember { mutableStateOf<List<WindowsCaptureDevice>>(emptyList()) }
             var selectedEndpointIdentifier by remember { mutableStateOf("") }
             var modelsReady by remember(ready) { mutableStateOf(false) }
@@ -100,7 +101,6 @@ internal fun ClearDictateDesktopPreviewScreen(
             val rawTranscript = rememberTextFieldState()
             val polishedTranscript = rememberTextFieldState()
             var status by remember { mutableStateOf(if (ready) "Preparing AI…" else (runtimeReadiness as DesktopRuntimeReadiness.Unavailable).explanation) }
-            var phoneServerStatus by remember { mutableStateOf("Waiting for AI") }
             var showPhoneSetup by remember { mutableStateOf(false) }
             var startWithWindows by remember(startupRegistration) { mutableStateOf(runCatching(startupRegistration::isEnabled).getOrDefault(false)) }
 
@@ -110,22 +110,15 @@ internal fun ClearDictateDesktopPreviewScreen(
                 {
                     captureDevices = runCatching { speechRecorder.listActiveCaptureDevices() }.getOrDefault(emptyList())
                     preparingModels = true
+                    phoneServer.setDictationReady(false)
                     try
                     {
                         dictationPipeline.prepareModels()
                         modelsReady = true
                         status = "Ready"
-                        phoneServerStatus = try
-                        {
-                            phoneServer.start()
-                            scope.launch {
-                                runCatching { dictationPipeline.warmUpModels() }
-                            }
-                            "Ready"
-                        }
-                        catch (_: Exception)
-                        {
-                            "Unavailable: could not open port ${phoneAccessConfiguration.port}"
+                        phoneServer.setDictationReady(true)
+                        scope.launch {
+                            runCatching { dictationPipeline.warmUpModels() }
                         }
                     }
                     catch (cancellation: CancellationException)
@@ -135,6 +128,7 @@ internal fun ClearDictateDesktopPreviewScreen(
                     catch (_: Exception)
                     {
                         modelsReady = false
+                        phoneServer.setDictationReady(false)
                         status = "AI startup failed. Restart ClearDictate."
                     }
                     finally
@@ -304,7 +298,7 @@ internal fun ClearDictateDesktopPreviewScreen(
             {
                 PhoneSetupDialog(
                     configuration = phoneAccessConfiguration,
-                    serverStatus = phoneServerStatus,
+                    serverStatus = phoneServerState.readableName(),
                     lastTiming = latestPhoneTiming,
                     onCopy = { pairingText ->
                         scope.launch {
@@ -445,6 +439,21 @@ private fun PhoneSetupDialog(
                 }
             }
         }
+    }
+}
+
+/**
+ * Presents the supervised network lifecycle separately from the model-preparation lifecycle.
+ */
+private fun DesktopPhoneServerState.readableName(): String
+{
+    return when (this)
+    {
+        DesktopPhoneServerState.STARTING -> "Starting"
+        DesktopPhoneServerState.PREPARING_AI -> "Preparing AI"
+        DesktopPhoneServerState.READY -> "Ready"
+        DesktopPhoneServerState.RECOVERING -> "Recovering"
+        DesktopPhoneServerState.STOPPED -> "Stopped"
     }
 }
 

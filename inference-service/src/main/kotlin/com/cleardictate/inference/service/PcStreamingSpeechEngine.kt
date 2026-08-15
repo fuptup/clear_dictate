@@ -16,7 +16,7 @@ class PcEndpointVerifiedSpeechModelProvider(
     {
         check(!cancellationSignal.isCancellationRequested) { "PC verification was cancelled." }
         val endpoint = checkNotNull(endpointProvider.load()) { "No PC endpoint is paired." }
-        check(runBlocking { transport.checkHealth(endpoint) }) { "The paired PC is not ready." }
+        check(runBlocking { transport.checkHealth(endpoint) } == PcHealthStatus.READY) { "The paired PC is not ready." }
         check(!cancellationSignal.isCancellationRequested) { "PC verification was cancelled." }
         return PcEndpointLease
     }
