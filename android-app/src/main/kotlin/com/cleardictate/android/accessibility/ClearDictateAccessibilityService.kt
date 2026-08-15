@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.os.PersistableBundle
 import android.util.Log
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
@@ -140,7 +141,10 @@ class ClearDictateAccessibilityService : AccessibilityService()
 
         floatingUndoControl = FloatingUndoControlView(this).apply {
             visibility = View.GONE
-            setOnClickListener { undoLastInsertion() }
+            setOnClickListener { control ->
+                control.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                undoLastInsertion()
+            }
         }
         val undoSize = densityIndependentPixels(52)
         val undoLayoutParameters = WindowManager.LayoutParams(
@@ -164,6 +168,10 @@ class ClearDictateAccessibilityService : AccessibilityService()
             MotionEvent.ACTION_DOWN ->
             {
                 recordingTouchActive = beginRecording()
+                if (recordingTouchActive)
+                {
+                    floatingControl.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                }
                 recordingTouchActive
             }
             MotionEvent.ACTION_UP ->
@@ -171,6 +179,7 @@ class ClearDictateAccessibilityService : AccessibilityService()
                 if (recordingTouchActive)
                 {
                     recordingTouchActive = false
+                    floatingControl.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY_RELEASE)
                     floatingControl.performClick()
                     inferenceServiceClient.stopDictation()
                     true
