@@ -93,7 +93,7 @@ namespace clear_dictate
         struct PendingPolishRequest final
         {
             WorkerOperationIdentity identity;
-            std::string cleanTranscript;
+            TextPolishPrompt prompt;
         };
 
         void HandleHello(const WorkerProtocolFrame& frame);

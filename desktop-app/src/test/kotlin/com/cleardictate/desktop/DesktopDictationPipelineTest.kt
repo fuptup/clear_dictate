@@ -1,6 +1,7 @@
 package com.cleardictate.desktop
 
 import com.cleardictate.desktop.inference.CapturedAudio
+import com.cleardictate.domain.TranscriptFallbackReason
 import com.cleardictate.inference.remote.RemotePcmAudio
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -73,10 +74,10 @@ class DesktopDictationPipelineTest
                     events += "warm-rewrite"
                 }
 
-                override suspend fun rewrite(rawTranscript: String): String
+                override suspend fun rewrite(rawTranscript: String): DesktopTranscriptRewrite
                 {
                     events += "rewrite:$rawTranscript"
-                    return "Send the report tomorrow."
+                    return successfulRewrite("Send the report tomorrow.")
                 }
 
                 override fun close()
@@ -138,7 +139,7 @@ class DesktopDictationPipelineTest
             transcriptRewriter = object : DesktopTranscriptRewriter
             {
                 override suspend fun prepare() = Unit
-                override suspend fun rewrite(rawTranscript: String) = "polished"
+                override suspend fun rewrite(rawTranscript: String) = successfulRewrite("polished")
                 override fun close() = Unit
             },
             dictationHistory = DesktopDictationHistory { _, _, _ -> }
@@ -162,5 +163,10 @@ class DesktopDictationPipelineTest
             override suspend fun cancelRecording() = Unit
             override fun close() = Unit
         }
+    }
+
+    private fun successfulRewrite(text: String): DesktopTranscriptRewrite
+    {
+        return DesktopTranscriptRewrite(text, DesktopPolishingOutcome(false, TranscriptFallbackReason.NONE))
     }
 }

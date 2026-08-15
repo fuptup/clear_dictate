@@ -2,6 +2,7 @@ package com.cleardictate.desktop
 
 import com.cleardictate.inference.remote.RemoteDictationProtocol
 import com.cleardictate.inference.remote.RemotePcmAudio
+import com.cleardictate.domain.TranscriptFallbackReason
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.URI
@@ -113,7 +114,8 @@ class DesktopRemoteDictationServerTest
         return DesktopDictationResult(
             rawTranscript = transcript,
             polishedTranscript = transcript,
-            timing = DesktopDictationTiming(queueMilliseconds = 0, recognitionMilliseconds = 11, rewritingMilliseconds = 7, totalMilliseconds = 18)
+            timing = DesktopDictationTiming(queueMilliseconds = 0, recognitionMilliseconds = 11, rewritingMilliseconds = 7, totalMilliseconds = 18),
+            polishingOutcome = DesktopPolishingOutcome(false, TranscriptFallbackReason.NONE)
         )
     }
 }

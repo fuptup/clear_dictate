@@ -280,6 +280,8 @@ namespace clear_dictate
 
     void TextInferenceWorkerSession::BeginPolish(const WorkerProtocolFrame& frame)
     {
+        TextPolishPrompt prompt = DecodeTextPolishPrompt(frame.payload);
+
         {
             std::lock_guard<std::mutex> lock(stateMutex_);
             if (state_ != WorkerSessionState::Idle || !backend_)
@@ -291,7 +293,7 @@ namespace clear_dictate
             pendingRequest_ = PendingPolishRequest
             {
                 frame.identity,
-                std::string(frame.payload.begin(), frame.payload.end())
+                std::move(prompt)
             };
             generationStarted_ = false;
             cancellationRequested_ = false;
@@ -394,7 +396,8 @@ namespace clear_dictate
 
     void TextInferenceWorkerSession::RunPolish(PendingPolishRequest request)
     {
-        SensitiveStringScrubber requestScrubber(request.cleanTranscript);
+        SensitiveStringScrubber systemInstructionScrubber(request.prompt.systemInstruction);
+        SensitiveStringScrubber userInstructionScrubber(request.prompt.userInstruction);
         bool cancelledBeforeGeneration = false;
         {
             std::lock_guard<std::mutex> lock(stateMutex_);
@@ -419,10 +422,6 @@ namespace clear_dictate
             return;
         }
 
-        TextPolishPrompt prompt = BuildTextPolishPrompt(request.cleanTranscript);
-        SensitiveStringScrubber systemInstructionScrubber(prompt.systemInstruction);
-        SensitiveStringScrubber userInstructionScrubber(prompt.userInstruction);
-
         {
             std::lock_guard<std::mutex> lock(stateMutex_);
             cancelledBeforeGeneration = stopping_ || cancellationRequested_;
@@ -438,8 +437,8 @@ namespace clear_dictate
 
         TextGenerationResult result = backend_->Generate(
             request.identity.workerRequestToken,
-            prompt.systemInstruction,
-            prompt.userInstruction,
+            request.prompt.systemInstruction,
+            request.prompt.userInstruction,
             [this, identity = request.identity]()
             {
                 std::lock_guard<std::mutex> lock(stateMutex_);

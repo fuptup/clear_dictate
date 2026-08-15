@@ -100,6 +100,21 @@ class WorkerProtocolCodecTest
     }
 
     @Test
+    fun `polish request accepts binary role payload while polished response remains UTF-8`()
+    {
+        val binaryPromptMessage = WorkerProtocolMessage(
+            WorkerMessageType.POLISH_TRANSCRIPT,
+            ClientSessionIdentifier("client-7"),
+            OperationIdentifier("operation-19"),
+            OperationPrivacy.PRIVATE,
+            WorkerRequestToken(27),
+            byteArrayOf(0xC3.toByte(), 0x28)
+        )
+
+        codec.write(binaryPromptMessage, DataOutputStream(ByteArrayOutputStream()))
+    }
+
+    @Test
     fun `rejects payload larger than the configured bound`()
     {
         val oversizedMessage = WorkerProtocolMessage(

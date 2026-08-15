@@ -15,7 +15,10 @@ class TranscriptPolishingPromptBuilderTest
     {
         val request = TranscriptPolishingPromptBuilder.build("Keep the intended meaning.")
 
-        assertTrue(request.systemInstruction.startsWith("You edit spoken transcripts"))
+        assertTrue(request.systemInstruction.startsWith("You rewrite spoken dictation"))
+        assertTrue(request.systemInstruction.contains("grammatically correct"))
+        assertTrue(request.systemInstruction.contains("Correct grammar"))
+        assertTrue(request.systemInstruction.contains("fragments and run-on sentences"))
         assertTrue(request.systemInstruction.contains("spoken formatting commands"))
         assertTrue(request.systemInstruction.contains("50%, not 60%"))
         assertTrue(request.userMessage.startsWith("Edit this transcript:"))

@@ -38,9 +38,17 @@ namespace
         return { "session_1", "operation_1", OperationPrivacy::Private, requestToken };
     }
 
-    std::vector<std::uint8_t> Bytes(const std::string& text)
+    std::vector<std::uint8_t> TextPolishPayload()
     {
-        return { text.begin(), text.end() };
+        return
+        {
+            0x43, 0x44, 0x54, 0x50,
+            0x00, 0x01,
+            0x00, 0x00, 0x00, 0x06,
+            0x00, 0x00, 0x00, 0x04,
+            's', 'y', 's', 't', 'e', 'm',
+            'u', 's', 'e', 'r'
+        };
     }
 
     class ControllableBackend final : public TextGenerationBackend
@@ -48,13 +56,15 @@ namespace
     public:
         TextGenerationResult Generate(
             std::uint64_t requestIdentifier,
-            const std::string&,
-            const std::string&,
+            const std::string& systemInstruction,
+            const std::string& userInstruction,
             const std::function<bool()>& cancellationRequestedAtStart) override
         {
             {
                 std::lock_guard<std::mutex> lock(stateMutex_);
                 activeRequestIdentifier_ = requestIdentifier;
+                receivedSystemInstruction_ = systemInstruction;
+                receivedUserInstruction_ = userInstruction;
                 generationStarted_ = true;
                 cancellationObserved_ = cancellationRequestedAtStart();
             }
@@ -104,10 +114,18 @@ namespace
             stateChanged_.notify_all();
         }
 
+        bool ReceivedSeparatePromptRoles()
+        {
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            return receivedSystemInstruction_ == "system" && receivedUserInstruction_ == "user";
+        }
+
     private:
         std::mutex stateMutex_;
         std::condition_variable stateChanged_;
         std::uint64_t activeRequestIdentifier_ = 0;
+        std::string receivedSystemInstruction_;
+        std::string receivedUserInstruction_;
         bool generationStarted_ = false;
         bool cancellationObserved_ = false;
         bool completionAllowed_ = false;
@@ -172,9 +190,10 @@ namespace
         TextInferenceWorkerSession session(loader, [&output](const WorkerProtocolFrame& frame) { output.Add(frame); });
 
         CompleteHandshake(session);
-        session.Handle(WorkerProtocolFrame::Operation(WorkerMessageType::PolishTranscript, TestIdentity(), Bytes("raw text")));
+        session.Handle(WorkerProtocolFrame::Operation(WorkerMessageType::PolishTranscript, TestIdentity(), TextPolishPayload()));
 
         loader.backendPointer->WaitUntilGenerationStarts();
+        Require(loader.backendPointer->ReceivedSeparatePromptRoles(), "The session must pass the transported prompt roles to the backend unchanged.");
         loader.backendPointer->AllowCompletion();
         output.WaitForCount(3);
 
@@ -197,7 +216,7 @@ namespace
 
         CompleteHandshake(session);
         const WorkerOperationIdentity identity = TestIdentity(42);
-        session.Handle(WorkerProtocolFrame::Operation(WorkerMessageType::PolishTranscript, identity, Bytes("raw text")));
+        session.Handle(WorkerProtocolFrame::Operation(WorkerMessageType::PolishTranscript, identity, TextPolishPayload()));
         loader.backendPointer->WaitUntilGenerationStarts();
         session.Handle(WorkerProtocolFrame::Operation(WorkerMessageType::Cancel, identity, {}));
         output.WaitForCount(4);
@@ -215,7 +234,7 @@ namespace
 
         CompleteHandshake(session);
         const WorkerOperationIdentity identity = TestIdentity(45);
-        session.Handle(WorkerProtocolFrame::Operation(WorkerMessageType::PolishTranscript, identity, Bytes("raw text")));
+        session.Handle(WorkerProtocolFrame::Operation(WorkerMessageType::PolishTranscript, identity, TextPolishPayload()));
         session.Handle(WorkerProtocolFrame::Operation(WorkerMessageType::Cancel, identity, {}));
         output.WaitForCount(4);
 
@@ -232,7 +251,7 @@ namespace
 
         CompleteHandshake(session);
         const WorkerOperationIdentity activeIdentity = TestIdentity(43);
-        session.Handle(WorkerProtocolFrame::Operation(WorkerMessageType::PolishTranscript, activeIdentity, Bytes("raw text")));
+        session.Handle(WorkerProtocolFrame::Operation(WorkerMessageType::PolishTranscript, activeIdentity, TextPolishPayload()));
 
         bool mismatchRejected = false;
         try

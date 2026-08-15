@@ -159,7 +159,7 @@ class WindowsTextWorkerClient private constructor(
                     activeOperation = operation
                     startingOperation = null
 
-                    writeFrameWhileLocked(createPolishFrame(frameIdentity, request.untrustedCleanTranscript))
+                    writeFrameWhileLocked(createPolishFrame(frameIdentity, request))
                     operation.submissionCompleted.complete(Unit)
                 }
             }
@@ -495,24 +495,16 @@ class WindowsTextWorkerClient private constructor(
         }
     }
 
-    private fun createPolishFrame(identity: ActiveWorkerRequestIdentity, cleanTranscript: String): WorkerProtocolMessage
+    private fun createPolishFrame(identity: ActiveWorkerRequestIdentity, request: TranscriptPolishingRequest): WorkerProtocolMessage
     {
-        val transcriptBytes = cleanTranscript.toByteArray(Charsets.UTF_8)
-        return try
-        {
-            WorkerProtocolMessage(
-                type = WorkerMessageType.POLISH_TRANSCRIPT,
-                clientSessionIdentifier = identity.clientSessionIdentifier,
-                operationIdentifier = identity.operationIdentifier,
-                privacy = identity.privacy,
-                workerRequestToken = identity.workerRequestToken,
-                payload = transcriptBytes
-            )
-        }
-        finally
-        {
-            transcriptBytes.fill(0)
-        }
+        return WorkerProtocolMessage(
+            type = WorkerMessageType.POLISH_TRANSCRIPT,
+            clientSessionIdentifier = identity.clientSessionIdentifier,
+            operationIdentifier = identity.operationIdentifier,
+            privacy = identity.privacy,
+            workerRequestToken = identity.workerRequestToken,
+            payload = WorkerTextPolishPayloadCodec.encode(request)
+        )
     }
 
     private fun ensureOpen()

@@ -66,15 +66,19 @@ interface TranscriptPolisher
  */
 object TranscriptPolishingPromptBuilder
 {
-    private const val SYSTEM_INSTRUCTION = """You edit spoken transcripts into clear written English.
+    private const val SYSTEM_INSTRUCTION = """You rewrite spoken dictation into polished, grammatically correct written English.
+
+Actively edit disfluent speech rather than merely transcribing it.
+
+Correct grammar, agreement, word order, punctuation, and sentence structure.
 
 Remove hesitation fillers, abandoned starts, accidental repetitions, and verbal clutter.
 
-Improve punctuation and sentence structure only where required for readability.
+Turn fragments and run-on sentences into coherent sentences. Split, combine, or reorder wording where needed for natural written prose.
 
 Apply explicit spoken formatting commands as formatting rather than literal words. This includes punctuation, symbols, line breaks, and paired delimiters. For example, "50 percent comma not 60 percent" becomes "50%, not 60%".
 
-Preserve the speaker's intended meaning exactly.
+Preserve the speaker's intended meaning, tone, emphasis, and level of formality exactly.
 
 Preserve all names, numbers, dates, measurements, prices, identifiers, technical terms, negations, qualifications, uncertainty, and corrections.
 

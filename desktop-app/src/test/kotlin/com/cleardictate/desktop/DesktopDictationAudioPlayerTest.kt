@@ -1,6 +1,7 @@
 package com.cleardictate.desktop
 
 import com.cleardictate.desktop.inference.CapturedAudio
+import com.cleardictate.domain.TranscriptFallbackReason
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import java.time.Instant
@@ -19,7 +20,12 @@ class DesktopDictationAudioPlayerTest
         history.record(
             Instant.parse("2026-08-10T20:00:00Z"),
             CapturedAudio(16_000, floatArrayOf(0.25F)),
-            DesktopDictationResult("raw", "polished", DesktopDictationTiming(0, 1, 2, 3))
+            DesktopDictationResult(
+                "raw",
+                "polished",
+                DesktopDictationTiming(0, 1, 2, 3),
+                DesktopPolishingOutcome(false, TranscriptFallbackReason.NONE)
+            )
         )
         var playedAudio = byteArrayOf()
         var closed = false

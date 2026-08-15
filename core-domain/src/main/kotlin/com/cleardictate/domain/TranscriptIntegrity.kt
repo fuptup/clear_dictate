@@ -83,7 +83,10 @@ class ProtectedInformationExtractor
             Regex("""(?iu)\b(?:may|might|could|possibly|probably|likely|unlikely|uncertain|approximately|about|around)\b""")
         ),
         ExtractionRule(ProtectedInformationType.CAPITALIZED_TERM, Regex("""\b\p{Lu}\p{Ll}{1,}\b""")),
-        ExtractionRule(ProtectedInformationType.QUOTED_TEXT, Regex("""(?s)(?:"[^"\r\n]+"|'[^'\r\n]+')"""))
+        ExtractionRule(
+            ProtectedInformationType.QUOTED_TEXT,
+            Regex("""(?s)(?:"[^"\r\n]+"|(?<![\p{L}\p{N}])'[^'\r\n]+'(?![\p{L}\p{N}])|‘[^’\r\n]+’)""")
+        )
     )
 
     /**

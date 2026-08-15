@@ -569,7 +569,14 @@ class WorkerProtocolCodec(
                 }
             }
 
-            WorkerMessageType.POLISH_TRANSCRIPT,
+            WorkerMessageType.POLISH_TRANSCRIPT ->
+            {
+                if (payloadSize !in 1..ABSOLUTE_MAXIMUM_PAYLOAD_BYTES)
+                {
+                    throw WorkerProtocolException(WorkerProtocolFailure.INVALID_MESSAGE_PAYLOAD)
+                }
+            }
+
             WorkerMessageType.POLISHED_TRANSCRIPT ->
             {
                 if (payloadSize !in 1..ABSOLUTE_MAXIMUM_PAYLOAD_BYTES)

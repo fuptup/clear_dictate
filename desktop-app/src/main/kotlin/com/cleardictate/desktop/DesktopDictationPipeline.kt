@@ -1,6 +1,7 @@
 package com.cleardictate.desktop
 
 import com.cleardictate.desktop.inference.CapturedAudio
+import com.cleardictate.domain.TranscriptFallbackReason
 import com.cleardictate.inference.remote.RemotePcmAudio
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -38,8 +39,24 @@ interface DesktopTranscriptRewriter : AutoCloseable
 {
     suspend fun prepare()
     suspend fun warmUp() = Unit
-    suspend fun rewrite(rawTranscript: String): String
+    suspend fun rewrite(rawTranscript: String): DesktopTranscriptRewrite
 }
+
+/**
+ * Returns selected output together with whether it genuinely came from the language model.
+ */
+data class DesktopTranscriptRewrite(
+    val selectedTranscript: String,
+    val polishingOutcome: DesktopPolishingOutcome
+)
+
+/**
+ * Retains the model/fallback decision without storing sensitive diagnostics.
+ */
+data class DesktopPolishingOutcome(
+    val usedDeterministicFallback: Boolean,
+    val fallbackReason: TranscriptFallbackReason
+)
 
 /**
  * Records only monotonic durations so latency can be diagnosed without retaining dictated text or audio.
@@ -54,7 +71,8 @@ data class DesktopDictationTiming(
 data class DesktopDictationResult(
     val rawTranscript: String,
     val polishedTranscript: String,
-    val timing: DesktopDictationTiming
+    val timing: DesktopDictationTiming,
+    val polishingOutcome: DesktopPolishingOutcome
 )
 
 /**
@@ -153,17 +171,18 @@ class DesktopDictationPipeline(
                 val processingStartedNanoseconds = System.nanoTime()
                 val recognition = speechTranscriber.transcribe(capturedAudio)
                 val recognitionCompletedNanoseconds = System.nanoTime()
-                val polishedTranscript = transcriptRewriter.rewrite(recognition.transcript)
+                val rewrite = transcriptRewriter.rewrite(recognition.transcript)
                 val completedNanoseconds = System.nanoTime()
                 val result = DesktopDictationResult(
                     rawTranscript = recognition.transcript,
-                    polishedTranscript = polishedTranscript,
+                    polishedTranscript = rewrite.selectedTranscript,
                     timing = DesktopDictationTiming(
                         queueMilliseconds = elapsedMilliseconds(requestStartedNanoseconds, processingStartedNanoseconds),
                         recognitionMilliseconds = recognition.processingMilliseconds,
                         rewritingMilliseconds = elapsedMilliseconds(recognitionCompletedNanoseconds, completedNanoseconds),
                         totalMilliseconds = elapsedMilliseconds(requestStartedNanoseconds, completedNanoseconds)
-                    )
+                    ),
+                    polishingOutcome = rewrite.polishingOutcome
                 )
                 dictationHistory.record(recordedAt, capturedAudio, result)
                 result

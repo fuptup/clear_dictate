@@ -3,6 +3,7 @@ package com.cleardictate.desktop
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import com.cleardictate.domain.TranscriptFallbackReason
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -37,6 +38,17 @@ class ClearDictateHistoryScreenTest
         assertEquals("3.25 s", formatAudioDuration(3_250))
     }
 
+    @Test
+    fun `polishing result distinguishes Qwen output from deterministic fallback`()
+    {
+        assertEquals("Not recorded", formatPolishingOutcome(null))
+        assertEquals("Qwen", formatPolishingOutcome(DesktopPolishingOutcome(false, TranscriptFallbackReason.NONE)))
+        assertEquals(
+            "Fallback: safety check",
+            formatPolishingOutcome(DesktopPolishingOutcome(true, TranscriptFallbackReason.INTEGRITY_REJECTED))
+        )
+    }
+
     private fun entry(identifier: Long, recordedAt: String): StoredDictationSummary
     {
         return StoredDictationSummary(
@@ -46,6 +58,7 @@ class ClearDictateHistoryScreenTest
             polishedTranscript = "polished $identifier",
             correctedTranscript = null,
             correctedAt = null,
+            polishingOutcome = DesktopPolishingOutcome(false, TranscriptFallbackReason.NONE),
             audioDurationMilliseconds = 1_500,
             timing = DesktopDictationTiming(0, 1, 2, 3)
         )

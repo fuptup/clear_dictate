@@ -128,6 +128,18 @@ namespace
         Require(rejected, "Invalid UTF-8 transcript output must fail closed.");
     }
 
+    void TestPolishRequestAcceptsBinaryRolePayload()
+    {
+        const clear_dictate::WorkerProtocolFrame decodedFrame = Decode(
+            Encode(
+                clear_dictate::WorkerProtocolFrame::Operation(
+                    clear_dictate::WorkerMessageType::PolishTranscript,
+                    { "client-7", "operation-19", clear_dictate::OperationPrivacy::Private, 27 },
+                    { 0xC3, 0x28 })));
+
+        Require(decodedFrame.payload == std::vector<std::uint8_t>({ 0xC3, 0x28 }), "A binary prompt-role payload must pass through the framing layer unchanged.");
+    }
+
     void TestRecordingCompleteHasNoPayload()
     {
         const clear_dictate::WorkerProtocolFrame decodedFrame = Decode(
@@ -213,6 +225,7 @@ namespace
         TestControlFrameNeedsNoOperationIdentity();
         TestEveryTruncatedFrameFailsWithFixedCategory();
         TestInvalidUtf8TranscriptIsRejected();
+        TestPolishRequestAcceptsBinaryRolePayload();
         TestRecordingCompleteHasNoPayload();
         TestEmptyAudioChunkIsRejected();
         TestRecordingStartRequiresVersionedPayload();

@@ -123,9 +123,16 @@ class DesktopTranscriptProcessor(
     /**
      * Runs the complete deterministic-cleaning and local-polishing path selected by push-to-talk.
      */
-    override suspend fun rewrite(rawTranscript: String): String
+    override suspend fun rewrite(rawTranscript: String): DesktopTranscriptRewrite
     {
-        return process(rawTranscript, TranscriptMode.POLISHED).selectedTranscript
+        val processedTranscript = process(rawTranscript, TranscriptMode.POLISHED)
+        return DesktopTranscriptRewrite(
+            selectedTranscript = processedTranscript.selectedTranscript,
+            polishingOutcome = DesktopPolishingOutcome(
+                usedDeterministicFallback = processedTranscript.usedDeterministicFallback,
+                fallbackReason = processedTranscript.fallbackReason
+            )
+        )
     }
 
     suspend fun restartWorker()

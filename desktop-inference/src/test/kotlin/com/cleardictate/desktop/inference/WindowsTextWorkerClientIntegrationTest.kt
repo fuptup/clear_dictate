@@ -94,6 +94,16 @@ class WindowsTextWorkerClientIntegrationTest
                 assertContains(result, "not")
                 assertContains(result, "14:45")
 
+                val grammaticalRewrite = pipeline.process(
+                    operationContext = operationContext.copy(
+                        operationIdentifier = OperationIdentifier("grammatical_rewrite_operation")
+                    ),
+                    exactRawTranscript = "I'm testing this, so if it if the my report doesn't look right, that's why.",
+                    mode = TranscriptMode.POLISHED
+                )
+                assertFalse(grammaticalRewrite.usedDeterministicFallback, "Unexpected fallback: ${grammaticalRewrite.fallbackReason}")
+                assertFalse(grammaticalRewrite.selectedTranscript.contains("if it if the my", ignoreCase = true))
+
                 val spokenFormattingTranscript = pipeline.process(
                     operationContext = operationContext.copy(
                         operationIdentifier = OperationIdentifier("spoken_formatting_operation")

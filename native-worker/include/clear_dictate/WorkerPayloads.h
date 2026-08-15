@@ -54,5 +54,5 @@ namespace clear_dictate
     TextModelLoadRequest DecodeTextModelLoadRequest(const std::vector<std::uint8_t>& payload);
     std::vector<std::uint8_t> EncodeRecordingStartRequest(const RecordingStartRequest& request);
     RecordingStartRequest DecodeRecordingStartRequest(const std::vector<std::uint8_t>& payload);
-    TextPolishPrompt BuildTextPolishPrompt(const std::string& cleanTranscript);
+    TextPolishPrompt DecodeTextPolishPrompt(const std::vector<std::uint8_t>& payload);
 }

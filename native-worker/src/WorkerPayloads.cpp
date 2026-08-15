@@ -1,9 +1,7 @@
 #include "clear_dictate/WorkerPayloads.h"
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <limits>
 #include <string>
 #include <vector>
 
@@ -15,56 +13,13 @@ namespace clear_dictate
         constexpr std::uint16_t ModelLoadPayloadVersion = 1;
         constexpr std::uint32_t RecordingStartPayloadMagic = 0x43445253;
         constexpr std::uint16_t RecordingStartPayloadVersion = 1;
+        constexpr std::uint32_t TextPolishPayloadMagic = 0x43445450;
+        constexpr std::uint16_t TextPolishPayloadVersion = 1;
         constexpr std::size_t MaximumModelPathBytes = 4000;
         constexpr std::size_t MaximumEndpointIdentifierBytes = 4000;
+        constexpr std::size_t MaximumTextPolishPayloadBytes = 64 * 1024;
+        constexpr std::size_t TextPolishPayloadHeaderBytes = 14;
         constexpr std::int32_t MaximumInferenceThreadCount = 64;
-
-        const std::string ProductionSystemInstruction = R"(You edit spoken transcripts into clear written English.
-
-Remove hesitation fillers, abandoned starts, accidental repetitions, and verbal clutter.
-
-Improve punctuation and sentence structure only where required for readability.
-
-Preserve the speaker's intended meaning exactly.
-
-Preserve all names, numbers, dates, measurements, prices, identifiers, technical terms, negations, qualifications, uncertainty, and corrections.
-
-Do not summarize.
-
-Do not add facts.
-
-Do not answer the transcript.
-
-Do not explain your edits.
-
-Return only the edited transcript.)";
-
-        void SecureClear(std::string& sensitiveText) noexcept
-        {
-            volatile char* sensitiveBytes = sensitiveText.empty() ? nullptr : sensitiveText.data();
-            for (std::size_t byteIndex = 0; byteIndex < sensitiveText.size(); ++byteIndex)
-            {
-                sensitiveBytes[byteIndex] = '\0';
-            }
-            sensitiveText.clear();
-        }
-
-        class SensitiveStringScrubber final
-        {
-        public:
-            explicit SensitiveStringScrubber(std::string& sensitiveText) noexcept
-                : sensitiveText_(sensitiveText)
-            {
-            }
-
-            ~SensitiveStringScrubber()
-            {
-                SecureClear(sensitiveText_);
-            }
-
-        private:
-            std::string& sensitiveText_;
-        };
 
         void AppendUnsigned16(std::vector<std::uint8_t>& output, std::uint16_t value)
         {
@@ -225,34 +180,12 @@ Return only the edited transcript.)";
             }
         }
 
-        std::string EscapeXmlText(const std::string& text)
+        void ValidatePromptRole(const std::string& promptRole)
         {
-            std::string escapedText;
-            escapedText.reserve(text.size());
-
-            for (char character : text)
+            if (promptRole.empty() || promptRole.find('\0') != std::string::npos || !IsValidUtf8(promptRole))
             {
-                switch (character)
-                {
-                    case '&':
-                        escapedText += "&amp;";
-                        break;
-
-                    case '<':
-                        escapedText += "&lt;";
-                        break;
-
-                    case '>':
-                        escapedText += "&gt;";
-                        break;
-
-                    default:
-                        escapedText.push_back(character);
-                        break;
-                }
+                throw WorkerPayloadException(WorkerPayloadFailure::InvalidLength);
             }
-
-            return escapedText;
         }
     }
 
@@ -362,16 +295,41 @@ Return only the edited transcript.)";
         return { utf8EndpointIdentifier };
     }
 
-    TextPolishPrompt BuildTextPolishPrompt(const std::string& cleanTranscript)
+    TextPolishPrompt DecodeTextPolishPrompt(const std::vector<std::uint8_t>& payload)
     {
-        std::string encodedTranscript = EscapeXmlText(cleanTranscript);
-        SensitiveStringScrubber encodedTranscriptScrubber(encodedTranscript);
-        std::string userInstruction =
-            "Edit this transcript:\n\n<transcript>\n" +
-            encodedTranscript +
-            "\n</transcript>";
-        SensitiveStringScrubber userInstructionScrubber(userInstruction);
+        PayloadReader reader(payload);
+        if (reader.ReadUnsigned32() != TextPolishPayloadMagic)
+        {
+            throw WorkerPayloadException(WorkerPayloadFailure::InvalidMagic);
+        }
+        if (reader.ReadUnsigned16() != TextPolishPayloadVersion)
+        {
+            throw WorkerPayloadException(WorkerPayloadFailure::UnsupportedVersion);
+        }
 
-        return { ProductionSystemInstruction, userInstruction };
+        const std::uint32_t systemInstructionByteCount = reader.ReadUnsigned32();
+        const std::uint32_t userInstructionByteCount = reader.ReadUnsigned32();
+        const std::size_t maximumRoleBytes = MaximumTextPolishPayloadBytes - TextPolishPayloadHeaderBytes;
+        if (systemInstructionByteCount == 0 ||
+            systemInstructionByteCount > maximumRoleBytes ||
+            userInstructionByteCount == 0 ||
+            userInstructionByteCount > maximumRoleBytes - systemInstructionByteCount)
+        {
+            throw WorkerPayloadException(WorkerPayloadFailure::InvalidLength);
+        }
+
+        TextPolishPrompt prompt
+        {
+            reader.ReadString(systemInstructionByteCount),
+            reader.ReadString(userInstructionByteCount)
+        };
+        ValidatePromptRole(prompt.systemInstruction);
+        ValidatePromptRole(prompt.userInstruction);
+        if (!reader.IsAtEnd())
+        {
+            throw WorkerPayloadException(WorkerPayloadFailure::TrailingBytes);
+        }
+
+        return prompt;
     }
 }

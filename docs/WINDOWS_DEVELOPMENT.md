@@ -7,9 +7,10 @@ it stops capture, sends the completed in-memory recording to Qwen3-ASR 1.7B on C
 polished text is selected for copying or editing.
 
 Recognition never runs while the button is held. After a successful result, ClearDictate stores the audio as a mono PCM16 WAV BLOB together with both transcripts,
-UTC capture datetime, and queue/ASR/rewrite/total durations in `%LOCALAPPDATA%\ClearDictate\dictation-history.sqlite`; the in-memory capture samples are then
-overwritten. The native capture worker, Python ASR worker, and llama.cpp text worker communicate through private pipes. Process isolation is a crash and ownership
-boundary, not a hostile-code sandbox.
+UTC capture datetime, queue/ASR/rewrite/total durations, and whether the selected text came from Qwen or deterministic fallback in
+`%LOCALAPPDATA%\ClearDictate\dictation-history.sqlite`; the in-memory capture samples are then overwritten. The native capture worker, Python ASR worker, and
+llama.cpp text worker communicate through private pipes. The Kotlin domain owns the authoritative rewrite prompt and transports its system and user roles separately
+to the native worker. Process isolation is a crash and ownership boundary, not a hostile-code sandbox.
 
 The system-wide shortcut, focused-application insertion, history export, installer, and device-compatibility matrix remain separate product work.
 
@@ -96,9 +97,12 @@ Select **Rules** to view the read-only built-in commands and add literal custom 
 
 ClearDictate permits one desktop instance per Windows session. Launching it again restores and focuses the existing main window, then the duplicate process exits before loading models or opening another phone listener.
 
-Select **History** to open the retained-record viewer. It lists newest records first and can filter by the PC's local calendar date. Hover an ASR, polished, or reviewed-correction cell and click its **Copy** affordance to place exactly that cell's text on the clipboard; click elsewhere on the row to play its stored WAV through the
-default Windows output. A reviewed correction can be saved separately from the immutable ASR and polished outputs. The correction and its UTC review time are retained
-in the same local SQLite database for regression testing and explicit dataset preparation. **Refresh** reloads records created while the viewer is open.
+Select **History** to open the retained-record viewer. It lists newest records first and can filter by the PC's local calendar date. The **Polish result** column identifies
+successful Qwen output and names the reason for deterministic fallback; records created before this provenance was stored show **Not recorded**. Hover an ASR,
+selected-text, or reviewed-correction cell and click its **Copy** affordance to place exactly that cell's text on the clipboard; click elsewhere on the row to play its
+stored WAV through the default Windows output. A reviewed correction can be saved separately from the immutable ASR and selected outputs. The correction and its UTC
+review time are retained in the same local SQLite database for regression testing and explicit dataset preparation. **Refresh** reloads records created while the viewer
+is open.
 
 ## Developer phone endpoint
 

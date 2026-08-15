@@ -230,6 +230,12 @@ namespace clear_dictate
                     return;
 
                 case WorkerMessageType::PolishTranscript:
+                    if (payload.empty())
+                    {
+                        throw WorkerProtocolException(WorkerProtocolFailure::InvalidMessagePayload);
+                    }
+                    return;
+
                 case WorkerMessageType::PolishedTranscript:
                     if (payload.empty() || !IsValidUtf8(payload))
                     {

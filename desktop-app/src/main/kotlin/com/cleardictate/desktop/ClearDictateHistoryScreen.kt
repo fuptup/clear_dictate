@@ -47,6 +47,7 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.cleardictate.domain.TranscriptFallbackReason
 import kotlinx.coroutines.launch
 import java.awt.datatransfer.StringSelection
 import java.time.LocalDate
@@ -275,8 +276,9 @@ private fun HistoryHeaderRow()
     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)) {
         HistoryCell("Date / time", 1.35F, maxLines = 1, fontWeight = FontWeight.SemiBold)
         HistoryCell("Qwen3-ASR", 2.2F, fontWeight = FontWeight.SemiBold)
-        HistoryCell("Qwen3.5 polished", 2.2F, fontWeight = FontWeight.SemiBold)
-        HistoryCell("Reviewed correction", 2.0F, fontWeight = FontWeight.SemiBold)
+        HistoryCell("Selected text", 2.1F, fontWeight = FontWeight.SemiBold)
+        HistoryCell("Polish result", 1.15F, fontWeight = FontWeight.SemiBold)
+        HistoryCell("Reviewed correction", 1.8F, fontWeight = FontWeight.SemiBold)
         HistoryCell("Audio", 0.75F, fontWeight = FontWeight.SemiBold)
         HistoryCell("ASR", 0.75F, fontWeight = FontWeight.SemiBold)
         HistoryCell("Total", 0.75F, fontWeight = FontWeight.SemiBold)
@@ -294,8 +296,9 @@ private fun HistoryEntryRow(entry: StoredDictationSummary, selected: Boolean, zo
             val localCaptureTime = entry.recordedAt.atZone(zoneId)
             HistoryCell(localCaptureTime.format(HISTORY_TIMESTAMP_FORMATTER), 1.35F, maxLines = 1)
             HistoryCopyCell(entry.rawTranscript, 2.2F) { onCopy("ASR text", entry.rawTranscript) }
-            HistoryCopyCell(entry.polishedTranscript, 2.2F) { onCopy("Polished text", entry.polishedTranscript) }
-            HistoryCopyCell(entry.correctedTranscript ?: "—", 2.0F, enabled = entry.correctedTranscript != null) {
+            HistoryCopyCell(entry.polishedTranscript, 2.1F) { onCopy("Selected text", entry.polishedTranscript) }
+            HistoryCell(formatPolishingOutcome(entry.polishingOutcome), 1.15F)
+            HistoryCopyCell(entry.correctedTranscript ?: "—", 1.8F, enabled = entry.correctedTranscript != null) {
                 onCopy("Reviewed correction", entry.correctedTranscript.orEmpty())
             }
             HistoryCell(formatAudioDuration(entry.audioDurationMilliseconds), 0.75F, maxLines = 1)
@@ -311,6 +314,31 @@ private fun HistoryEntryRow(entry: StoredDictationSummary, selected: Boolean, zo
 internal fun formatAudioDuration(durationMilliseconds: Long): String
 {
     return String.format(Locale.ROOT, "%.2f s", durationMilliseconds / 1_000.0)
+}
+
+/**
+ * Makes successful model output and every deterministic fallback explicit in the History table.
+ */
+internal fun formatPolishingOutcome(outcome: DesktopPolishingOutcome?): String
+{
+    if (outcome == null)
+    {
+        return "Not recorded"
+    }
+    if (!outcome.usedDeterministicFallback)
+    {
+        return "Qwen"
+    }
+
+    return when (outcome.fallbackReason)
+    {
+        TranscriptFallbackReason.CONTEXT_LIMIT_EXCEEDED -> "Fallback: too long"
+        TranscriptFallbackReason.INTEGRITY_REJECTED -> "Fallback: safety check"
+        TranscriptFallbackReason.INFERENCE_TIMEOUT -> "Fallback: timeout"
+        TranscriptFallbackReason.CANCELLATION_NOT_ACKNOWLEDGED -> "Fallback: cancellation"
+        TranscriptFallbackReason.INFERENCE_FAILURE -> "Fallback: model error"
+        TranscriptFallbackReason.NONE -> "Fallback"
+    }
 }
 
 @Composable

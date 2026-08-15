@@ -1,6 +1,7 @@
 package com.cleardictate.desktop
 
 import com.cleardictate.desktop.inference.CapturedAudio
+import com.cleardictate.domain.TranscriptFallbackReason
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.nio.ByteBuffer
@@ -24,6 +25,7 @@ class SqliteDesktopDictationHistory private constructor(private val databasePath
             connection.createStatement().use { statement ->
                 statement.executeUpdate(CREATE_HISTORY_TABLE)
                 statement.executeUpdate(CREATE_CORRECTIONS_TABLE)
+                statement.executeUpdate(CREATE_PROCESSING_OUTCOME_TABLE)
             }
         }
     }
@@ -38,16 +40,38 @@ class SqliteDesktopDictationHistory private constructor(private val databasePath
         {
             withContext(Dispatchers.IO) {
                 DriverManager.getConnection(connectionUrl()).use { connection ->
-                    connection.prepareStatement(INSERT_ENTRY).use { statement ->
-                        statement.setString(1, recordedAt.toString())
-                        statement.setBytes(2, wavAudio)
-                        statement.setString(3, result.rawTranscript)
-                        statement.setString(4, result.polishedTranscript)
-                        statement.setLong(5, result.timing.queueMilliseconds)
-                        statement.setLong(6, result.timing.recognitionMilliseconds)
-                        statement.setLong(7, result.timing.rewritingMilliseconds)
-                        statement.setLong(8, result.timing.totalMilliseconds)
-                        check(statement.executeUpdate() == 1) { "Dictation history entry was not stored." }
+                    connection.autoCommit = false
+                    try
+                    {
+                        connection.prepareStatement(INSERT_ENTRY).use { statement ->
+                            statement.setString(1, recordedAt.toString())
+                            statement.setBytes(2, wavAudio)
+                            statement.setString(3, result.rawTranscript)
+                            statement.setString(4, result.polishedTranscript)
+                            statement.setLong(5, result.timing.queueMilliseconds)
+                            statement.setLong(6, result.timing.recognitionMilliseconds)
+                            statement.setLong(7, result.timing.rewritingMilliseconds)
+                            statement.setLong(8, result.timing.totalMilliseconds)
+                            check(statement.executeUpdate() == 1) { "Dictation history entry was not stored." }
+                        }
+                        val identifier = connection.createStatement().use { statement ->
+                            statement.executeQuery(SELECT_LAST_IDENTIFIER).use { resultSet ->
+                                check(resultSet.next()) { "The stored dictation identifier was unavailable." }
+                                resultSet.getLong(1)
+                            }
+                        }
+                        connection.prepareStatement(INSERT_PROCESSING_OUTCOME).use { statement ->
+                            statement.setLong(1, identifier)
+                            statement.setInt(2, if (result.polishingOutcome.usedDeterministicFallback) 1 else 0)
+                            statement.setString(3, result.polishingOutcome.fallbackReason.name)
+                            check(statement.executeUpdate() == 1) { "Dictation processing outcome was not stored." }
+                        }
+                        connection.commit()
+                    }
+                    catch (throwable: Throwable)
+                    {
+                        connection.rollback()
+                        throw throwable
                     }
                 }
             }
@@ -78,6 +102,12 @@ class SqliteDesktopDictationHistory private constructor(private val databasePath
                                         polishedTranscript = resultSet.getString("polished_transcript"),
                                         correctedTranscript = resultSet.getString("corrected_transcript"),
                                         correctedAt = resultSet.getString("corrected_at_utc")?.let(Instant::parse),
+                                        polishingOutcome = resultSet.getString("fallback_reason")?.let { fallbackReason ->
+                                            DesktopPolishingOutcome(
+                                                usedDeterministicFallback = resultSet.getInt("used_deterministic_fallback") != 0,
+                                                fallbackReason = TranscriptFallbackReason.valueOf(fallbackReason)
+                                            )
+                                        },
                                         audioDurationMilliseconds = WavAudioCodec.readDurationMilliseconds(resultSet.getBytes("wav_header")),
                                         timing = DesktopDictationTiming(
                                             queueMilliseconds = resultSet.getLong("queue_milliseconds"),
@@ -163,19 +193,34 @@ class SqliteDesktopDictationHistory private constructor(private val databasePath
                 FOREIGN KEY (dictation_id) REFERENCES dictation_history(id) ON DELETE CASCADE
             )
         """
+        private const val CREATE_PROCESSING_OUTCOME_TABLE = """
+            CREATE TABLE IF NOT EXISTS dictation_processing_outcome (
+                dictation_id INTEGER PRIMARY KEY,
+                used_deterministic_fallback INTEGER NOT NULL CHECK (used_deterministic_fallback IN (0, 1)),
+                fallback_reason TEXT NOT NULL,
+                FOREIGN KEY (dictation_id) REFERENCES dictation_history(id) ON DELETE CASCADE
+            )
+        """
         private const val INSERT_ENTRY = """
             INSERT INTO dictation_history (
                 recorded_at_utc, wav_audio, raw_transcript, polished_transcript,
                 queue_milliseconds, recognition_milliseconds, rewriting_milliseconds, total_milliseconds
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """
+        private const val INSERT_PROCESSING_OUTCOME = """
+            INSERT INTO dictation_processing_outcome (dictation_id, used_deterministic_fallback, fallback_reason)
+            VALUES (?, ?, ?)
+        """
+        private const val SELECT_LAST_IDENTIFIER = "SELECT last_insert_rowid()"
         private const val SELECT_ENTRIES = """
             SELECT history.id, history.recorded_at_utc, history.raw_transcript, history.polished_transcript,
                    correction.corrected_transcript, correction.corrected_at_utc,
+                   outcome.used_deterministic_fallback, outcome.fallback_reason,
                    substr(history.wav_audio, 1, 44) AS wav_header,
                    history.queue_milliseconds, history.recognition_milliseconds, history.rewriting_milliseconds, history.total_milliseconds
             FROM dictation_history AS history
             LEFT JOIN dictation_corrections AS correction ON correction.dictation_id = history.id
+            LEFT JOIN dictation_processing_outcome AS outcome ON outcome.dictation_id = history.id
             ORDER BY history.recorded_at_utc DESC, history.id DESC
         """
         private const val SELECT_AUDIO = "SELECT wav_audio FROM dictation_history WHERE id = ?"
@@ -217,6 +262,7 @@ data class StoredDictationSummary(
     val polishedTranscript: String,
     val correctedTranscript: String?,
     val correctedAt: Instant?,
+    val polishingOutcome: DesktopPolishingOutcome?,
     val audioDurationMilliseconds: Long,
     val timing: DesktopDictationTiming
 )

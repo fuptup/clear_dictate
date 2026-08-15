@@ -129,6 +129,17 @@ class TranscriptIntegrityValidatorTest
     }
 
     @Test
+    fun `apostrophes in contractions are not mistaken for quoted passages`()
+    {
+        val source = "I'm testing this because I don't know why it isn't working."
+        val extractedTypes = extractor.extract(source).map { information -> information.type }
+        val result = validator.validate(source, "I'm testing this because I don't know why it isn't working!")
+
+        assertFalse(extractedTypes.contains(ProtectedInformationType.QUOTED_TEXT))
+        assertTrue(result.accepted, "Unexpected rejection: ${result.failureReason}")
+    }
+
+    @Test
     fun `rejects removed uncertainty and changed capitalized terms`()
     {
         val uncertaintyResult = validator.validate(
