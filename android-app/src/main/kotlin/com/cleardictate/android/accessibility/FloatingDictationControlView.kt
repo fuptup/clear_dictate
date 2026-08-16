@@ -9,7 +9,6 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.ProgressBar
 import com.cleardictate.android.R
-import com.cleardictate.inference.service.R as InferenceServiceResources
 
 /**
  * Names the states the system-wide dictation control must communicate without opening the app.
@@ -71,8 +70,8 @@ internal class FloatingDictationControlView(context: Context) : FrameLayout(cont
         elevation = densityIndependentPixels(10).toFloat()
         setPadding(densityIndependentPixels(14), densityIndependentPixels(14), densityIndependentPixels(14), densityIndependentPixels(10))
 
-        statusIcon.setColorFilter(Color.WHITE)
-        addView(statusIcon, centeredLayoutParameters(32))
+        statusIcon.scaleType = ImageView.ScaleType.FIT_CENTER
+        addView(statusIcon, centeredLayoutParameters(56))
 
         processingIndicator.indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
         processingIndicator.visibility = View.GONE
@@ -104,10 +103,9 @@ internal class FloatingDictationControlView(context: Context) : FrameLayout(cont
                 FloatingDictationVisualState.PROCESSING -> 0xFFCC7A00.toInt()
             }
         )
-        statusIcon.setImageResource(
-            if (state == FloatingDictationVisualState.DISCONNECTED) R.drawable.ic_cleardictate_no_entry
-            else InferenceServiceResources.drawable.ic_cleardictate_microphone
-        )
+        val disconnected = state == FloatingDictationVisualState.DISCONNECTED
+        statusIcon.setImageResource(if (disconnected) R.drawable.ic_cleardictate_no_entry else R.drawable.tidal_microphone_green)
+        statusIcon.layoutParams = centeredLayoutParameters(if (disconnected) 32 else 56)
         processingIndicator.visibility = if (state == FloatingDictationVisualState.PROCESSING) View.VISIBLE else View.GONE
         statusIcon.visibility = if (state == FloatingDictationVisualState.PROCESSING) View.GONE else View.VISIBLE
         inputLevel.visibility = if (state == FloatingDictationVisualState.RECORDING) View.VISIBLE else View.INVISIBLE
