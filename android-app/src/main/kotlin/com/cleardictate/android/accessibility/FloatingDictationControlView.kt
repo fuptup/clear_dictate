@@ -89,20 +89,18 @@ internal class FloatingDictationControlView(context: Context) : FrameLayout(cont
     }
 
     /**
-     * Changes both color and icon treatment so recording and remote processing remain visually distinct.
+     * Changes the icon and state treatment so recording and remote processing remain visually distinct.
      */
     fun update(state: FloatingDictationVisualState, normalizedAudioLevel: Float)
     {
-        background = circularBackground(
-            when (state)
-            {
-                FloatingDictationVisualState.DISCONNECTED -> 0xFF6B7280.toInt()
-                FloatingDictationVisualState.UNAVAILABLE -> 0xFF6B7280.toInt()
-                FloatingDictationVisualState.READY -> 0xFF5B42C3.toInt()
-                FloatingDictationVisualState.RECORDING -> 0xFFD13C4B.toInt()
-                FloatingDictationVisualState.PROCESSING -> 0xFFCC7A00.toInt()
-            }
-        )
+        background = when (state)
+        {
+            FloatingDictationVisualState.DISCONNECTED -> circularBackground(0xFF6B7280.toInt())
+            FloatingDictationVisualState.UNAVAILABLE -> circularBackground(0xFF6B7280.toInt())
+            FloatingDictationVisualState.READY -> null
+            FloatingDictationVisualState.RECORDING -> circularBackground(0xFFD13C4B.toInt())
+            FloatingDictationVisualState.PROCESSING -> circularBackground(0xFFCC7A00.toInt())
+        }
         val disconnected = state == FloatingDictationVisualState.DISCONNECTED
         statusIcon.setImageResource(if (disconnected) R.drawable.ic_cleardictate_no_entry else R.drawable.tidal_microphone_green)
         statusIcon.layoutParams = centeredLayoutParameters(if (disconnected) 32 else 56)
