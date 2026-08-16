@@ -116,7 +116,7 @@ internal class FloatingDictationControlView(context: Context) : FrameLayout(cont
         {
             FloatingDictationVisualState.DISCONNECTED -> "ClearDictate disconnected from the PC"
             FloatingDictationVisualState.UNAVAILABLE -> "ClearDictate unavailable"
-            FloatingDictationVisualState.READY -> "Hold to dictate; drag to move"
+            FloatingDictationVisualState.READY -> "Hold to dictate; drag immediately to move"
             FloatingDictationVisualState.RECORDING -> "Recording; release to process"
             FloatingDictationVisualState.PROCESSING -> "Transcribing and polishing on the PC"
         }

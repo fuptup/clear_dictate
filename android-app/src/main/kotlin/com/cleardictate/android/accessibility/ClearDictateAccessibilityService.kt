@@ -62,6 +62,12 @@ class ClearDictateAccessibilityService : AccessibilityService()
     private var recordingTouchActive = false
     private var lastHandledOperationIdentifier: String? = null
     private var closed = false
+    private val lockFloatingControlForDictation = Runnable {
+        if (::floatingControlDragTracker.isInitialized)
+        {
+            floatingControlDragTracker.lockForDictation()
+        }
+    }
 
     override fun onServiceConnected()
     {
@@ -183,11 +189,13 @@ class ClearDictateAccessibilityService : AccessibilityService()
         {
             MotionEvent.ACTION_DOWN ->
             {
+                floatingControl.removeCallbacks(lockFloatingControlForDictation)
                 floatingControlDragTracker.start(event.rawX, event.rawY, floatingControlPosition)
                 recordingTouchActive = beginRecording()
                 if (recordingTouchActive)
                 {
                     floatingControl.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    floatingControl.postDelayed(lockFloatingControlForDictation, ViewConfiguration.getTapTimeout().toLong())
                 }
                 true
             }
@@ -198,6 +206,7 @@ class ClearDictateAccessibilityService : AccessibilityService()
             }
             MotionEvent.ACTION_UP ->
             {
+                floatingControl.removeCallbacks(lockFloatingControlForDictation)
                 moveFloatingControl(event)
                 if (floatingControlDragTracker.finish())
                 {
@@ -220,6 +229,7 @@ class ClearDictateAccessibilityService : AccessibilityService()
             }
             MotionEvent.ACTION_CANCEL ->
             {
+                floatingControl.removeCallbacks(lockFloatingControlForDictation)
                 floatingControlDragTracker.finish()
                 if (recordingTouchActive)
                 {
@@ -240,6 +250,7 @@ class ClearDictateAccessibilityService : AccessibilityService()
         val requestedPosition = floatingControlDragTracker.move(event.rawX, event.rawY) ?: return
         if (!wasDragging && recordingTouchActive)
         {
+            floatingControl.removeCallbacks(lockFloatingControlForDictation)
             cancelRecording()
         }
         floatingControlPosition = clampFloatingControlPosition(
@@ -674,6 +685,7 @@ class ClearDictateAccessibilityService : AccessibilityService()
         }
         if (::floatingControl.isInitialized)
         {
+            floatingControl.removeCallbacks(lockFloatingControlForDictation)
             windowManager.removeView(floatingControl)
         }
         if (::floatingUndoControl.isInitialized)

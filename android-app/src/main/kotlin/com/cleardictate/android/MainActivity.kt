@@ -450,7 +450,7 @@ private fun SetupCard(state: ScreenState, actions: ScreenActions)
                 }
             }
             Text("Floating microphone: ${if (state.floatingControlEnabled) "Enabled" else "Disabled"}")
-            Text("Hold the floating microphone to dictate, or drag it to a position that suits you.", style = MaterialTheme.typography.bodySmall)
+            Text("Hold the floating microphone to dictate, or drag it immediately to reposition it.", style = MaterialTheme.typography.bodySmall)
             Button(onClick = actions.enableFloatingControl) {
                 Text(if (state.floatingControlEnabled) "Accessibility settings" else "Enable floating microphone")
             }

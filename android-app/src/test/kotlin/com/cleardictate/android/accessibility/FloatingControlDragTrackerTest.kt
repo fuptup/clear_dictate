@@ -34,6 +34,18 @@ class FloatingControlDragTrackerTest
     }
 
     @Test
+    fun `movement after the hold commits to dictation cannot reposition or cancel it`()
+    {
+        val tracker = FloatingControlDragTracker(touchSlop = 12)
+        tracker.start(pointerX = 100.0f, pointerY = 200.0f, controlPosition = FloatingControlPosition(900, 700))
+        tracker.lockForDictation()
+
+        assertNull(tracker.move(pointerX = 180.0f, pointerY = 260.0f))
+        assertFalse(tracker.isDragging)
+        assertFalse(tracker.finish())
+    }
+
+    @Test
     fun `control position is clamped fully inside the display`()
     {
         assertEquals(

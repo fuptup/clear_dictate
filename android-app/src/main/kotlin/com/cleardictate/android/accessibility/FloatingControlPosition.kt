@@ -14,6 +14,7 @@ internal data class FloatingControlPosition(val x: Int, val y: Int)
 internal class FloatingControlDragTracker(private val touchSlop: Int)
 {
     private var gestureStart: FloatingControlDragStart? = null
+    private var dictationLocked = false
 
     var isDragging = false
         private set
@@ -24,7 +25,19 @@ internal class FloatingControlDragTracker(private val touchSlop: Int)
     fun start(pointerX: Float, pointerY: Float, controlPosition: FloatingControlPosition)
     {
         gestureStart = FloatingControlDragStart(pointerX, pointerY, controlPosition)
+        dictationLocked = false
         isDragging = false
+    }
+
+    /**
+     * Commits a stationary hold to dictation so later finger drift cannot reinterpret the active recording as a drag.
+     */
+    fun lockForDictation()
+    {
+        if (gestureStart != null && !isDragging)
+        {
+            dictationLocked = true
+        }
     }
 
     /**
@@ -33,6 +46,10 @@ internal class FloatingControlDragTracker(private val touchSlop: Int)
     fun move(pointerX: Float, pointerY: Float): FloatingControlPosition?
     {
         val start = gestureStart ?: return null
+        if (dictationLocked)
+        {
+            return null
+        }
         val movementX = pointerX - start.pointerX
         val movementY = pointerY - start.pointerY
         if (!isDragging && movementX * movementX + movementY * movementY <= touchSlop * touchSlop)
@@ -50,6 +67,7 @@ internal class FloatingControlDragTracker(private val touchSlop: Int)
     {
         val finishedDragging = isDragging
         gestureStart = null
+        dictationLocked = false
         isDragging = false
         return finishedDragging
     }
