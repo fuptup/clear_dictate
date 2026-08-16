@@ -85,6 +85,21 @@ internal fun clampFloatingControlPosition(position: FloatingControlPosition, dis
 }
 
 /**
+ * Centers Undo beneath the microphone, or directly above it when the remaining display height cannot contain the control.
+ */
+internal fun calculateFloatingUndoControlPosition(microphonePosition: FloatingControlPosition, displayWidth: Int, displayHeight: Int, microphoneSize: Int, undoSize: Int): FloatingControlPosition
+{
+    val centeredX = microphonePosition.x + (microphoneSize - undoSize) / 2
+    val belowY = microphonePosition.y + microphoneSize
+    val requestedY = if (belowY + undoSize <= displayHeight) belowY else microphonePosition.y - undoSize
+
+    return FloatingControlPosition(
+        x = centeredX.coerceIn(0, (displayWidth - undoSize).coerceAtLeast(0)),
+        y = requestedY.coerceIn(0, (displayHeight - undoSize).coerceAtLeast(0))
+    )
+}
+
+/**
  * Persists the user's chosen microphone position within this app installation.
  */
 internal class FloatingControlPositionStore(context: Context)

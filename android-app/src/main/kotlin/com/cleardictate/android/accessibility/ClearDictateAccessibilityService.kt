@@ -51,6 +51,7 @@ class ClearDictateAccessibilityService : AccessibilityService()
     private lateinit var floatingUndoControl: FloatingUndoControlView
     private lateinit var windowManager: WindowManager
     private lateinit var floatingControlLayoutParameters: WindowManager.LayoutParams
+    private lateinit var floatingUndoControlLayoutParameters: WindowManager.LayoutParams
     private lateinit var floatingControlDragTracker: FloatingControlDragTracker
     private lateinit var floatingControlPositionStore: FloatingControlPositionStore
     private var floatingControlPosition = FloatingControlPosition(0, 0)
@@ -169,18 +170,20 @@ class ClearDictateAccessibilityService : AccessibilityService()
             }
         }
         val undoSize = densityIndependentPixels(52)
-        val undoLayoutParameters = WindowManager.LayoutParams(
+        val undoPosition = calculateFloatingUndoControlPosition(floatingControlPosition, displayWidth, displayHeight, size, undoSize)
+        floatingUndoControlLayoutParameters = WindowManager.LayoutParams(
             undoSize,
             undoSize,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            x = densityIndependentPixels(84)
+            gravity = Gravity.START or Gravity.TOP
+            x = undoPosition.x
+            y = undoPosition.y
             title = "ClearDictate remove last dictation"
         }
-        windowManager.addView(floatingUndoControl, undoLayoutParameters)
+        windowManager.addView(floatingUndoControl, floatingUndoControlLayoutParameters)
     }
 
     private fun handleControlTouch(event: MotionEvent): Boolean
@@ -262,6 +265,24 @@ class ClearDictateAccessibilityService : AccessibilityService()
         floatingControlLayoutParameters.x = floatingControlPosition.x
         floatingControlLayoutParameters.y = floatingControlPosition.y
         windowManager.updateViewLayout(floatingControl, floatingControlLayoutParameters)
+        updateFloatingUndoControlPosition()
+    }
+
+    /**
+     * Keeps Undo centered on the microphone after every drag and chooses the visible side of the display edge.
+     */
+    private fun updateFloatingUndoControlPosition()
+    {
+        val undoPosition = calculateFloatingUndoControlPosition(
+            floatingControlPosition,
+            resources.displayMetrics.widthPixels,
+            resources.displayMetrics.heightPixels,
+            floatingControlLayoutParameters.width,
+            floatingUndoControlLayoutParameters.width
+        )
+        floatingUndoControlLayoutParameters.x = undoPosition.x
+        floatingUndoControlLayoutParameters.y = undoPosition.y
+        windowManager.updateViewLayout(floatingUndoControl, floatingUndoControlLayoutParameters)
     }
 
     /**

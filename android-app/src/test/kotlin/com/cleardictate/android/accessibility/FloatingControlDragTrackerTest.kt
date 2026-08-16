@@ -7,7 +7,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Specifies the gesture boundary between stationary hold-to-dictate input and intentional microphone repositioning.
+ * Specifies the gesture and screen-positioning rules shared by the floating microphone and Undo controls.
  */
 class FloatingControlDragTrackerTest
 {
@@ -55,6 +55,36 @@ class FloatingControlDragTrackerTest
         assertEquals(
             FloatingControlPosition(0, 0),
             clampFloatingControlPosition(FloatingControlPosition(-40, -80), displayWidth = 1080, displayHeight = 2400, controlSize = 68)
+        )
+    }
+
+    @Test
+    fun `undo control is centered immediately beneath the microphone when it fits`()
+    {
+        assertEquals(
+            FloatingControlPosition(508, 768),
+            calculateFloatingUndoControlPosition(
+                microphonePosition = FloatingControlPosition(500, 700),
+                displayWidth = 1080,
+                displayHeight = 2400,
+                microphoneSize = 68,
+                undoSize = 52
+            )
+        )
+    }
+
+    @Test
+    fun `undo control is centered immediately above the microphone when it cannot fit beneath`()
+    {
+        assertEquals(
+            FloatingControlPosition(1008, 2280),
+            calculateFloatingUndoControlPosition(
+                microphonePosition = FloatingControlPosition(1000, 2332),
+                displayWidth = 1080,
+                displayHeight = 2400,
+                microphoneSize = 68,
+                undoSize = 52
+            )
         )
     }
 }
