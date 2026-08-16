@@ -2,6 +2,7 @@ package com.cleardictate.android.accessibility
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.drawable.Animatable
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
@@ -32,18 +33,12 @@ internal class FloatingUndoControlView(context: Context) : FrameLayout(context)
         isClickable = true
         isFocusable = false
         elevation = densityIndependentPixels(10).toFloat()
-        setPadding(densityIndependentPixels(10), densityIndependentPixels(10), densityIndependentPixels(10), densityIndependentPixels(10))
-        background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(0xFF374151.toInt())
-            setStroke(densityIndependentPixels(2), 0x66FFFFFF)
-        }
         addView(
             ImageView(context).apply {
-                setImageResource(R.drawable.ic_cleardictate_undo)
-                setColorFilter(Color.WHITE)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                setImageResource(R.drawable.undo_compact_orange)
             },
-            LayoutParams(densityIndependentPixels(28), densityIndependentPixels(28), Gravity.CENTER)
+            LayoutParams(densityIndependentPixels(44), densityIndependentPixels(44), Gravity.CENTER)
         )
         contentDescription = "Remove last dictation"
     }
@@ -60,7 +55,7 @@ internal class FloatingUndoControlView(context: Context) : FrameLayout(context)
 internal class FloatingDictationControlView(context: Context) : FrameLayout(context)
 {
     private val statusIcon = ImageView(context)
-    private val processingIndicator = ProgressBar(context)
+    private val processingIndicator = ImageView(context)
     private val inputLevel = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal)
 
     init
@@ -73,9 +68,10 @@ internal class FloatingDictationControlView(context: Context) : FrameLayout(cont
         statusIcon.scaleType = ImageView.ScaleType.FIT_CENTER
         addView(statusIcon, centeredLayoutParameters(56))
 
-        processingIndicator.indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+        processingIndicator.scaleType = ImageView.ScaleType.FIT_CENTER
+        processingIndicator.setImageResource(R.drawable.processing_hourglass_green)
         processingIndicator.visibility = View.GONE
-        addView(processingIndicator, centeredLayoutParameters(34))
+        addView(processingIndicator, centeredLayoutParameters(56))
 
         inputLevel.max = 100
         inputLevel.progressTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
@@ -99,12 +95,12 @@ internal class FloatingDictationControlView(context: Context) : FrameLayout(cont
             FloatingDictationVisualState.UNAVAILABLE -> circularBackground(0xFF6B7280.toInt())
             FloatingDictationVisualState.READY -> null
             FloatingDictationVisualState.RECORDING -> circularBackground(0xFFD13C4B.toInt())
-            FloatingDictationVisualState.PROCESSING -> circularBackground(0xFFCC7A00.toInt())
+            FloatingDictationVisualState.PROCESSING -> null
         }
         val disconnected = state == FloatingDictationVisualState.DISCONNECTED
         statusIcon.setImageResource(if (disconnected) R.drawable.ic_cleardictate_no_entry else R.drawable.tidal_microphone_green)
         statusIcon.layoutParams = centeredLayoutParameters(if (disconnected) 32 else 56)
-        processingIndicator.visibility = if (state == FloatingDictationVisualState.PROCESSING) View.VISIBLE else View.GONE
+        updateProcessingAnimation(state == FloatingDictationVisualState.PROCESSING)
         statusIcon.visibility = if (state == FloatingDictationVisualState.PROCESSING) View.GONE else View.VISIBLE
         inputLevel.visibility = if (state == FloatingDictationVisualState.RECORDING) View.VISIBLE else View.INVISIBLE
         inputLevel.progress = (normalizedAudioLevel.coerceIn(0.0f, 1.0f) * 100).toInt()
@@ -115,6 +111,24 @@ internal class FloatingDictationControlView(context: Context) : FrameLayout(cont
             FloatingDictationVisualState.READY -> "Hold to dictate; drag immediately to move"
             FloatingDictationVisualState.RECORDING -> "Recording; release to process"
             FloatingDictationVisualState.PROCESSING -> "Transcribing and polishing on the PC"
+        }
+    }
+
+    /**
+     * Runs the animated WebP only while remote inference is active so hidden frames consume no animation work.
+     */
+    private fun updateProcessingAnimation(processing: Boolean)
+    {
+        val animation = processingIndicator.drawable as? Animatable
+        if (processing)
+        {
+            processingIndicator.visibility = View.VISIBLE
+            animation?.start()
+        }
+        else
+        {
+            animation?.stop()
+            processingIndicator.visibility = View.GONE
         }
     }
 
