@@ -322,6 +322,13 @@ class ClearDictateAccessibilityService : AccessibilityService()
      */
     private fun insertCompletedTranscript(clientState: InferenceClientState)
     {
+        if (clientState.selectedTranscript.isBlank())
+        {
+            showMessage("No speech detected.")
+            recordingField = null
+            inferenceServiceClient.clearCompletedTranscript()
+            return
+        }
         val originalField = recordingField
         val currentEditor = findFocusedEditor()
         val currentEditorSafety = currentEditor?.let(::inspectSafety)

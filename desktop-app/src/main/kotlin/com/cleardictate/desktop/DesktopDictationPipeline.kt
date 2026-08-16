@@ -7,6 +7,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
 
 /**
  * Captures one desktop push-to-talk utterance before handing it to the shared streaming transcriber.
@@ -197,6 +198,14 @@ class DesktopDictationPipeline(
                 val recognition = session.finish()
                 finished = true
                 val recognitionCompletedNanoseconds = System.nanoTime()
+                if (isKnownSilenceHallucination(capturedAudio, recognition.transcript))
+                {
+                    return@withLock emptyDictationResult(
+                        recognition = recognition,
+                        queueMilliseconds = elapsedMilliseconds(requestStartedNanoseconds, processingStartedNanoseconds),
+                        totalMilliseconds = elapsedMilliseconds(requestStartedNanoseconds, recognitionCompletedNanoseconds)
+                    )
+                }
                 val rewrite = transcriptRewriter.rewrite(recognition.transcript)
                 val completedNanoseconds = System.nanoTime()
                 val result = DesktopDictationResult(
@@ -278,6 +287,10 @@ class DesktopDictationPipeline(
                 capturedAudio = completeAudio
                 val recognition = transcriptionSession.finish()
                 transcriptionFinished = true
+                if (isKnownSilenceHallucination(completeAudio, recognition.transcript))
+                {
+                    return emptyDictationResult(recognition, queueMilliseconds = 0, totalMilliseconds = recognition.processingMilliseconds)
+                }
                 val rewritingStartedNanoseconds = System.nanoTime()
                 val rewrite = transcriptRewriter.rewrite(recognition.transcript)
                 val rewritingMilliseconds = elapsedMilliseconds(rewritingStartedNanoseconds, System.nanoTime())
@@ -364,8 +377,38 @@ class DesktopDictationPipeline(
         return (endNanoseconds - startNanoseconds) / NANOSECONDS_PER_MILLISECOND
     }
 
+    /**
+     * Returns an empty successful result so clients can report no speech without treating a healthy model request as a failure.
+     */
+    private fun emptyDictationResult(recognition: DesktopSpeechRecognition, queueMilliseconds: Long, totalMilliseconds: Long): DesktopDictationResult
+    {
+        return DesktopDictationResult(
+            rawTranscript = "",
+            polishedTranscript = "",
+            timing = DesktopDictationTiming(
+                queueMilliseconds = queueMilliseconds,
+                recognitionMilliseconds = recognition.processingMilliseconds,
+                rewritingMilliseconds = 0,
+                totalMilliseconds = totalMilliseconds
+            ),
+            polishingOutcome = DesktopPolishingOutcome(false, TranscriptFallbackReason.NONE)
+        )
+    }
+
+    /**
+     * Rejects Qwen's repeatedly observed low-level-noise hallucination while preserving the same word when the microphone contains a real speech-level signal.
+     */
+    private fun isKnownSilenceHallucination(capturedAudio: CapturedAudio, transcript: String): Boolean
+    {
+        val normalizedTranscript = transcript.trim().trimEnd('.', '!', '?').trim()
+        return normalizedTranscript.equals(KNOWN_SILENCE_HALLUCINATION, ignoreCase = true) &&
+            capturedAudio.samples.none { sample -> abs(sample) > MAXIMUM_OBSERVED_SILENCE_PEAK }
+    }
+
     private companion object
     {
         const val NANOSECONDS_PER_MILLISECOND = 1_000_000L
+        const val KNOWN_SILENCE_HALLUCINATION = "the"
+        const val MAXIMUM_OBSERVED_SILENCE_PEAK = 0.015F
     }
 }

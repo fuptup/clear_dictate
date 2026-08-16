@@ -267,6 +267,15 @@ class ClearDictateInputMethodService : android.inputmethodservice.InputMethodSer
             val currentSession = currentEditorSessionIdentifier
             val selectedTranscript = clientState.selectedTranscript
 
+            if (selectedTranscript.isBlank())
+            {
+                pendingInsertionTranscript = ""
+                recordingEditorSessionIdentifier = null
+                localStatusMessage = "No speech detected."
+                inferenceServiceClient.clearCompletedTranscript()
+                return@LaunchedEffect
+            }
+
             if (recordingSession == null ||
                 currentSession == null ||
                 !EditorSessionGuard.matches(recordingSession, currentSession))

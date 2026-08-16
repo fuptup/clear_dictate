@@ -98,6 +98,47 @@ class DesktopDictationPipelineTest
         assertEquals(0, historyCount)
     }
 
+    @Test
+    fun remoteBackgroundNoiseReturningKnownSilenceHallucinationProducesNoTextRewriteOrHistory() = runTest {
+        val events = mutableListOf<String>()
+        var historyCount = 0
+        val pipeline = DesktopDictationPipeline(
+            audioRecorder = unusedAudioRecorder(),
+            speechTranscriber = fakeTranscriber(events, completedTranscript = "The."),
+            transcriptRewriter = fakeRewriter(events),
+            dictationHistory = DesktopDictationHistory { _, _, _ -> historyCount += 1 }
+        )
+
+        val session = assertNotNull(pipeline.openRemoteDictation())
+        session.acceptPcm16(shortArrayOf(120, -470, 250))
+        val result = session.finish()
+
+        assertEquals("", result.rawTranscript)
+        assertEquals("", result.polishedTranscript)
+        assertEquals(listOf("open-asr", "accept:3", "finish-asr"), events)
+        assertEquals(0, historyCount)
+    }
+
+    @Test
+    fun remoteSpeechLevelAudioReturningTheIsPreserved() = runTest {
+        val events = mutableListOf<String>()
+        var historyCount = 0
+        val pipeline = DesktopDictationPipeline(
+            audioRecorder = unusedAudioRecorder(),
+            speechTranscriber = fakeTranscriber(events, completedTranscript = "The."),
+            transcriptRewriter = fakeRewriter(events),
+            dictationHistory = DesktopDictationHistory { _, _, _ -> historyCount += 1 }
+        )
+
+        val session = assertNotNull(pipeline.openRemoteDictation())
+        session.acceptPcm16(shortArrayOf(1_000))
+        val result = session.finish()
+
+        assertEquals("The.", result.rawTranscript)
+        assertEquals(listOf("open-asr", "accept:1", "finish-asr", "rewrite:The."), events)
+        assertEquals(1, historyCount)
+    }
+
     private fun createPipeline(events: MutableList<String>, capturedSamples: FloatArray): DesktopDictationPipeline
     {
         return DesktopDictationPipeline(
@@ -127,7 +168,7 @@ class DesktopDictationPipelineTest
         )
     }
 
-    private fun fakeTranscriber(events: MutableList<String>, acceptedAudio: MutableList<FloatArray> = mutableListOf()): DesktopSpeechTranscriber
+    private fun fakeTranscriber(events: MutableList<String>, acceptedAudio: MutableList<FloatArray> = mutableListOf(), completedTranscript: String = "um send the report tomorrow"): DesktopSpeechTranscriber
     {
         return object : DesktopSpeechTranscriber
         {
@@ -155,7 +196,7 @@ class DesktopDictationPipelineTest
                     override suspend fun finish(): DesktopSpeechRecognition
                     {
                         events += "finish-asr"
-                        return DesktopSpeechRecognition("um send the report tomorrow", 37)
+                        return DesktopSpeechRecognition(completedTranscript, 37)
                     }
 
                     override suspend fun cancel()
