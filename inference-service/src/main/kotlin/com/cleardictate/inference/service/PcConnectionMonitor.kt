@@ -1,6 +1,7 @@
 package com.cleardictate.inference.service
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -34,7 +35,9 @@ internal class PcConnectionMonitor(
 {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val checkMutex = Mutex()
+    private val refreshLock = Any()
     private var pollingJob: Job? = null
+    private var refreshJob: Job? = null
 
     @Volatile
     var currentState = PcConnectionState.CHECKING
@@ -67,10 +70,16 @@ internal class PcConnectionMonitor(
     /**
      * Marks a newly configured endpoint as being checked and queues a prompt health request without overlapping an in-flight request.
      */
-    fun refreshNow()
+    fun refreshNow(): Job
     {
         publish(PcConnectionState.CHECKING)
-        scope.launch { pollOnce() }
+        return synchronized(refreshLock)
+        {
+            refreshJob?.takeIf { job -> job.isActive } ?: scope.launch(start = CoroutineStart.LAZY) { pollOnce() }.also { job ->
+                refreshJob = job
+                job.start()
+            }
+        }
     }
 
     /**
@@ -79,28 +88,31 @@ internal class PcConnectionMonitor(
     internal suspend fun pollOnce()
     {
         checkMutex.withLock {
-            val endpoint = endpointProvider.load()
-            if (endpoint == null)
+            while (true)
             {
-                publish(PcConnectionState.DISCONNECTED)
-                return
-            }
-
-            val healthStatus = runCatching { transport.checkHealth(endpoint) }.getOrDefault(PcHealthStatus.UNAVAILABLE)
-            if (endpointProvider.load() != endpoint)
-            {
-                scope.launch { pollOnce() }
-                return
-            }
-
-            publish(
-                when (healthStatus)
+                val endpoint = endpointProvider.load()
+                if (endpoint == null)
                 {
-                    PcHealthStatus.READY -> PcConnectionState.CONNECTED
-                    PcHealthStatus.PREPARING_AI -> PcConnectionState.PREPARING_AI
-                    PcHealthStatus.UNAVAILABLE -> PcConnectionState.DISCONNECTED
+                    publish(PcConnectionState.DISCONNECTED)
+                    return
                 }
-            )
+
+                val healthStatus = runCatching { transport.checkHealth(endpoint) }.getOrDefault(PcHealthStatus.UNAVAILABLE)
+                if (endpointProvider.load() != endpoint)
+                {
+                    continue
+                }
+
+                publish(
+                    when (healthStatus)
+                    {
+                        PcHealthStatus.READY -> PcConnectionState.CONNECTED
+                        PcHealthStatus.PREPARING_AI -> PcConnectionState.PREPARING_AI
+                        PcHealthStatus.UNAVAILABLE -> PcConnectionState.DISCONNECTED
+                    }
+                )
+                return
+            }
         }
     }
 
@@ -122,5 +134,6 @@ internal class PcConnectionMonitor(
     {
         scope.cancel()
         pollingJob = null
+        synchronized(refreshLock) { refreshJob = null }
     }
 }

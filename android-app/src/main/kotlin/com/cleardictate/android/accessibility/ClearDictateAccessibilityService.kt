@@ -38,11 +38,34 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 /**
+ * Owns the one-time setup triggered by Android's accessibility-service connection callback.
+ */
+internal class AccessibilityServiceConnectionOwner
+{
+    private var initialized = false
+
+    /**
+     * Runs setup once for this AccessibilityService instance because reconnect callbacks do not transfer ownership to a new instance.
+     */
+    fun initialize(initializer: () -> Unit)
+    {
+        if (initialized)
+        {
+            return
+        }
+
+        initialized = true
+        initializer()
+    }
+}
+
+/**
  * Keeps the user's chosen keyboard active while offering hold-to-talk dictation over any supported editable field.
  */
 class ClearDictateAccessibilityService : AccessibilityService()
 {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val connectionOwner = AccessibilityServiceConnectionOwner()
     private val securityInspector = AccessibilityEditorSecurityInspector()
     private val insertionPlanner = AccessibilityTextInsertionPlanner()
     private val insertionUndoPlanner = AccessibilityInsertionUndoPlanner()
@@ -73,13 +96,21 @@ class ClearDictateAccessibilityService : AccessibilityService()
     override fun onServiceConnected()
     {
         super.onServiceConnected()
-        inferenceServiceClient = InferenceServiceClient(this)
-        createFloatingControls()
-        serviceScope.launch {
-            inferenceServiceClient.state.collectLatest(::handleClientState)
+        if (closed)
+        {
+            return
         }
-        inferenceServiceClient.bind()
-        refreshControlPresentation()
+
+        connectionOwner.initialize {
+            val client = InferenceServiceClient(this)
+            inferenceServiceClient = client
+            createFloatingControls()
+            serviceScope.launch {
+                client.state.collectLatest(::handleClientState)
+            }
+            client.bind()
+            refreshControlPresentation()
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?)

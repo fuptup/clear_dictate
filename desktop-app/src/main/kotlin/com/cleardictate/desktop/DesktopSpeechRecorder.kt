@@ -40,6 +40,23 @@ fun interface DesktopAudioCaptureWorkerFactory
 }
 
 /**
+ * Defines the persistent recognition-client operations owned by the desktop speech transcriber.
+ */
+interface DesktopSpeechTranscriptionClient : AutoCloseable
+{
+    suspend fun warmUp()
+    suspend fun openSession(): DesktopSpeechTranscriptionSession
+}
+
+/**
+ * Starts the persistent recognition client from the verified desktop runtime configuration.
+ */
+fun interface DesktopSpeechTranscriptionClientFactory
+{
+    suspend fun start(configuration: DesktopRuntimeConfiguration): DesktopSpeechTranscriptionClient
+}
+
+/**
  * Owns one lazily started microphone worker and keeps raw audio in memory until release.
  */
 class DesktopSpeechRecorder(
@@ -194,12 +211,16 @@ class DesktopSpeechRecorder(
 /**
  * Owns the persistent WSL Qwen3-ASR process and creates one stateful stream per utterance.
  */
-class QwenDesktopSpeechTranscriber(private val runtimeConfiguration: DesktopRuntimeConfiguration?) : DesktopSpeechTranscriber
+class QwenDesktopSpeechTranscriber(
+    private val runtimeConfiguration: DesktopRuntimeConfiguration?,
+    private val clientFactory: DesktopSpeechTranscriptionClientFactory = QwenDesktopSpeechTranscriptionClientFactory()
+) : DesktopSpeechTranscriber
 {
     private val ownershipLock = Any()
+    private val startupMutex = Mutex()
 
     @Volatile
-    private var activeClient: QwenAsrWorkerClient? = null
+    private var activeClient: DesktopSpeechTranscriptionClient? = null
 
     @Volatile
     private var closed = false
@@ -222,9 +243,9 @@ class QwenDesktopSpeechTranscriber(private val runtimeConfiguration: DesktopRunt
 
     override suspend fun openSession(): DesktopSpeechTranscriptionSession
     {
-        val workerSession = try
+        val transcriptionSession = try
         {
-            acquireClient().startSession()
+            acquireClient().openSession()
         }
         catch (throwable: Throwable)
         {
@@ -238,7 +259,7 @@ class QwenDesktopSpeechTranscriber(private val runtimeConfiguration: DesktopRunt
             {
                 try
                 {
-                    workerSession.accept(capturedAudio)
+                    transcriptionSession.accept(capturedAudio)
                 }
                 catch (throwable: Throwable)
                 {
@@ -251,8 +272,7 @@ class QwenDesktopSpeechTranscriber(private val runtimeConfiguration: DesktopRunt
             {
                 return try
                 {
-                    val recognition = workerSession.finish()
-                    DesktopSpeechRecognition(recognition.transcript, recognition.processingMilliseconds)
+                    transcriptionSession.finish()
                 }
                 catch (throwable: Throwable)
                 {
@@ -265,7 +285,7 @@ class QwenDesktopSpeechTranscriber(private val runtimeConfiguration: DesktopRunt
             {
                 try
                 {
-                    workerSession.cancel()
+                    transcriptionSession.cancel()
                 }
                 catch (throwable: Throwable)
                 {
@@ -294,34 +314,87 @@ class QwenDesktopSpeechTranscriber(private val runtimeConfiguration: DesktopRunt
         }?.close()
     }
 
-    private suspend fun acquireClient(): QwenAsrWorkerClient
+    private suspend fun acquireClient(): DesktopSpeechTranscriptionClient
     {
-        synchronized(ownershipLock)
-        {
-            check(!closed) { "The Qwen speech transcriber is closed." }
-            activeClient?.let { return it }
-        }
-
-        val configuration = requireNotNull(runtimeConfiguration) { "Qwen3-ASR is unavailable until the local runtime is installed." }
-        val startedClient = QwenAsrWorkerClient.start(
-            QwenAsrWorkerConfiguration(configuration.wslExecutable, configuration.wslDistribution, configuration.asrWorkerScript, configuration.asrModelLock)
-        )
-        try
-        {
-            currentCoroutineContext().ensureActive()
-            return synchronized(ownershipLock)
+        return startupMutex.withLock {
+            synchronized(ownershipLock)
             {
                 check(!closed) { "The Qwen speech transcriber is closed." }
-                activeClient ?: startedClient.also { activeClient = it }
+                activeClient?.let { return@withLock it }
             }
-        }
-        catch (throwable: Throwable)
-        {
-            startedClient.close()
-            throw throwable
+
+            val configuration = requireNotNull(runtimeConfiguration) { "Qwen3-ASR is unavailable until the local runtime is installed." }
+            val startedClient = clientFactory.start(configuration)
+            try
+            {
+                currentCoroutineContext().ensureActive()
+                synchronized(ownershipLock)
+                {
+                    check(!closed) { "The Qwen speech transcriber is closed." }
+                    startedClient.also { activeClient = it }
+                }
+            }
+            catch (throwable: Throwable)
+            {
+                startedClient.close()
+                throw throwable
+            }
         }
     }
 
+}
+
+/**
+ * Adapts the Qwen worker protocol to the desktop transcriber's resource-ownership boundary.
+ */
+private class QwenDesktopSpeechTranscriptionClientFactory : DesktopSpeechTranscriptionClientFactory
+{
+    override suspend fun start(configuration: DesktopRuntimeConfiguration): DesktopSpeechTranscriptionClient
+    {
+        val client = QwenAsrWorkerClient.start(
+            QwenAsrWorkerConfiguration(configuration.wslExecutable, configuration.wslDistribution, configuration.asrWorkerScript, configuration.asrModelLock)
+        )
+        return QwenDesktopSpeechTranscriptionClient(client)
+    }
+}
+
+/**
+ * Converts Qwen worker sessions into the desktop pipeline's recognition result without exposing worker protocol types.
+ */
+private class QwenDesktopSpeechTranscriptionClient(private val client: QwenAsrWorkerClient) : DesktopSpeechTranscriptionClient
+{
+    override suspend fun warmUp()
+    {
+        client.warmUp()
+    }
+
+    override suspend fun openSession(): DesktopSpeechTranscriptionSession
+    {
+        val workerSession = client.startSession()
+        return object : DesktopSpeechTranscriptionSession
+        {
+            override suspend fun accept(capturedAudio: CapturedAudio)
+            {
+                workerSession.accept(capturedAudio)
+            }
+
+            override suspend fun finish(): DesktopSpeechRecognition
+            {
+                val recognition = workerSession.finish()
+                return DesktopSpeechRecognition(recognition.transcript, recognition.processingMilliseconds)
+            }
+
+            override suspend fun cancel()
+            {
+                workerSession.cancel()
+            }
+        }
+    }
+
+    override fun close()
+    {
+        client.close()
+    }
 }
 
 private class WindowsDesktopAudioCaptureWorkerFactory : DesktopAudioCaptureWorkerFactory

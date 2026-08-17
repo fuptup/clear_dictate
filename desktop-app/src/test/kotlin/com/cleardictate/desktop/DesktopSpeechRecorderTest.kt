@@ -3,7 +3,10 @@ package com.cleardictate.desktop
 import com.cleardictate.desktop.inference.CapturedAudio
 import com.cleardictate.inference.InferenceOperationContext
 import com.cleardictate.inference.OperationIdentifier
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -61,6 +64,26 @@ class DesktopSpeechRecorderTest
         recorder.close()
     }
 
+    @Test
+    fun `concurrent preparation owns and closes exactly one recognition client`() = runTest {
+        val clientFactory = BlockingSpeechClientFactory()
+        val transcriber = QwenDesktopSpeechTranscriber(readyConfiguration(), clientFactory)
+
+        val firstPreparation = async { transcriber.prepare() }
+        clientFactory.firstStartEntered.await()
+        val secondPreparation = async { transcriber.prepare() }
+        yield()
+        val createdClientCountWhileBlocked = clientFactory.clients.size
+        clientFactory.allowStartToComplete.complete(Unit)
+        firstPreparation.await()
+        secondPreparation.await()
+        transcriber.close()
+
+        assertEquals(1, createdClientCountWhileBlocked)
+        assertEquals(1, clientFactory.clients.size)
+        assertTrue(clientFactory.clients.single().closed)
+    }
+
     private fun readyConfiguration(): DesktopRuntimeConfiguration
     {
         return DesktopRuntimeConfiguration(
@@ -114,6 +137,47 @@ class DesktopSpeechRecorderTest
 
         override suspend fun cancel(operationIdentifier: OperationIdentifier)
         {
+        }
+
+        override fun close()
+        {
+            closed = true
+        }
+    }
+
+    /**
+     * Holds client startup open so two preparation calls deterministically exercise ownership publication.
+     */
+    private class BlockingSpeechClientFactory : DesktopSpeechTranscriptionClientFactory
+    {
+        val firstStartEntered = CompletableDeferred<Unit>()
+        val allowStartToComplete = CompletableDeferred<Unit>()
+        val clients = mutableListOf<RecordingSpeechClient>()
+
+        override suspend fun start(configuration: DesktopRuntimeConfiguration): DesktopSpeechTranscriptionClient
+        {
+            val client = RecordingSpeechClient()
+            clients += client
+            firstStartEntered.complete(Unit)
+            allowStartToComplete.await()
+            return client
+        }
+    }
+
+    /**
+     * Records closure without implementing inference because the regression concerns startup ownership only.
+     */
+    private class RecordingSpeechClient : DesktopSpeechTranscriptionClient
+    {
+        var closed = false
+
+        override suspend fun warmUp()
+        {
+        }
+
+        override suspend fun openSession(): DesktopSpeechTranscriptionSession
+        {
+            error("Opening a recognition session is outside this ownership test.")
         }
 
         override fun close()

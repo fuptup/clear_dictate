@@ -94,7 +94,8 @@ For normal operation:
    requests return **Preparing AI** until both GPU workers are ready, then the app warms the GPU paths in the background with local synthetic silence and a fixed trusted phrase.
 3. The phone's Tailscale VPN connects over Wi-Fi or mobile data.
 4. ClearDictate's Android inference service checks the authenticated health endpoint immediately, then every 30 seconds while the service is active. Each health request
-   has a five-second deadline and contains no audio or transcript data.
+   has a five-second deadline and contains no audio or transcript data. Repeated immediate-refresh requests share one in-flight check; if pairing changes during that
+   check, the same worker checks the newest endpoint before publishing a result instead of queuing additional coroutines.
 5. The floating microphone becomes available in supported, non-sensitive text fields.
 6. Finger-down opens one authenticated chunked request. Each microphone buffer is copied into a bounded transport frame and sent immediately; the PC's official Qwen
    streaming state performs recognition whenever it has accumulated a two-second chunk.
@@ -157,6 +158,12 @@ approximately 35 seconds to appear: one 30-second polling interval plus the heal
 The accessibility service and the main ClearDictate screen are separate clients of the Android inference process. If that process restarts, Android reconnects both clients.
 On reconnection each client now clears any abandoned recording error, returns to idle, and waits for the inference process to replay current PC model readiness. This lets
 the long-lived floating microphone recover without toggling the accessibility service or reopening ClearDictate.
+
+Android may repeat the accessibility-service connection callback for the same service instance. ClearDictate treats setup as idempotent: one inference client, one pair of
+floating controls, and one state collector remain owned until that service instance is destroyed. Repeated callbacks no longer allocate duplicate overlays or collectors.
+
+Local cancellation releases its operation identifier immediately rather than retaining identifiers until a remote acknowledgement arrives. A missing acknowledgement
+therefore cannot accumulate client memory, and a late acknowledgement for an older dictation cannot clear a newer active recording.
 
 A failed or accidentally too-short dictation now returns the floating microphone to idle while retaining the failure message for diagnosis. It no longer changes the
 control into the same unavailable state used for connection and model failures, so the next press can retry immediately.

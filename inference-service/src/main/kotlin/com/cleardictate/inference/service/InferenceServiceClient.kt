@@ -82,17 +82,15 @@ class InferenceServiceClient(
 ) : AutoCloseable
 {
     private val applicationContext = context.applicationContext
-    private val clientLock = Any()
+    private val lifecycleLock = Any()
+    private val operationOwnership = InferenceClientOperationOwnership()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mutableState = MutableStateFlow(InferenceClientState())
     @Volatile
     private var remoteService: IClearDictateInferenceService? = null
 
     @Volatile
-    private var activeOperationIdentifier: String? = null
-    @Volatile
     private var closed = false
-    private val cancelledOperationIdentifiers = mutableSetOf<String>()
     private var bound = false
 
     val state: StateFlow<InferenceClientState> = mutableState.asStateFlow()
@@ -124,7 +122,7 @@ class InferenceServiceClient(
         override fun onOperationBusy(operationIdentifier: String)
         {
             postIfOpen {
-                if (isActive(operationIdentifier))
+                if (operationOwnership.isActive(operationIdentifier))
                 {
                     failActiveOperation("Another ClearDictate client is already recording.")
                 }
@@ -134,7 +132,7 @@ class InferenceServiceClient(
         override fun onRecordingStateChanged(operationIdentifier: String, stateCode: Int)
         {
             postIfOpen {
-                if (isActive(operationIdentifier))
+                if (operationOwnership.isActive(operationIdentifier))
                 {
                     mutableState.update { currentState ->
                         currentState.copy(
@@ -149,7 +147,7 @@ class InferenceServiceClient(
         override fun onAudioLevel(operationIdentifier: String, normalizedLevel: Float)
         {
             postIfOpen {
-                if (isActive(operationIdentifier))
+                if (operationOwnership.isActive(operationIdentifier))
                 {
                     mutableState.update { currentState ->
                         currentState.copy(normalizedAudioLevel = normalizedLevel.coerceIn(0.0f, 1.0f))
@@ -161,7 +159,7 @@ class InferenceServiceClient(
         override fun onPartialTranscript(operationIdentifier: String, rawPartialTranscript: String)
         {
             postIfOpen {
-                if (isActive(operationIdentifier))
+                if (operationOwnership.isActive(operationIdentifier))
                 {
                     mutableState.update { currentState ->
                         currentState.copy(partialRawTranscript = rawPartialTranscript)
@@ -182,9 +180,8 @@ class InferenceServiceClient(
         )
         {
             postIfOpen {
-                if (isActive(operationIdentifier) && !isCancelled(operationIdentifier))
+                if (operationOwnership.completeSuccessfulOperation(operationIdentifier))
                 {
-                    activeOperationIdentifier = null
                     mutableState.update { currentState ->
                         currentState.copy(
                             recordingState = ClientRecordingState.IDLE,
@@ -207,14 +204,8 @@ class InferenceServiceClient(
         override fun onOperationCancelled(operationIdentifier: String)
         {
             postIfOpen {
-                val cancellationWasRequested = synchronized(clientLock)
+                if (operationOwnership.completeCancellation(operationIdentifier))
                 {
-                    cancelledOperationIdentifiers.remove(operationIdentifier)
-                }
-
-                if (isActive(operationIdentifier) || cancellationWasRequested)
-                {
-                    activeOperationIdentifier = null
                     mutableState.update { currentState ->
                         currentState.copy(
                             recordingState = ClientRecordingState.IDLE,
@@ -236,7 +227,7 @@ class InferenceServiceClient(
         override fun onFailure(operationIdentifier: String, failureCode: Int)
         {
             postIfOpen {
-                if (operationIdentifier.isEmpty() || isActive(operationIdentifier))
+                if (operationIdentifier.isEmpty() || operationOwnership.isActive(operationIdentifier))
                 {
                     failActiveOperation(failureMessage(failureCode))
                 }
@@ -331,15 +322,12 @@ class InferenceServiceClient(
             return false
         }
 
-        synchronized(clientLock)
+        if (operationOwnership.hasActiveOperation())
         {
-            if (activeOperationIdentifier != null)
-            {
-                mutableState.update { currentState ->
-                    currentState.copy(failureMessage = "A ClearDictate recording is already active.")
-                }
-                return false
+            mutableState.update { currentState ->
+                currentState.copy(failureMessage = "A ClearDictate recording is already active.")
             }
+            return false
         }
 
         if (mutableState.value.pcConnectionState != PcConnectionState.CONNECTED || mutableState.value.speechModelState != SpeechModelState.READY)
@@ -362,14 +350,9 @@ class InferenceServiceClient(
         }
 
         val operationIdentifier = UUID.randomUUID().toString()
-        synchronized(clientLock)
+        if (!operationOwnership.tryActivate(operationIdentifier))
         {
-            if (activeOperationIdentifier != null)
-            {
-                return false
-            }
-            activeOperationIdentifier = operationIdentifier
-            cancelledOperationIdentifiers.remove(operationIdentifier)
+            return false
         }
         mutableState.update { currentState ->
             currentState.copy(
@@ -410,7 +393,7 @@ class InferenceServiceClient(
 
     fun stopDictation()
     {
-        val operationIdentifier = activeOperationIdentifier ?: return
+        val operationIdentifier = operationOwnership.activeOperationIdentifier() ?: return
 
         try
         {
@@ -424,13 +407,7 @@ class InferenceServiceClient(
 
     fun cancelDictation()
     {
-        val operationIdentifier = synchronized(clientLock)
-        {
-            val currentOperationIdentifier = activeOperationIdentifier ?: return
-            cancelledOperationIdentifiers += currentOperationIdentifier
-            activeOperationIdentifier = null
-            currentOperationIdentifier
-        }
+        val operationIdentifier = operationOwnership.cancelActiveOperation() ?: return
 
         clearOperationTranscripts(ClientRecordingState.IDLE, failureMessage = null)
 
@@ -492,7 +469,7 @@ class InferenceServiceClient(
 
     override fun close()
     {
-        val operationIdentifierToCancel = synchronized(clientLock)
+        val operationIdentifierToCancel = synchronized(lifecycleLock)
         {
             if (closed)
             {
@@ -500,10 +477,7 @@ class InferenceServiceClient(
             }
 
             closed = true
-            val currentOperationIdentifier = activeOperationIdentifier
-            currentOperationIdentifier?.let { cancelledOperationIdentifiers += it }
-            activeOperationIdentifier = null
-            currentOperationIdentifier
+            operationOwnership.cancelActiveOperation()
         }
         mainHandler.removeCallbacksAndMessages(null)
 
@@ -535,21 +509,14 @@ class InferenceServiceClient(
             bound = false
         }
 
-        synchronized(clientLock)
-        {
-            cancelledOperationIdentifiers.clear()
-        }
+        operationOwnership.clear()
         mutableState.value = InferenceClientState()
     }
 
     private fun handleServiceDisconnected()
     {
         remoteService = null
-        synchronized(clientLock)
-        {
-            activeOperationIdentifier = null
-            cancelledOperationIdentifiers.clear()
-        }
+        operationOwnership.clear()
         clearOperationTranscripts(
             recordingState = ClientRecordingState.ERROR,
             failureMessage = "The recording service stopped. Reconnect to try again.",
@@ -581,26 +548,9 @@ class InferenceServiceClient(
         }
     }
 
-    private fun isActive(operationIdentifier: String): Boolean
-    {
-        return activeOperationIdentifier == operationIdentifier
-    }
-
-    private fun isCancelled(operationIdentifier: String): Boolean
-    {
-        return synchronized(clientLock)
-        {
-            operationIdentifier in cancelledOperationIdentifiers
-        }
-    }
-
     private fun failActiveOperation(message: String)
     {
-        synchronized(clientLock)
-        {
-            activeOperationIdentifier = null
-            cancelledOperationIdentifiers.clear()
-        }
+        operationOwnership.clear()
         mutableState.update { currentState ->
             currentState.afterOperationFailure(message)
         }
