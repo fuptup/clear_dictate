@@ -96,6 +96,7 @@ class ClearDictateAccessibilityService : AccessibilityService()
         if (event?.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED && eventEditor != null)
         {
             captureNativePaste(eventEditor, event)
+            clearUndoIfConsumed(eventEditor)
         }
         val originalField = recordingField
         if (event?.eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED && eventEditor != null && originalField != null && createIdentity(eventEditor) != originalField)
@@ -579,6 +580,31 @@ class ClearDictateAccessibilityService : AccessibilityService()
         showMessage(if (removed) "Last dictation removed." else "The last dictation changed, so nothing was removed.")
         clearUndoAvailability()
         refreshControlPresentation(currentEditor)
+    }
+
+    /**
+     * Removes Undo when the same editor no longer contains the exact inserted range. Messaging apps naturally trigger this when sending clears their composer, while
+     * document editors retain Undo as long as the dictated range remains intact.
+     */
+    private fun clearUndoIfConsumed(node: AccessibilityNodeInfo)
+    {
+        val record = lastInsertionUndo ?: return
+        val identity = createIdentity(node)
+        if (!record.fieldIdentity.representsSameEditor(identity))
+        {
+            return
+        }
+        val currentField = AccessibilityEditableText(
+            identity = identity,
+            text = editableText(node),
+            selectionStart = node.textSelectionStart,
+            selectionEnd = node.textSelectionEnd,
+            isSensitive = !inspectSafety(node).dictationAllowed
+        )
+        if (!insertionUndoPlanner.isUndoAvailable(record, currentField))
+        {
+            clearUndoAvailability()
+        }
     }
 
     /**

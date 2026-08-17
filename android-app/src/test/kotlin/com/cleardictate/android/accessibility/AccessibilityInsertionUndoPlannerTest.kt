@@ -2,8 +2,10 @@ package com.cleardictate.android.accessibility
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Verifies that undo removes only one unchanged inserted range and retains no reversible transcript copy.
@@ -35,6 +37,26 @@ class AccessibilityInsertionUndoPlannerTest
 
         assertNull(planner.plan(record, changedText))
         assertNull(planner.plan(record, changedField))
+    }
+
+    @Test
+    fun `keeps undo while a document retains the dictated range`()
+    {
+        val replacement = AccessibilityTextReplacement("Prior dictated", 14, 6, 14)
+        val record = assertNotNull(planner.capture(identity, replacement))
+        val continuedDocument = AccessibilityEditableText(identity, "Prior dictated and then more", 28, 28, false)
+
+        assertTrue(planner.isUndoAvailable(record, continuedDocument))
+    }
+
+    @Test
+    fun `retires undo when a messaging composer consumes the dictated range`()
+    {
+        val replacement = AccessibilityTextReplacement("dictated", 8, 0, 8)
+        val record = assertNotNull(planner.capture(identity, replacement))
+        val clearedComposer = AccessibilityEditableText(identity, "", 0, 0, false)
+
+        assertFalse(planner.isUndoAvailable(record, clearedComposer))
     }
 
     @Test

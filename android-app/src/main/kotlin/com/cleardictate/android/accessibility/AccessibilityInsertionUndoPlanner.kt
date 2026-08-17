@@ -102,7 +102,27 @@ internal class AccessibilityInsertionUndoPlanner
         )
     }
 
+    /**
+     * Reports whether the exact inserted range is still present, allowing a submitted composer to retire Undo without identifying individual messaging apps.
+     */
+    fun isUndoAvailable(record: AccessibilityInsertionUndoRecord, currentField: AccessibilityEditableText): Boolean
+    {
+        return unchangedInsertedTextEnd(record, currentField) != null
+    }
+
     fun plan(record: AccessibilityInsertionUndoRecord, currentField: AccessibilityEditableText): AccessibilityUndoReplacement?
+    {
+        val insertedTextEnd = unchangedInsertedTextEnd(record, currentField) ?: return null
+        return AccessibilityUndoReplacement(
+            text = currentField.text.removeRange(record.insertedTextStart, insertedTextEnd),
+            cursorPosition = record.insertedTextStart
+        )
+    }
+
+    /**
+     * Validates the identity, bounds, and digest shared by Undo presentation and execution so the icon cannot advertise an operation that would be refused.
+     */
+    private fun unchangedInsertedTextEnd(record: AccessibilityInsertionUndoRecord, currentField: AccessibilityEditableText): Int?
     {
         if (!record.fieldIdentity.representsSameEditor(currentField.identity) || currentField.isSensitive)
         {
@@ -114,14 +134,7 @@ internal class AccessibilityInsertionUndoPlanner
             return null
         }
         val currentInsertedText = currentField.text.substring(record.insertedTextStart, insertedTextEnd)
-        if (!record.insertedTextDigest.contentEquals(digest(currentInsertedText)))
-        {
-            return null
-        }
-        return AccessibilityUndoReplacement(
-            text = currentField.text.removeRange(record.insertedTextStart, insertedTextEnd),
-            cursorPosition = record.insertedTextStart
-        )
+        return insertedTextEnd.takeIf { record.insertedTextDigest.contentEquals(digest(currentInsertedText)) }
     }
 
     private fun digest(text: String): ByteArray
