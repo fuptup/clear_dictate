@@ -6,7 +6,7 @@ These are editable source copies of every custom icon currently used by the Andr
 | --- | --- | --- |
 | `floating-microphone.png` | Connected, available, and recording floating microphone | `android-app/src/main/res/drawable-nodpi/tidal_microphone_green.png` |
 | `microphone-white.xml` | App launcher icon and foreground-service notification | `inference-service/src/main/res/drawable/ic_cleardictate_microphone.xml` |
-| `no-entry.xml` | Disconnected floating control | `android-app/src/main/res/drawable/ic_cleardictate_no_entry.xml` |
+| `disconnected-plugs-red.png` | Disconnected floating control | `android-app/src/main/res/drawable-nodpi/disconnected_plugs_red.png` |
 | `undo-compact-orange.png` | Remove-last-dictation floating control | `android-app/src/main/res/drawable-nodpi/undo_compact_orange.png` |
 | `processing-hourglass-source.gif` | Original 16-frame processing animation | `android-app/src/main/res/drawable-nodpi/processing_hourglass_green.webp` |
 | `processing-hourglass.png` | High-resolution still artwork for the processing animation | Not deployed directly |

@@ -91,15 +91,15 @@ internal class FloatingDictationControlView(context: Context) : FrameLayout(cont
     {
         background = when (state)
         {
-            FloatingDictationVisualState.DISCONNECTED -> circularBackground(0xFF6B7280.toInt())
+            FloatingDictationVisualState.DISCONNECTED -> null
             FloatingDictationVisualState.UNAVAILABLE -> circularBackground(0xFF6B7280.toInt())
             FloatingDictationVisualState.READY -> null
             FloatingDictationVisualState.RECORDING -> circularBackground(0xFFD13C4B.toInt())
             FloatingDictationVisualState.PROCESSING -> null
         }
         val disconnected = state == FloatingDictationVisualState.DISCONNECTED
-        statusIcon.setImageResource(if (disconnected) R.drawable.ic_cleardictate_no_entry else R.drawable.tidal_microphone_green)
-        statusIcon.layoutParams = centeredLayoutParameters(if (disconnected) 32 else 56)
+        statusIcon.setImageResource(if (disconnected) R.drawable.disconnected_plugs_red else R.drawable.tidal_microphone_green)
+        statusIcon.layoutParams = centeredLayoutParameters(56)
         updateProcessingAnimation(state == FloatingDictationVisualState.PROCESSING)
         statusIcon.visibility = if (state == FloatingDictationVisualState.PROCESSING) View.GONE else View.VISIBLE
         inputLevel.visibility = if (state == FloatingDictationVisualState.RECORDING) View.VISIBLE else View.INVISIBLE
