@@ -1,6 +1,7 @@
 package com.cleardictate.desktop
 
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -16,6 +17,10 @@ import java.awt.EventQueue
 import java.awt.Frame
 import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+
+private const val SYSTEM_MEMORY_POLL_INTERVAL_MILLISECONDS = 1_000L
 
 /**
  * Acquires process-wide ownership before Compose or either model worker can be initialized.
@@ -61,7 +66,22 @@ private fun runClearDictateDesktopApplication()
             val trayWindowController = remember { DesktopTrayWindowController() }
             val trayIcon = remember { DesktopTrayIconPainter() }
             val startupRegistration = remember { WindowsDesktopStartupRegistration.forCurrentProcess() }
+            val systemMemoryGuard = remember { DesktopSystemMemoryGuard(WindowsDesktopSystemMemoryLoadProvider()) }
             val showMainWindow = trayWindowController::restore
+
+            LaunchedEffect(systemMemoryGuard) {
+                while (isActive)
+                {
+                    if (systemMemoryGuard.shouldInitiateShutdown())
+                    {
+                        exitApplication()
+                        return@LaunchedEffect
+                    }
+
+                    // One-second sampling bounds exposure to critical pressure while remaining negligible beside the model workers.
+                    delay(SYSTEM_MEMORY_POLL_INTERVAL_MILLISECONDS)
+                }
+            }
 
             Tray(
                 icon = trayIcon,
