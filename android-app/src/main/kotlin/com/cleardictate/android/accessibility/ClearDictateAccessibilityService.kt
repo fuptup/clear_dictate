@@ -34,6 +34,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -510,6 +511,10 @@ class ClearDictateAccessibilityService : AccessibilityService()
         {
             pendingPaste = null
         }
+        else
+        {
+            scheduleUnreportedPasteCapture(expectedPaste)
+        }
         return pasteSucceeded
     }
 
@@ -533,11 +538,54 @@ class ClearDictateAccessibilityService : AccessibilityService()
             addedTextLength = event.addedCount,
             removedTextLength = event.removedCount
         )
-        pendingPaste = null
         if (rawRecord == null)
         {
             return
         }
+        pendingPaste = null
+        completeCapturedPaste(node, currentField, rawRecord)
+    }
+
+    /**
+     * Polls briefly for the post-paste editor snapshot because some custom document editors accept ACTION_PASTE without sending TYPE_VIEW_TEXT_CHANGED. The pending state
+     * contains only editor identity, text length, and one-way hashes, and a newer paste or cancellation invalidates the callback immediately.
+     */
+    private fun scheduleUnreportedPasteCapture(expectedPaste: AccessibilityPendingPaste)
+    {
+        serviceScope.launch {
+            repeat(UNREPORTED_PASTE_CAPTURE_ATTEMPTS)
+            {
+                delay(UNREPORTED_PASTE_CAPTURE_INTERVAL_MILLISECONDS)
+                if (pendingPaste !== expectedPaste)
+                {
+                    return@launch
+                }
+                val currentEditor = findFocusedEditor() ?: return@repeat
+                val currentField = AccessibilityEditableText(
+                    identity = createIdentity(currentEditor),
+                    text = editableText(currentEditor),
+                    selectionStart = currentEditor.textSelectionStart,
+                    selectionEnd = currentEditor.textSelectionEnd,
+                    isSensitive = !inspectSafety(currentEditor).dictationAllowed
+                )
+                val rawRecord = insertionUndoPlanner.captureUnreportedPaste(expectedPaste, currentField) ?: return@repeat
+                pendingPaste = null
+                completeCapturedPaste(currentEditor, currentField, rawRecord)
+                refreshControlPresentation(currentEditor)
+                return@launch
+            }
+            if (pendingPaste === expectedPaste)
+            {
+                pendingPaste = null
+            }
+        }
+    }
+
+    /**
+     * Applies boundary normalization shared by event-reported and asynchronously observed native pastes, then publishes the exact reversible range.
+     */
+    private fun completeCapturedPaste(node: AccessibilityNodeInfo, currentField: AccessibilityEditableText, rawRecord: AccessibilityInsertionUndoRecord)
+    {
         val insertedTextEnd = rawRecord.insertedTextStart + rawRecord.insertedTextLength
         val normalizedReplacement = insertionPlanner.normalizePastedRange(currentField, rawRecord.insertedTextStart, insertedTextEnd)
         lastInsertionUndo = if (normalizedReplacement != null && normalizedReplacement.text != currentField.text && performTextReplacement(node, normalizedReplacement))
@@ -806,6 +854,8 @@ class ClearDictateAccessibilityService : AccessibilityService()
     companion object
     {
         private const val SERVICE_LOG_TAG = "ClearDictateAccess"
+        private const val UNREPORTED_PASTE_CAPTURE_ATTEMPTS = 4
+        private const val UNREPORTED_PASTE_CAPTURE_INTERVAL_MILLISECONDS = 150L
 
         /**
          * Lets the setup screen reflect the system-owned service toggle without reading secure settings directly.

@@ -24,7 +24,8 @@ internal data class AccessibilityInsertionUndoRecord(
 internal data class AccessibilityPendingPaste(
     val fieldIdentity: AccessibilityFieldIdentity,
     val insertedTextLength: Int,
-    val insertedTextDigest: ByteArray
+    val insertedTextDigest: ByteArray,
+    val insertedTextSearchHash: Int
 )
 {
     override fun toString(): String
@@ -55,7 +56,7 @@ internal class AccessibilityInsertionUndoPlanner
         {
             return null
         }
-        return AccessibilityPendingPaste(fieldIdentity, insertedText.length, digest(insertedText))
+        return AccessibilityPendingPaste(fieldIdentity, insertedText.length, digest(insertedText), insertedText.hashCode())
     }
 
     /**
@@ -85,6 +86,26 @@ internal class AccessibilityInsertionUndoPlanner
             return null
         }
         return AccessibilityInsertionUndoRecord(currentField.identity, insertedTextStart, addedTextLength, digest(insertedText))
+    }
+
+    /**
+     * Finds one verified inserted range after editors such as Google Docs accept ACTION_PASTE without emitting Android's text-change event. A rolling hash keeps the scan
+     * linear while the SHA-256 digest verifies the candidate and avoids retaining dictated or surrounding text between callbacks.
+     */
+    fun captureUnreportedPaste(pendingPaste: AccessibilityPendingPaste, currentField: AccessibilityEditableText): AccessibilityInsertionUndoRecord?
+    {
+        if (!pendingPaste.fieldIdentity.representsSameEditor(currentField.identity) || currentField.isSensitive ||
+            pendingPaste.insertedTextLength > currentField.text.length)
+        {
+            return null
+        }
+        val matchingStart = findUniqueMatchingStart(pendingPaste, currentField.text) ?: return null
+        return AccessibilityInsertionUndoRecord(
+            fieldIdentity = currentField.identity,
+            insertedTextStart = matchingStart,
+            insertedTextLength = pendingPaste.insertedTextLength,
+            insertedTextDigest = pendingPaste.insertedTextDigest.copyOf()
+        )
     }
 
     fun capture(fieldIdentity: AccessibilityFieldIdentity, replacement: AccessibilityTextReplacement): AccessibilityInsertionUndoRecord?
@@ -137,8 +158,54 @@ internal class AccessibilityInsertionUndoPlanner
         return insertedTextEnd.takeIf { record.insertedTextDigest.contentEquals(digest(currentInsertedText)) }
     }
 
+    /**
+     * Uses the same polynomial hash as String.hashCode to locate candidates in O(document length), then verifies each candidate with the privacy-safe digest. Multiple
+     * verified matches are deliberately rejected because ClearDictate cannot know which occurrence the editor pasted.
+     */
+    private fun findUniqueMatchingStart(pendingPaste: AccessibilityPendingPaste, text: String): Int?
+    {
+        val windowLength = pendingPaste.insertedTextLength
+        var leadingCharacterPower = 1
+        repeat(windowLength - 1)
+        {
+            leadingCharacterPower *= STRING_HASH_MULTIPLIER
+        }
+        var windowHash = 0
+        repeat(windowLength)
+        { index ->
+            windowHash = windowHash * STRING_HASH_MULTIPLIER + text[index].code
+        }
+        var matchingStart: Int? = null
+        val finalStart = text.length - windowLength
+        for (start in 0..finalStart)
+        {
+            if (windowHash == pendingPaste.insertedTextSearchHash)
+            {
+                val candidateDigest = digest(text.substring(start, start + windowLength))
+                if (pendingPaste.insertedTextDigest.contentEquals(candidateDigest))
+                {
+                    if (matchingStart != null)
+                    {
+                        return null
+                    }
+                    matchingStart = start
+                }
+            }
+            if (start < finalStart)
+            {
+                windowHash = (windowHash - text[start].code * leadingCharacterPower) * STRING_HASH_MULTIPLIER + text[start + windowLength].code
+            }
+        }
+        return matchingStart
+    }
+
     private fun digest(text: String): ByteArray
     {
         return MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
+    }
+
+    companion object
+    {
+        private const val STRING_HASH_MULTIPLIER = 31
     }
 }

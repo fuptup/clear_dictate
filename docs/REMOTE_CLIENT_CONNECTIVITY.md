@@ -173,8 +173,9 @@ mistaken for a different field; the fence still requires the same window, applic
 When an editor exposes its cursor, ClearDictate uses Android's direct set-text action with explicit selection and spacing. Some editors, including the verified WhatsApp
 composer, hide cursor and hint metadata but expose Android's native paste action. ClearDictate uses native paste for those editors so Android inserts at the real cursor and
 does not mistake a visual placeholder such as **Message** for draft text. Because Android's paste action accepts no text argument, ClearDictate marks the transcript as
-sensitive, places it on the system clipboard only for the synchronous paste action, and immediately restores the preceding clipboard. This path requires text-change event
-access to verify the actual inserted range and apply boundary spacing.
+sensitive, places it on the system clipboard only for the synchronous paste action, and immediately restores the preceding clipboard. ClearDictate normally verifies the
+inserted range from Android's text-change event. Custom editors such as Google Docs can omit that event after a successful paste, so the service briefly polls the same
+focused editor and locates one uniquely matching range using a rolling search hash plus SHA-256 verification. It refuses Undo when more than one range matches.
 
 Current WhatsApp versions can expose **Message** as accessibility text even while the composer is genuinely empty. On the verified Motorola/WhatsApp combination,
 ClearDictate identifies that empty state from WhatsApp's visible voice-note control, replaces the placeholder metadata with only the dictated transcript, and lets the

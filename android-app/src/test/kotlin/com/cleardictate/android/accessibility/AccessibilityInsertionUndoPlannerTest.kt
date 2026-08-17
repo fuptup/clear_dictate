@@ -74,6 +74,29 @@ class AccessibilityInsertionUndoPlannerTest
     }
 
     @Test
+    fun `captures a uniquely identifiable native paste when the editor emits no text change event`()
+    {
+        val pendingPaste = assertNotNull(planner.expectPaste(identity, "dictated"))
+        val currentField = AccessibilityEditableText(identity, "Prior dictated text", -1, -1, false)
+
+        val record = planner.captureUnreportedPaste(pendingPaste, currentField)
+
+        assertNotNull(record)
+        assertEquals(6, record.insertedTextStart)
+        assertEquals(8, record.insertedTextLength)
+        assertEquals(AccessibilityUndoReplacement("Prior  text", 6), planner.plan(record, currentField))
+    }
+
+    @Test
+    fun `refuses an unreported native paste when the inserted range is ambiguous`()
+    {
+        val pendingPaste = assertNotNull(planner.expectPaste(identity, "same"))
+        val currentField = AccessibilityEditableText(identity, "same and same", -1, -1, false)
+
+        assertNull(planner.captureUnreportedPaste(pendingPaste, currentField))
+    }
+
+    @Test
     fun `rejects a paste event that replaced text or does not match the expected transcript`()
     {
         val pendingPaste = assertNotNull(planner.expectPaste(identity, "dictated"))
