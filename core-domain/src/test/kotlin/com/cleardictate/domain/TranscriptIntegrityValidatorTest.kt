@@ -196,4 +196,16 @@ class TranscriptIntegrityValidatorTest
         assertEquals(IntegrityFailureReason.DELIMITER_CHANGED, removedResult.failureReason)
         assertEquals(IntegrityFailureReason.DELIMITER_CHANGED, replacedResult.failureReason)
     }
+
+    @Test
+    fun `rejects removal replacement or reordering of emoji`()
+    {
+        val removedResult = validator.validate("That was 😂.", "That was funny.")
+        val replacedResult = validator.validate("Great work 👍.", "Great work 👎.")
+        val reorderedResult = validator.validate("First 😊 then 🎉.", "First 🎉 then 😊.")
+
+        assertEquals(IntegrityFailureReason.DELIMITER_CHANGED, removedResult.failureReason)
+        assertEquals(IntegrityFailureReason.DELIMITER_CHANGED, replacedResult.failureReason)
+        assertEquals(IntegrityFailureReason.DELIMITER_CHANGED, reorderedResult.failureReason)
+    }
 }

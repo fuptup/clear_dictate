@@ -97,7 +97,7 @@ Double-click `Run-ClearDictate-Developer-Preview.cmd`. The launcher starts the g
 
 Wait for **Ready**, select a microphone, hold **Hold to talk**, speak, and release. ClearDictate loads both persistent model workers during startup so the first dictation does not also pay their loading cost.
 
-Spoken formatting commands are converted before AI rewriting. Supported commands include punctuation (`comma`, `full stop`, `question mark`, `colon`), symbols (`percent`, `at sign`, `hash`, currency signs, operators, slashes, `underscore`), paired brackets or quotes, and `new line` or `new paragraph`.
+Spoken formatting commands are converted before AI rewriting. Supported commands include punctuation (`comma`, `full stop`, `question mark`, `colon`), symbols (`percent`, `at sign`, `hash`, currency signs, operators, slashes, `underscore`), common spoken emoji such as `LOL`, `smiley face`, and `thumbs up`, paired brackets or quotes, and `new line` or `new paragraph`.
 
 Select **Rules** to view the read-only built-in commands and add literal custom commands. Select **Help** there for creation, spacing, editing, and deletion guidance. Enter the phrase ClearDictate should recognize, its written replacement, and how the replacement joins surrounding text. **Attach left** is suitable for `%`, **Attach right** for currency or hashtag prefixes, **Attach both** for email or identifier symbols, and **Keep spaces** for operators. Enable automatic-punctuation removal when the recognizer commonly appends punctuation to the command itself. Custom rules take precedence over built-ins and apply to the next PC or phone dictation without restarting.
 

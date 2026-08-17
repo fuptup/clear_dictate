@@ -346,6 +346,6 @@ class TranscriptIntegrityValidator(
 
     private companion object
     {
-        const val PROTECTED_SYMBOLS = "()[]{}\"%@#&+=/\\*_£€\$°|<>^"
+        const val PROTECTED_SYMBOLS = "()[]{}\"%@#&+=/\\*_£€\$°|<>^😂🤣😊🙂😀😉😍😘😛🤪🤔🙄😮😱😢😭😠🤬😳🥺😎😴🤢🥳😈😇💀💩👍👎👏🙏🤞👌🙌💪❤️💔🔥💯🎉"
     }
 }

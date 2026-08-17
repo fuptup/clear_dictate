@@ -76,7 +76,9 @@ Remove hesitation fillers, abandoned starts, accidental repetitions, and verbal 
 
 Turn fragments and run-on sentences into coherent sentences. Split, combine, or reorder wording where needed for natural written prose.
 
-Apply explicit spoken formatting commands as formatting rather than literal words. This includes punctuation, symbols, line breaks, and paired delimiters. For example, "50 percent comma not 60 percent" becomes "50%, not 60%".
+Apply explicit spoken formatting commands as formatting rather than literal words. This includes punctuation, symbols, emoji, line breaks, and paired delimiters. For example, "50 percent comma not 60 percent" becomes "50%, not 60%".
+
+Preserve every emoji exactly and in order.
 
 Preserve the speaker's intended meaning, tone, emphasis, and level of formality exactly.
 

@@ -61,7 +61,7 @@ class SpokenFormattingNormalizer(customRules: List<SpokenFormattingRule> = empty
         )
     )
     private val customTokenRules = customRules.sortedByDescending { rule -> rule.spokenPhrase.length }.map(::spokenLiteralToken)
-    private val builtInTokenRules = BUILT_IN_TOKEN_DEFINITIONS.map { definition ->
+    private val builtInTokenRules = (BUILT_IN_TOKEN_DEFINITIONS + BUILT_IN_EMOJI_DEFINITIONS).map { definition ->
         spokenToken(definition.spokenPattern, definition.replacement, definition.spacing, definition.consumesRecognizerPunctuation)
     }
     private val duplicatedSentencePunctuationPattern = Regex("""[^\S\r\n]*([.!?])([)\]}"])[^\S\r\n]*([.!?])""")
@@ -195,11 +195,54 @@ class SpokenFormattingNormalizer(customRules: List<SpokenFormattingRule> = empty
             BuiltInTokenDefinition("vertical bar|pipe symbol", "vertical bar / pipe symbol", "|"),
             BuiltInTokenDefinition("caret", "caret", "^")
         )
+        private val BUILT_IN_EMOJI_DEFINITIONS = listOf(
+            BuiltInTokenDefinition("lol|l[. -]+o[. -]+l|ell oh ell|laugh(?:ing)? out loud", "LOL / ell oh ell / laugh out loud", "😂"),
+            BuiltInTokenDefinition("rofl|r[. -]+o[. -]+f[. -]+l|are oh eff ell|rolling on the floor laughing", "ROFL / rolling on the floor laughing", "🤣"),
+            BuiltInTokenDefinition("smiley face|smiling face", "smiley face / smiling face", "😊"),
+            BuiltInTokenDefinition("happy face", "happy face", "🙂"),
+            BuiltInTokenDefinition("grinning face|big grin", "grinning face / big grin", "😀"),
+            BuiltInTokenDefinition("winky face|wink face", "winky face / wink face", "😉"),
+            BuiltInTokenDefinition("heart eyes", "heart eyes", "😍"),
+            BuiltInTokenDefinition("kissy face|blowing a kiss", "kissy face / blowing a kiss", "😘"),
+            BuiltInTokenDefinition("tongue[ -]?out face", "tongue-out face", "😛"),
+            BuiltInTokenDefinition("silly face", "silly face", "🤪"),
+            BuiltInTokenDefinition("thinking face", "thinking face", "🤔"),
+            BuiltInTokenDefinition("eye[ -]?roll face", "eye-roll face", "🙄"),
+            BuiltInTokenDefinition("surprised face", "surprised face", "😮"),
+            BuiltInTokenDefinition("shocked face", "shocked face", "😱"),
+            BuiltInTokenDefinition("sad face", "sad face", "😢"),
+            BuiltInTokenDefinition("crying face", "crying face", "😭"),
+            BuiltInTokenDefinition("angry face", "angry face", "😠"),
+            BuiltInTokenDefinition("swearing face", "swearing face", "🤬"),
+            BuiltInTokenDefinition("embarrassed face", "embarrassed face", "😳"),
+            BuiltInTokenDefinition("pleading face|puppy[ -]?dog eyes", "pleading face / puppy-dog eyes", "🥺"),
+            BuiltInTokenDefinition("cool face|sunglasses face", "cool face / sunglasses face", "😎"),
+            BuiltInTokenDefinition("sleepy face", "sleepy face", "😴"),
+            BuiltInTokenDefinition("sick face", "sick face", "🤢"),
+            BuiltInTokenDefinition("party face", "party face", "🥳"),
+            BuiltInTokenDefinition("devil face", "devil face", "😈"),
+            BuiltInTokenDefinition("angel face", "angel face", "😇"),
+            BuiltInTokenDefinition("skull emoji", "skull emoji", "💀"),
+            BuiltInTokenDefinition("poop emoji", "poop emoji", "💩"),
+            BuiltInTokenDefinition("thumbs up", "thumbs up", "👍"),
+            BuiltInTokenDefinition("thumbs down", "thumbs down", "👎"),
+            BuiltInTokenDefinition("clapping hands", "clapping hands", "👏"),
+            BuiltInTokenDefinition("praying hands", "praying hands", "🙏"),
+            BuiltInTokenDefinition("fingers crossed", "fingers crossed", "🤞"),
+            BuiltInTokenDefinition("OK hand", "OK hand", "👌"),
+            BuiltInTokenDefinition("raised hands", "raised hands", "🙌"),
+            BuiltInTokenDefinition("flexed bicep", "flexed bicep", "💪"),
+            BuiltInTokenDefinition("broken heart emoji", "broken heart emoji", "💔"),
+            BuiltInTokenDefinition("red heart emoji|heart emoji", "heart emoji / red heart emoji", "❤️"),
+            BuiltInTokenDefinition("fire emoji", "fire emoji", "🔥"),
+            BuiltInTokenDefinition("hundred emoji", "hundred emoji", "💯"),
+            BuiltInTokenDefinition("party popper", "party popper", "🎉")
+        )
 
         /**
          * Returns the built-in rules in the same deterministic order used by transcript normalization.
          */
-        val builtInRules: List<BuiltInSpokenFormattingRule> = PAIRED_DELIMITER_RULES + BUILT_IN_TOKEN_DEFINITIONS.map { definition ->
+        val builtInRules: List<BuiltInSpokenFormattingRule> = PAIRED_DELIMITER_RULES + (BUILT_IN_TOKEN_DEFINITIONS + BUILT_IN_EMOJI_DEFINITIONS).map { definition ->
             BuiltInSpokenFormattingRule(definition.spokenPhrases, definition.displayedWrittenText)
         }
     }

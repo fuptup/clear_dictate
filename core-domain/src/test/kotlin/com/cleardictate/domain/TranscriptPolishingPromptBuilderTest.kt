@@ -20,6 +20,7 @@ class TranscriptPolishingPromptBuilderTest
         assertTrue(request.systemInstruction.contains("Correct grammar"))
         assertTrue(request.systemInstruction.contains("fragments and run-on sentences"))
         assertTrue(request.systemInstruction.contains("spoken formatting commands"))
+        assertTrue(request.systemInstruction.contains("Preserve every emoji exactly and in order."))
         assertTrue(request.systemInstruction.contains("50%, not 60%"))
         assertTrue(request.userMessage.startsWith("Edit this transcript:"))
         assertFalse(request.systemInstruction.contains("Keep the intended meaning."))

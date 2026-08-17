@@ -173,6 +173,70 @@ class DeterministicDisfluencyCleanerTest
     }
 
     @Test
+    fun `converts the supported spoken emoji commands`()
+    {
+        val normalizer = SpokenFormattingNormalizer()
+        val mappings = listOf(
+            "LOL" to "😂",
+            "ROFL" to "🤣",
+            "smiley face" to "😊",
+            "happy face" to "🙂",
+            "grinning face" to "😀",
+            "winky face" to "😉",
+            "heart eyes" to "😍",
+            "kissy face" to "😘",
+            "tongue-out face" to "😛",
+            "silly face" to "🤪",
+            "thinking face" to "🤔",
+            "eye-roll face" to "🙄",
+            "surprised face" to "😮",
+            "shocked face" to "😱",
+            "sad face" to "😢",
+            "crying face" to "😭",
+            "angry face" to "😠",
+            "swearing face" to "🤬",
+            "embarrassed face" to "😳",
+            "pleading face" to "🥺",
+            "cool face" to "😎",
+            "sleepy face" to "😴",
+            "sick face" to "🤢",
+            "party face" to "🥳",
+            "devil face" to "😈",
+            "angel face" to "😇",
+            "skull emoji" to "💀",
+            "poop emoji" to "💩",
+            "thumbs up" to "👍",
+            "thumbs down" to "👎",
+            "clapping hands" to "👏",
+            "praying hands" to "🙏",
+            "fingers crossed" to "🤞",
+            "OK hand" to "👌",
+            "raised hands" to "🙌",
+            "flexed bicep" to "💪",
+            "heart emoji" to "❤️",
+            "broken heart emoji" to "💔",
+            "fire emoji" to "🔥",
+            "hundred emoji" to "💯",
+            "party popper" to "🎉"
+        )
+
+        mappings.forEach { (spokenCommand, expectedEmoji) ->
+            assertEquals(expectedEmoji, normalizer.normalize(spokenCommand), spokenCommand)
+        }
+    }
+
+    @Test
+    fun `recognizes common ASR emoji aliases without replacing ambiguous prose`()
+    {
+        val normalizer = SpokenFormattingNormalizer()
+
+        assertEquals("😂 😂 😂 🤣 🤣", normalizer.normalize("L.O.L ell oh ell laughing out loud R.O.F.L rolling on the floor laughing"))
+        assertEquals("😊 😀 😉 😘 🥺 😎 ❤️", normalizer.normalize("smiling face big grin wink face blowing a kiss puppy-dog eyes sunglasses face red heart emoji"))
+        assertEquals("I was thinking about a fire and a broken heart while crying.", normalizer.normalize("I was thinking about a fire and a broken heart while crying."))
+        assertEquals("Lollipop remains a word.", normalizer.normalize("Lollipop remains a word."))
+    }
+
+    @Test
     fun `does not convert symbol command words embedded inside longer words`()
     {
         val source = "Percentage points and periodic work remain literal."
@@ -238,5 +302,7 @@ class DeterministicDisfluencyCleanerTest
         assertEquals("%", rulesByPhrase.getValue("percent / percent sign").writtenText)
         assertEquals(".", rulesByPhrase.getValue("full stop / period").writtenText)
         assertEquals("(…)", rulesByPhrase.getValue("open round bracket … close round bracket").writtenText)
+        assertEquals("😂", rulesByPhrase.getValue("LOL / ell oh ell / laugh out loud").writtenText)
+        assertEquals("❤️", rulesByPhrase.getValue("heart emoji / red heart emoji").writtenText)
     }
 }
