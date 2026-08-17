@@ -50,6 +50,18 @@ class AccessibilityInsertionUndoPlannerTest
     }
 
     @Test
+    fun `native editor undo is safe only while the whole post-insertion document is unchanged`()
+    {
+        val replacement = AccessibilityTextReplacement("Prior dictated", 14, 6, 14)
+        val record = assertNotNull(planner.capture(identity, replacement))
+        val unchangedDocument = AccessibilityEditableText(identity, "Prior dictated", -1, -1, false)
+        val subsequentlyEditedDocument = AccessibilityEditableText(identity, "Prior dictated later", -1, -1, false)
+
+        assertTrue(planner.isNativeEditorUndoSafe(record, unchangedDocument))
+        assertFalse(planner.isNativeEditorUndoSafe(record, subsequentlyEditedDocument))
+    }
+
+    @Test
     fun `retires undo when a messaging composer consumes the dictated range`()
     {
         val replacement = AccessibilityTextReplacement("dictated", 8, 0, 8)

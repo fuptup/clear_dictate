@@ -9,12 +9,13 @@ internal data class AccessibilityInsertionUndoRecord(
     val fieldIdentity: AccessibilityFieldIdentity,
     val insertedTextStart: Int,
     val insertedTextLength: Int,
-    val insertedTextDigest: ByteArray
+    val insertedTextDigest: ByteArray,
+    val editorTextDigest: ByteArray
 )
 {
     override fun toString(): String
     {
-        return "AccessibilityInsertionUndoRecord(fieldIdentity=$fieldIdentity, insertedTextStart=$insertedTextStart, insertedTextLength=$insertedTextLength, insertedText=<redacted>)"
+        return "AccessibilityInsertionUndoRecord(fieldIdentity=$fieldIdentity, insertedTextStart=$insertedTextStart, insertedTextLength=$insertedTextLength, text=<redacted>)"
     }
 }
 
@@ -85,7 +86,7 @@ internal class AccessibilityInsertionUndoPlanner
         {
             return null
         }
-        return AccessibilityInsertionUndoRecord(currentField.identity, insertedTextStart, addedTextLength, digest(insertedText))
+        return AccessibilityInsertionUndoRecord(currentField.identity, insertedTextStart, addedTextLength, digest(insertedText), digest(currentField.text))
     }
 
     /**
@@ -104,7 +105,8 @@ internal class AccessibilityInsertionUndoPlanner
             fieldIdentity = currentField.identity,
             insertedTextStart = matchingStart,
             insertedTextLength = pendingPaste.insertedTextLength,
-            insertedTextDigest = pendingPaste.insertedTextDigest.copyOf()
+            insertedTextDigest = pendingPaste.insertedTextDigest.copyOf(),
+            editorTextDigest = digest(currentField.text)
         )
     }
 
@@ -119,7 +121,8 @@ internal class AccessibilityInsertionUndoPlanner
             fieldIdentity = fieldIdentity,
             insertedTextStart = replacement.insertedTextStart,
             insertedTextLength = insertedText.length,
-            insertedTextDigest = digest(insertedText)
+            insertedTextDigest = digest(insertedText),
+            editorTextDigest = digest(replacement.text)
         )
     }
 
@@ -129,6 +132,15 @@ internal class AccessibilityInsertionUndoPlanner
     fun isUndoAvailable(record: AccessibilityInsertionUndoRecord, currentField: AccessibilityEditableText): Boolean
     {
         return unchangedInsertedTextEnd(record, currentField) != null
+    }
+
+    /**
+     * Requires an exact post-insertion document snapshot before delegating to an editor's global Undo command, ensuring later user edits are never undone instead.
+     */
+    fun isNativeEditorUndoSafe(record: AccessibilityInsertionUndoRecord, currentField: AccessibilityEditableText): Boolean
+    {
+        return record.fieldIdentity.representsSameEditor(currentField.identity) && !currentField.isSensitive &&
+            record.editorTextDigest.contentEquals(digest(currentField.text))
     }
 
     fun plan(record: AccessibilityInsertionUndoRecord, currentField: AccessibilityEditableText): AccessibilityUndoReplacement?

@@ -181,9 +181,11 @@ Current WhatsApp versions can expose **Message** as accessibility text even whil
 ClearDictate identifies that empty state from WhatsApp's visible voice-note control, replaces the placeholder metadata with only the dictated transcript, and lets the
 adjacent undo control return the composer to genuinely empty.
 
-After successful insertion, a smaller undo icon appears beside the microphone. ClearDictate retains only the field identity, inserted range, and a SHA-256 digest of the
-inserted segment. The icon removes that segment only while the same field still contains it unchanged, preserving all text that existed before insertion and any later text
-outside the inserted range. The undo record and icon are cleared after use or when focus moves to another editor.
+After successful insertion, a smaller undo icon appears beside the microphone. ClearDictate retains only the field identity, inserted range, and SHA-256 digests of the
+inserted segment and post-insertion editor text. The icon removes that segment only while the same field still contains it unchanged, preserving all text that existed before insertion and any later text
+outside the inserted range. Editors such as Google Docs that reject complete text replacement can instead expose one enabled native **Undo** command. ClearDictate invokes
+that command only while a SHA-256 digest confirms the entire document is unchanged since dictation, so it cannot accidentally undo later user edits. The undo record and
+icon are cleared after use or when focus moves to another editor.
 
 Check in this order:
 

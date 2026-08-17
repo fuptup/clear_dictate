@@ -638,27 +638,74 @@ class ClearDictateAccessibilityService : AccessibilityService()
         val record = lastInsertionUndo
         val currentEditor = findFocusedEditor()
         val safety = currentEditor?.let(::inspectSafety)
-        val replacement = if (record == null || currentEditor == null || safety?.dictationAllowed != true)
+        val currentField = if (record == null || currentEditor == null || safety?.dictationAllowed != true)
         {
             null
         }
         else
         {
-            insertionUndoPlanner.plan(
-                record,
-                AccessibilityEditableText(
-                    identity = createIdentity(currentEditor),
-                    text = editableText(currentEditor),
-                    selectionStart = currentEditor.textSelectionStart,
-                    selectionEnd = currentEditor.textSelectionEnd,
-                    isSensitive = false
-                )
+            AccessibilityEditableText(
+                identity = createIdentity(currentEditor),
+                text = editableText(currentEditor),
+                selectionStart = currentEditor.textSelectionStart,
+                selectionEnd = currentEditor.textSelectionEnd,
+                isSensitive = false
             )
         }
-        val removed = replacement != null && performCompleteTextReplacement(currentEditor, replacement.text, replacement.cursorPosition)
+        val replacement = if (record != null && currentField != null) insertionUndoPlanner.plan(record, currentField) else null
+        val nativeUndoControl = currentEditor?.let(::findUniqueNativeUndoControl)
+        val executionMethod = selectAccessibilityUndoExecution(
+            replacementAvailable = replacement != null,
+            setTextSupported = currentEditor != null && supportsAction(currentEditor, AccessibilityNodeInfo.ACTION_SET_TEXT),
+            nativeUndoAvailable = nativeUndoControl != null,
+            nativeUndoSafe = record != null && currentField != null && insertionUndoPlanner.isNativeEditorUndoSafe(record, currentField)
+        )
+        val removed = when (executionMethod)
+        {
+            AccessibilityUndoExecutionMethod.COMPLETE_TEXT_REPLACEMENT -> performCompleteTextReplacement(currentEditor, replacement!!.text, replacement.cursorPosition)
+            AccessibilityUndoExecutionMethod.NATIVE_EDITOR_UNDO -> nativeUndoControl!!.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            null -> false
+        }
         showMessage(if (removed) "Last dictation removed." else "The last dictation changed, so nothing was removed.")
         clearUndoAvailability()
         refreshControlPresentation(currentEditor)
+    }
+
+    /**
+     * Finds one visible Undo command in the same application window as the editor. Multiple matches are refused because an accessibility service cannot safely choose
+     * between application-specific undo scopes.
+     */
+    private fun findUniqueNativeUndoControl(editor: AccessibilityNodeInfo): AccessibilityNodeInfo?
+    {
+        val root = windows.firstOrNull { window -> window.type == AccessibilityWindowInfo.TYPE_APPLICATION && window.id == editor.windowId }?.root ?: return null
+        val pendingNodes = ArrayDeque<AccessibilityNodeInfo>()
+        pendingNodes.add(root)
+        var matchingControl: AccessibilityNodeInfo? = null
+        while (pendingNodes.isNotEmpty())
+        {
+            val node = pendingNodes.removeFirst()
+            if (isNativeEditorUndoControl(
+                    contentDescription = node.contentDescription?.toString(),
+                    nodePackageName = node.packageName?.toString(),
+                    editorPackageName = editor.packageName?.toString(),
+                    clickable = node.isClickable,
+                    enabled = node.isEnabled,
+                    visible = node.isVisibleToUser,
+                    clickSupported = supportsAction(node, AccessibilityNodeInfo.ACTION_CLICK)
+                ))
+            {
+                if (matchingControl != null)
+                {
+                    return null
+                }
+                matchingControl = node
+            }
+            for (childIndex in 0 until node.childCount)
+            {
+                node.getChild(childIndex)?.let(pendingNodes::addLast)
+            }
+        }
+        return matchingControl
     }
 
     /**
@@ -916,6 +963,39 @@ internal fun isSupportedAccessibilityEditor(isEditable: Boolean, isEnabled: Bool
 internal fun shouldShowFloatingDictationControl(recordingActive: Boolean, editorSupported: Boolean, dictationAllowed: Boolean): Boolean
 {
     return recordingActive || (editorSupported && dictationAllowed)
+}
+
+/**
+ * Names the editor operation that can safely remove one verified dictation.
+ */
+internal enum class AccessibilityUndoExecutionMethod
+{
+    COMPLETE_TEXT_REPLACEMENT,
+    NATIVE_EDITOR_UNDO
+}
+
+/**
+ * Prefers exact range replacement and delegates to an editor's global Undo command only when the complete document still matches its post-dictation snapshot.
+ */
+internal fun selectAccessibilityUndoExecution(replacementAvailable: Boolean, setTextSupported: Boolean, nativeUndoAvailable: Boolean, nativeUndoSafe: Boolean): AccessibilityUndoExecutionMethod?
+{
+    if (!replacementAvailable)
+    {
+        return null
+    }
+    if (setTextSupported)
+    {
+        return AccessibilityUndoExecutionMethod.COMPLETE_TEXT_REPLACEMENT
+    }
+    return AccessibilityUndoExecutionMethod.NATIVE_EDITOR_UNDO.takeIf { nativeUndoAvailable && nativeUndoSafe }
+}
+
+/**
+ * Accepts only one enabled, visible, clickable Undo command owned by the same application as the focused editor.
+ */
+internal fun isNativeEditorUndoControl(contentDescription: String?, nodePackageName: String?, editorPackageName: String?, clickable: Boolean, enabled: Boolean, visible: Boolean, clickSupported: Boolean): Boolean
+{
+    return contentDescription.equals("Undo", ignoreCase = true) && nodePackageName == editorPackageName && clickable && enabled && visible && clickSupported
 }
 
 /**

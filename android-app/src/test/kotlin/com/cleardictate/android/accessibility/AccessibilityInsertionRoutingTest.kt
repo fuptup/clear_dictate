@@ -1,7 +1,9 @@
 package com.cleardictate.android.accessibility
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -80,5 +82,32 @@ class AccessibilityInsertionRoutingTest
         assertFalse(shouldShowFloatingDictationControl(recordingActive = false, editorSupported = true, dictationAllowed = false))
         assertFalse(shouldShowFloatingDictationControl(recordingActive = false, editorSupported = false, dictationAllowed = true))
         assertTrue(shouldShowFloatingDictationControl(recordingActive = true, editorSupported = false, dictationAllowed = false))
+    }
+
+    @Test
+    fun `undo uses complete replacement when the editor supports set text`()
+    {
+        assertEquals(
+            AccessibilityUndoExecutionMethod.COMPLETE_TEXT_REPLACEMENT,
+            selectAccessibilityUndoExecution(replacementAvailable = true, setTextSupported = true, nativeUndoAvailable = false, nativeUndoSafe = false)
+        )
+    }
+
+    @Test
+    fun `undo uses the editor command only when the whole document is unchanged`()
+    {
+        assertEquals(
+            AccessibilityUndoExecutionMethod.NATIVE_EDITOR_UNDO,
+            selectAccessibilityUndoExecution(replacementAvailable = true, setTextSupported = false, nativeUndoAvailable = true, nativeUndoSafe = true)
+        )
+        assertNull(selectAccessibilityUndoExecution(replacementAvailable = true, setTextSupported = false, nativeUndoAvailable = true, nativeUndoSafe = false))
+    }
+
+    @Test
+    fun `native undo control must be actionable and owned by the focused application`()
+    {
+        assertTrue(isNativeEditorUndoControl("Undo", "com.example.docs", "com.example.docs", clickable = true, enabled = true, visible = true, clickSupported = true))
+        assertFalse(isNativeEditorUndoControl("Undo", "com.other", "com.example.docs", clickable = true, enabled = true, visible = true, clickSupported = true))
+        assertFalse(isNativeEditorUndoControl("Undo", "com.example.docs", "com.example.docs", clickable = true, enabled = false, visible = true, clickSupported = true))
     }
 }
