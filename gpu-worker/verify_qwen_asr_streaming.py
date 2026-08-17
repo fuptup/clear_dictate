@@ -13,11 +13,12 @@ import soundfile
 from qwen_asr import Qwen3ASRModel
 
 
-GPU_MEMORY_UTILIZATION = 0.30
 MAXIMUM_NEW_TOKENS = 256
 MAXIMUM_MODEL_LENGTH = 6_000
 MAXIMUM_CONCURRENT_SEQUENCES = 1
 MAXIMUM_BATCHED_TOKENS = 1_024
+# Qwen3-ASR uses BF16 K and V values across 28 layers, 8 KV heads, and 128 dimensions. Exactly 6,000 cached tokens therefore require 688,128,000 bytes.
+KV_CACHE_MEMORY_BYTES = 2 * 28 * 8 * 128 * 2 * MAXIMUM_MODEL_LENGTH
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -67,7 +68,9 @@ def main() -> int:
     loading_started = time.perf_counter()
     asr = Qwen3ASRModel.LLM(
         model=str(arguments.model_directory.resolve()),
-        gpu_memory_utilization=GPU_MEMORY_UTILIZATION,
+        kv_cache_memory_bytes=KV_CACHE_MEMORY_BYTES,
+        mm_processor_cache_gb=0,
+        enforce_eager=True,
         max_model_len=MAXIMUM_MODEL_LENGTH,
         max_num_batched_tokens=MAXIMUM_BATCHED_TOKENS,
         max_num_seqs=MAXIMUM_CONCURRENT_SEQUENCES,
